@@ -20,7 +20,7 @@ project:
   workflow_id: "c927b983-10a6-41ed-be21-fea44dd4d8e0"
 
 spec:
-  title: ""
+  title: "Introduction to Ansible Automation Orchestrator"
   learning_objectives: []
   modules: []              # [{id, title, duration_min}] — written by intake Phase 4; id is stable (e.g. module-01)
   environment:
@@ -55,8 +55,8 @@ spec:
     external_services: []              # named external service dependencies e.g. [github.com]
     gpu_nodes: 0                       # number of GPU nodes (0 = none)
     gpu_type: ""                       # e.g. NVIDIA A100 40GB (required if gpu_nodes > 0)
-  duration_hours: null
-  audience: ""               # beginner | intermediate | advanced
+  duration_hours: 2
+  audience: "beginner"               # beginner | intermediate | advanced
 
 development:
   automation:
