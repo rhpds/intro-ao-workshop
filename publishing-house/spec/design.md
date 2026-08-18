@@ -62,7 +62,7 @@ Beginner
 **Learner view:** Participants access a pre-deployed environment consisting of an SNO (Single Node OpenShift) OCP 4.20 cluster running the AO operator and AAP 2.7. A set of AAP job templates for incident remediation scenarios are pre-loaded — participants do not write playbooks. A RHEL managed node is pre-registered in the AAP inventory as the target for job template execution. Participants interact entirely through the AO canvas and AAP UI in a web browser.
 
 **Automation needed:** Yes — the following must be provisioned before the lab starts:
-- SNO OCP 4.20 cluster with AO operator installed and licensed
+- SNO OCP 4.20 cluster with AO operator installed
 - AAP 2.7 with pre-built job templates loaded
 - RHEL managed node registered in AAP inventory
 - MaaS endpoint (open-source LLM) accessible from AO
@@ -80,7 +80,7 @@ Beginner
 - **AI/MaaS:** MaaS, open-source model (no justification required)
 - **External services:** quay.io, registry.redhat.io, RHDP MaaS endpoint
 - **AAP version:** 2.7
-- **Non-GA products:** None (AO is GA)
+- **Non-GA products:** None (AO is GA on 8/21/2026)
 
 ## Assessment Strategy (Optional)
 

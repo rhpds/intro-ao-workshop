@@ -21,7 +21,13 @@ project:
 
 spec:
   title: "Introduction to Ansible Automation Orchestrator"
-  learning_objectives: []
+  learning_objectives:
+    - "Explore the Ansible Automation Orchestrator interface and identify its key components"
+    - "Configure credentials and integrations required for AI-powered and event-driven workflows"
+    - "Build an automated incident triage workflow using AO's drag-and-drop canvas"
+    - "Implement approval gates and conditional routing within an AO workflow"
+    - "Integrate an Event-Driven Ansible webhook trigger to initiate an automated workflow"
+    - "Monitor workflow execution in real time and inspect end-to-end results"
   modules:
   - id: module-01
     title: "Overview and Interface Tour"
