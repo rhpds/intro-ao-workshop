@@ -100,8 +100,24 @@ approval_checklist:
     catalog_gap: ""
     design_overview: ""
     module_summaries: []
-    rcars_overlap_pct: null
-    rcars_top_matches: []
+    rcars_overlap_pct: 82
+    rcars_top_matches:
+      - title: "Event-Driven Ansible Controller Up and Running 2.5"
+        ci_name: "zt-ansiblebu.zt-ans-bu-eda-controller.prod"
+        url: "https://catalog.demo.redhat.com/catalog?item=zt-ansiblebu.zt-ans-bu-eda-controller.prod"
+        relevance_score: 82
+        why_it_fits: "Covers EDA Controller configuration, rulebook activations, and integration between Automation Decisions and Automation Execution — overlaps with the EDA/webhook portions of this lab."
+      - title: "Ansible Automation Platform Roadshow 03 - Operational Efficiency"
+        ci_name: "zt-ansiblebu.zt-ans-bu-roadshow03.prod"
+        url: "https://catalog.demo.redhat.com/catalog?item=zt-ansiblebu.zt-ans-bu-roadshow03.prod"
+        relevance_score: 74
+        why_it_fits: "Covers EDA configuration and human-in-the-loop approval workflows, aligning with Modules 3 and 4."
+      - title: "Introduction to Ansible Automation Controller 2.7"
+        ci_name: "zt-ansiblebu.zt-ans-bu-intro-controller-aap25.prod"
+        url: "https://catalog.demo.redhat.com/catalog?item=zt-ansiblebu.zt-ans-bu-intro-controller-aap25.prod"
+        relevance_score: 64
+        why_it_fits: "Covers AAP 2.7 Workflow Job Templates with conditional logic and the Workflow Visualizer."
+    catalog_gap: "The existing catalog has strong EDA labs and AAP Controller workflow content separately, plus Ansible Product Demos as a presenter-led option, but no beginner-level hands-on lab that combines AO's visual canvas, AI triage nodes, MCP integrations, and EDA webhook triggers into a single end-to-end workflow on AAP 2.7. This lab fills that gap."
     rejections: []
 
   infra:
