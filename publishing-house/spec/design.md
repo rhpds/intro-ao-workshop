@@ -74,11 +74,11 @@ Beginner
 - **Cloud provider:** CNV
 - **Cluster type:** SNO (Single Node OpenShift)
 - **OCP version:** 4.20
-- **Topology:** TBD — confirmed in infrastructure phase
-- **Sizing:** TBD — confirmed in infrastructure phase
-- **Automation approach:** TBD — confirmed in infrastructure phase
-- **AI/MaaS:** MaaS (open-source model)
-- **External services:** TBD — confirmed in infrastructure phase
+- **Topology:** Per-student (each participant gets an isolated SNO environment)
+- **Sizing:** 1 SNO control plane node — 32 vCPU, 128GB RAM; 1 RHEL managed node per student — 2 vCPU, 8GB RAM (pre-registered in AAP inventory as job template target)
+- **Automation approach:** Ansible
+- **AI/MaaS:** MaaS, open-source model (no justification required)
+- **External services:** quay.io, registry.redhat.io, RHDP MaaS endpoint
 - **AAP version:** 2.7
 - **Non-GA products:** None (AO is GA)
 
