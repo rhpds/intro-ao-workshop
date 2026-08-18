@@ -98,8 +98,16 @@ approval_checklist:
     prerequisites_verifiable: false
     assessment_strategy: ""
     catalog_gap: ""
-    design_overview: ""
-    module_summaries: []
+    design_overview: "This lab addresses the need for practitioners to gain hands-on experience with Ansible Automation Orchestrator (AO), Red Hat's new add-on to AAP that unifies task-based, event-driven, and AI-driven automation on a single visual canvas. Targeting beginner sysadmins and automation engineers who already have basic AAP awareness, participants build a complete incident triage workflow end-to-end — configuring integrations, composing nodes on the AO canvas, and monitoring execution — without writing a single playbook."
+    module_summaries:
+      - title: "Overview and Interface Tour"
+        overview: "Participants log in to the pre-deployed AO environment and orient themselves to the interface — exploring the workflow canvas, node palette, and monitoring view. No configuration is performed; the goal is familiarity with where things are."
+      - title: "Set Up Integrations and Credentials"
+        overview: "Participants create the credentials and integrations needed for the lab workflow: an AAP credential, an MCP server integration, and an LLM provider connection to the pre-deployed MaaS endpoint."
+      - title: "Build the Workflow"
+        overview: "Participants assemble a complete incident triage workflow on the AO canvas, placing and connecting seven node types — a webhook trigger, AI triage agent, approval gate, switch node, AAP job template node, and resolution node — and reviewing the finished graph."
+      - title: "Run and Monitor"
+        overview: "Participants trigger the completed workflow via webhook, watch real-time node-by-node execution, action the approval gate, and inspect final outputs to confirm the incident was detected, triaged, approved, and remediated."
     rcars_overlap_pct: 82
     rcars_top_matches:
       - title: "Event-Driven Ansible Controller Up and Running 2.5"
