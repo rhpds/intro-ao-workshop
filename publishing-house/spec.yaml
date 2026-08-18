@@ -16,8 +16,8 @@ project:
   automation_type: "ansible"
   description: "A hands on lab introducing the Ansible Automation Orchestrator (AO), the add-on to Ansible Automation Platform that unifies task-based, event-driven, and AI-driven automation into a single visual workflow experience. Participants build workflows on a drag-and-drop canvas using AAP job template nodes, AI-powered task nodes, approval gates, conditional/switch routing, MCP integrations, and Event Driven Ansible triggers. The lab is needed because AO is a new capability and practitioners need guided experience connecting it to the AAP foundation they already use."
   # content_reviewer_email and infra_reviewer_email are assigned by the RHDP team — not set by the author
-  jira_ticket: ""
-  workflow_id: ""
+  jira_ticket: "RHDPCD-1066"
+  workflow_id: "c927b983-10a6-41ed-be21-fea44dd4d8e0"
 
 spec:
   title: ""
