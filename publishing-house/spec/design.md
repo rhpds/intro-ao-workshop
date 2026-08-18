@@ -1,89 +1,87 @@
-# [Project Title]
-
-<!-- This file is the design document for your lab or demo. -->
-<!-- Fill in each section below, or run /rhdp-publishing-house to have the intake skill help. -->
-<!-- Sections marked with [brackets] are placeholders — replace with real content. -->
-<!-- The validation gate checks for all required sections before submission. -->
+# Introduction to Ansible Automation Orchestrator
 
 ## Overview
 
-[2-3 sentences on what this lab or demo is and why it exists. Then a direct description of what participants will do — specific enough that someone reading this section immediately understands the content without interpretation. No flowery language. Example: "Participants will deploy a 3-tier application on OpenShift, configure autoscaling, and troubleshoot a simulated pod failure."]
+This lab introduces Ansible Automation Orchestrator (AO), the add-on to Red Hat Ansible Automation Platform that unifies task-based, event-driven, and AI-driven automation into a single visual workflow experience. AO is a new capability — practitioners with existing AAP knowledge need guided onboarding to connect AO to the job templates and platform they already use.
+
+Participants log in to a pre-deployed environment, explore the AO interface, configure MCP server and LLM provider integrations, and build a complete incident triage workflow on AO's drag-and-drop canvas. The workflow chains a webhook trigger, an AI triage agent, an approval gate, conditional (switch) routing, and AAP job template nodes to automatically detect, assess, approve, and remediate an incident end to end.
 
 ## Target Audience
 
-- **Role:** [Data scientists, platform engineers, developers, etc.]
-- **Experience level:** [Beginner, intermediate, or advanced]
-- **What they already know:** [Existing skills and knowledge]
-- **What they don't know:** [Skills this lab teaches]
+- **Role:** System Administrators, Automation Administrators, DevOps engineers
+- **Experience level:** Beginner
+- **What they already know:** Basic awareness of what Ansible Automation Platform does — familiarity with job templates is helpful but not required; no AI experience needed
+- **What they don't know:** How to build, configure, and operate workflows in Ansible Automation Orchestrator
 
 ## Prerequisites
 
-- [What the learner must know or have completed before starting]
-- [Can the lab validate these automatically? Yes/No — brief explanation]
-
-<!-- If no prerequisites, write "None" -->
+- Access to a web browser
+- Basic awareness of what Ansible Automation Platform does (prior hands-on experience is not required)
+- Can the lab validate these automatically? No — trust-based; no automated prerequisite check
 
 ## Learning Objectives
 
-1. [Action verb] [specific, measurable outcome]
-2. [Action verb] [specific, measurable outcome]
-3. [Action verb] [specific, measurable outcome]
-
-<!-- Scale to duration: up to 3 objectives per 45 min of content. Start with action verbs: Configure, Deploy, Create, Implement, Troubleshoot, Monitor, Scale. Each should be testable. NOT: Understand, Learn, Know. -->
+1. Explore the Ansible Automation Orchestrator interface and identify its key components
+2. Configure credentials and integrations required for AI-powered and event-driven workflows
+3. Build an automated incident triage workflow using AO's drag-and-drop canvas
+4. Implement approval gates and conditional routing within an AO workflow
+5. Integrate an Event-Driven Ansible webhook trigger to initiate an automated workflow
+6. Monitor workflow execution in real time and inspect end-to-end results
 
 ## Content Type
 
-[Lab (hands-on) or Demo (presenter-led)]
+Lab (hands-on)
 
 ## Products & Technologies
 
-- [Official Red Hat product name with version if relevant]
-- [Additional products/technologies]
-
-<!-- Use official names: "Red Hat OpenShift", not "OpenShift". List upstream projects separately. -->
+- Red Hat Ansible Automation Platform 2.7
+- Ansible Automation Orchestrator (GA, deployed as an OCP operator)
+- Event-Driven Ansible
+- Red Hat OpenShift Container Platform 4.20 (SNO)
+- Red Hat Enterprise Linux (managed node)
+- Model Context Protocol (MCP) — integrated via AO MCP server node
 
 ## Module Map
 
 | Module | Title | Duration |
 |--------|-------|----------|
-| 1 | [Module title] | [XX min] |
-| 2 | [Module title] | [XX min] |
-| — | **Total hands-on** | **[X hours]** |
-| — | Intro / presentation | [~XX min] |
-| — | **Total lab** | **[~X hours]** |
-
-<!-- Each module 10-30 min. Total: lab 1-4 hours, demo 15-45 min. Modules should build on each other. -->
+| 1 | Overview and Interface Tour | 20 min |
+| 2 | Set Up Integrations and Credentials | 20 min |
+| 3 | Build the Workflow | 40 min |
+| 4 | Run and Monitor | 20 min |
+| — | **Total hands-on** | **100 min** |
+| — | Intro / presentation | ~20 min |
+| — | **Total lab** | **~120 min** |
 
 ## Difficulty Level
 
-[Beginner, Intermediate, or Advanced]
+Beginner
 
 ## Environment
 
-**Learner view:** [What exists when the lab starts — pre-deployed resources, what participants see and interact with. Be specific about cluster details.]
+**Learner view:** Participants access a pre-deployed environment consisting of an SNO (Single Node OpenShift) OCP 4.20 cluster running the AO operator and AAP 2.7. A set of AAP job templates for incident remediation scenarios are pre-loaded — participants do not write playbooks. A RHEL managed node is pre-registered in the AAP inventory as the target for job template execution. Participants interact entirely through the AO canvas and AAP UI in a web browser.
 
-**Automation needed:** [Yes/No]
-
-[If yes, list what automation must provision — operators, per-user resources, sample apps, data sets.]
+**Automation needed:** Yes — the following must be provisioned before the lab starts:
+- SNO OCP 4.20 cluster with AO operator installed and licensed
+- AAP 2.7 with pre-built job templates loaded
+- RHEL managed node registered in AAP inventory
+- MaaS endpoint (open-source LLM) accessible from AO
+- MCP server instance accessible from the AO environment
+- Webhook endpoint for EDA trigger simulation
 
 ## Infrastructure Requirements
 
-- **Cloud provider:** [CNV (default), AWS, or Troshka (bare-metal/nested virt)]
-- **Cluster type:** [Multinode or SNO (Single Node OpenShift)]
-- **OCP version:** [e.g. 4.20 — minimum 4.20]
-- **Topology:** [Shared cluster, per-student, or CNV pool]
-- **Sizing:** [Node types and counts with resources — e.g., "3 control plane (16 CPU, 64GB RAM), 6 workers (8 CPU, 32GB RAM, 100GB disk)"]
-- **Automation approach:** [Ansible, GitOps (Helm + ArgoCD), or combo]
-- **AI/MaaS:** [None, MaaS (open-source model), MaaS (frontier model), or dedicated GPU — include justification if not "none"]
-- **External services:** [Named services — e.g., github.com, registry.access.redhat.com — or "None"]
-- **AAP version:** [e.g. 2.5 — only if AAP is in products; omit otherwise]
-- **Non-GA products:** [Product name + version, with access plan — or "None (all products are GA)"]
-
-<!-- Not all fields must be known at intake. "TBD, estimating ~X" is fine. -->
+- **Cloud provider:** CNV
+- **Cluster type:** SNO (Single Node OpenShift)
+- **OCP version:** 4.20
+- **Topology:** TBD — confirmed in infrastructure phase
+- **Sizing:** TBD — confirmed in infrastructure phase
+- **Automation approach:** TBD — confirmed in infrastructure phase
+- **AI/MaaS:** MaaS (open-source model)
+- **External services:** TBD — confirmed in infrastructure phase
+- **AAP version:** 2.7
+- **Non-GA products:** None (AO is GA)
 
 ## Assessment Strategy (Optional)
 
-<!-- Optional — skip this section for demos or classic labs without verification. -->
-<!-- Relevant for Zero-Touch labs with solve/validate buttons or labs with automated checks. -->
-
-[If applicable: how will we know the learner successfully completed each module? Per module: verification script, solve/validate button, visible result in the UI, or automated check.]
+Trust-based — no automated solve/validate buttons. Participants confirm success by observing workflow execution results and the final incident resolution status in the AO monitoring view.

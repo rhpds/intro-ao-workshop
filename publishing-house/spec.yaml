@@ -22,7 +22,23 @@ project:
 spec:
   title: "Introduction to Ansible Automation Orchestrator"
   learning_objectives: []
-  modules: []              # [{id, title, duration_min}] — written by intake Phase 4; id is stable (e.g. module-01)
+  modules:
+  - id: module-01
+    title: "Overview and Interface Tour"
+    duration_min: 20
+    status: not_started
+  - id: module-02
+    title: "Set Up Integrations and Credentials"
+    duration_min: 20
+    status: not_started
+  - id: module-03
+    title: "Build the Workflow"
+    duration_min: 40
+    status: not_started
+  - id: module-04
+    title: "Run and Monitor"
+    duration_min: 20
+    status: not_started
   environment:
     platform: ""               # ocp | rhel-vms — determines which sizing fields apply
     topology: ""               # shared-cluster | per-student | cnv-pool
@@ -79,7 +95,7 @@ tracking:
 approval_checklist:
 
   content:
-    prerequisites_verifiable: null
+    prerequisites_verifiable: false
     assessment_strategy: ""
     catalog_gap: ""
     design_overview: ""
