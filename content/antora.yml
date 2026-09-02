@@ -1,0 +1,15 @@
+name: modules
+title: Introduction to Ansible Automation Orchestrator
+version: ~
+nav:
+  - modules/ROOT/nav.adoc
+
+asciidoc:
+  attributes:
+    experimental: true
+    page-pagination: true
+    guid: '%GUID%'
+    ssh_user: lab-user
+    ssh_password: changeme
+    openshift_console_url: 'https://console-openshift-console.apps.cluster-%GUID%.example.com'
+    openshift_cluster_ingress_domain: 'apps.cluster-%GUID%.example.com'

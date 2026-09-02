@@ -9,8 +9,11 @@ view_switcher:
   default_mode: split
 
 tabs:
+  - name: OCP Console
+    url: 'https://console-openshift-console.${DOMAIN}'
   - name: ">_ terminal"
     path: /wetty
-    port: 443
-  - name: Placeholder
+  - name: AAP
+    url: /placeholder
+  - name: Ansible Automation Orchestrator
     url: /placeholder
