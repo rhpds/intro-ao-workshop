@@ -1,0 +1,106 @@
+---
+# PersistentVolumeClaim for PostgreSQL data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ ocp4_workload_automation_orchestrator_postgres_service }}-data
+  namespace: {{ ocp4_workload_automation_orchestrator_namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ ocp4_workload_automation_orchestrator_postgres_storage_size }}
+{% if ocp4_workload_automation_orchestrator_postgres_storage_class | length > 0 %}
+  storageClassName: {{ ocp4_workload_automation_orchestrator_postgres_storage_class }}
+{% endif %}
+---
+# Headless Service for stable DNS within the namespace
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+  namespace: {{ ocp4_workload_automation_orchestrator_namespace }}
+  labels:
+    app: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+spec:
+  selector:
+    app: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+  ports:
+    - name: postgresql
+      port: {{ ocp4_workload_automation_orchestrator_postgres_port }}
+      targetPort: postgresql
+---
+# StatefulSet running PostgreSQL
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+  namespace: {{ ocp4_workload_automation_orchestrator_namespace }}
+  labels:
+    app: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+  serviceName: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+  template:
+    metadata:
+      labels:
+        app: {{ ocp4_workload_automation_orchestrator_postgres_service }}
+    spec:
+      containers:
+        - name: postgresql
+          image: {{ ocp4_workload_automation_orchestrator_postgres_image }}:{{ ocp4_workload_automation_orchestrator_postgres_image_tag }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          env:
+            # The rhel9/postgresql-15 image creates the initial DB and user
+            # from these env vars. The admin password enables superuser access
+            # for the database setup Job.
+            - name: POSTGRESQL_DATABASE
+              value: {{ ocp4_workload_automation_orchestrator_backend_db }}
+            - name: POSTGRESQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ ocp4_workload_automation_orchestrator_backend_db_secret }}
+                  key: username
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ ocp4_workload_automation_orchestrator_backend_db_secret }}
+                  key: password
+            - name: POSTGRESQL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ ocp4_workload_automation_orchestrator_postgres_admin_secret }}
+                  key: password
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - pg_isready -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -c
+                - pg_isready -U $POSTGRESQL_USER -d $POSTGRESQL_DATABASE
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/pgsql/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ ocp4_workload_automation_orchestrator_postgres_service }}-data

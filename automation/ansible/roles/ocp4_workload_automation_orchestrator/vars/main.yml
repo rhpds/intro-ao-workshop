@@ -1,0 +1,5 @@
+---
+# Internal runtime variables — set during execution, not meant to be overridden
+_ocp4_workload_automation_orchestrator_ingress_host: ""
+_ocp4_workload_automation_orchestrator_ao_url: ""
+_ocp4_workload_automation_orchestrator_admin_password: ""

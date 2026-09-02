@@ -1,0 +1,42 @@
+---
+apiVersion: aap.ansible.com/v1alpha1
+kind: AutomationOrchestrator
+metadata:
+  name: {{ ocp4_workload_automation_orchestrator_name }}
+  namespace: {{ ocp4_workload_automation_orchestrator_namespace }}
+spec:
+  ingress:
+    type: Route
+    host: {{ _ocp4_workload_automation_orchestrator_ingress_host }}
+  postgres:
+    host: {{ ocp4_workload_automation_orchestrator_postgres_host }}
+    port: {{ ocp4_workload_automation_orchestrator_postgres_port }}
+    sslMode: {{ ocp4_workload_automation_orchestrator_postgres_ssl_mode }}
+    poolSize: {{ ocp4_workload_automation_orchestrator_postgres_pool_size }}
+    maxOverflow: {{ ocp4_workload_automation_orchestrator_postgres_max_overflow }}
+    poolTimeoutSeconds: {{ ocp4_workload_automation_orchestrator_postgres_pool_timeout_seconds }}
+    backendDatabase:
+      secretRef:
+        name: {{ ocp4_workload_automation_orchestrator_backend_db_secret }}
+    temporalDatabase:
+      secretRef:
+        name: {{ ocp4_workload_automation_orchestrator_temporal_db_secret }}
+  redis:
+    replicas: 1
+    resources: {}
+  backend:
+    resources: {}
+  backgroundWorker:
+    hpa:
+      minReplicas: {{ ocp4_workload_automation_orchestrator_worker_min_replicas }}
+      maxReplicas: {{ ocp4_workload_automation_orchestrator_worker_max_replicas }}
+      targetCPUUtilization: {{ ocp4_workload_automation_orchestrator_worker_target_cpu_utilization }}
+    resources: {}
+  worker:
+    resources: {}
+  ui:
+    resources: {}
+  temporal:
+    server:
+      resources: {}
+  secrets: {}

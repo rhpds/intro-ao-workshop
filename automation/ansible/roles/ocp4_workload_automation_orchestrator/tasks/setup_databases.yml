@@ -1,0 +1,44 @@
+---
+- name: Create database setup Job
+  kubernetes.core.k8s:
+    state: present
+    template: ao_db_setup_job.yaml.j2
+
+- name: Wait for database setup Job to complete
+  kubernetes.core.k8s_info:
+    api_version: batch/v1
+    kind: Job
+    name: ao-db-setup
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  register: r_db_job
+  retries: "{{ ocp4_workload_automation_orchestrator_db_setup_wait_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_db_setup_wait_delay }}"
+  until:
+    - r_db_job.resources | length > 0
+    - >-
+      (r_db_job.resources[0].status.conditions | default([])
+       | selectattr('type', 'equalto', 'Complete')
+       | map(attribute='status') | list | first | default('False')) == 'True'
+      or
+      (r_db_job.resources[0].status.conditions | default([])
+       | selectattr('type', 'equalto', 'Failed')
+       | map(attribute='status') | list | first | default('False')) == 'True'
+
+- name: Fail if database setup Job failed
+  ansible.builtin.fail:
+    msg: >-
+      Database setup Job 'ao-db-setup' failed.
+      Check logs: kubectl logs -n {{ ocp4_workload_automation_orchestrator_namespace }}
+      -l job-name=ao-db-setup
+  when: >-
+    (r_db_job.resources[0].status.conditions | default([])
+     | selectattr('type', 'equalto', 'Failed')
+     | map(attribute='status') | list | first | default('False')) == 'True'
+
+- name: Delete database setup Job
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: Job
+    name: ao-db-setup
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"

@@ -1,0 +1,78 @@
+---
+- name: Create postgres admin secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ ocp4_workload_automation_orchestrator_postgres_admin_secret }}"
+        namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+      type: Opaque
+      stringData:
+        username: "{{ ocp4_workload_automation_orchestrator_postgres_admin_user }}"
+        password: "{{ ocp4_workload_automation_orchestrator_postgres_admin_password }}"
+  no_log: true
+
+# These secrets must exist before the StatefulSet starts because
+# the postgres container mounts POSTGRESQL_USER and POSTGRESQL_PASSWORD from them.
+- name: Create orchestrator-pg-credentials secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ ocp4_workload_automation_orchestrator_backend_db_secret }}"
+        namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+      type: Opaque
+      stringData:
+        host: "{{ ocp4_workload_automation_orchestrator_postgres_host }}"
+        port: "{{ ocp4_workload_automation_orchestrator_postgres_port | string }}"
+        database: "{{ ocp4_workload_automation_orchestrator_backend_db }}"
+        username: "{{ ocp4_workload_automation_orchestrator_backend_db_user }}"
+        password: "{{ ocp4_workload_automation_orchestrator_backend_db_password }}"
+        sslmode: "{{ ocp4_workload_automation_orchestrator_postgres_ssl_mode }}"
+  no_log: true
+
+- name: Create temporal-pg-credentials secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ ocp4_workload_automation_orchestrator_temporal_db_secret }}"
+        namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+      type: Opaque
+      stringData:
+        host: "{{ ocp4_workload_automation_orchestrator_postgres_host }}"
+        port: "{{ ocp4_workload_automation_orchestrator_postgres_port | string }}"
+        database: "{{ ocp4_workload_automation_orchestrator_temporal_db }}"
+        username: "{{ ocp4_workload_automation_orchestrator_temporal_db_user }}"
+        password: "{{ ocp4_workload_automation_orchestrator_temporal_db_password }}"
+        sslmode: "{{ ocp4_workload_automation_orchestrator_postgres_ssl_mode }}"
+  no_log: true
+
+- name: Deploy PostgreSQL StatefulSet, Service and PVC
+  kubernetes.core.k8s:
+    state: present
+    template: ao_postgres.yaml.j2
+
+- name: Wait for PostgreSQL pod to be ready
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+    label_selectors:
+      - "app={{ ocp4_workload_automation_orchestrator_postgres_service }}"
+    field_selectors:
+      - status.phase=Running
+  register: r_pg_pod
+  retries: "{{ ocp4_workload_automation_orchestrator_postgres_wait_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_postgres_wait_delay }}"
+  until:
+    - r_pg_pod.resources | length > 0
+    - >-
+      (r_pg_pod.resources[0].status.containerStatuses | default([])
+       | map(attribute='ready') | list | first | default(false)) | bool

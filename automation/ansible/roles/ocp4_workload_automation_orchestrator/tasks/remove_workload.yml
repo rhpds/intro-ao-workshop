@@ -1,0 +1,82 @@
+---
+- name: Delete AutomationOrchestrator instance
+  kubernetes.core.k8s:
+    state: absent
+    api_version: aap.ansible.com/v1alpha1
+    kind: AutomationOrchestrator
+    name: "{{ ocp4_workload_automation_orchestrator_name }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  ignore_errors: true
+
+- name: Wait until all AutomationOrchestrator pods have disappeared
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+    label_selectors:
+      - app.kubernetes.io/managed-by=automation-orchestrator-operator
+  register: r_ao_pods
+  retries: 30
+  delay: 10
+  until: r_ao_pods.resources | length == 0
+  ignore_errors: true
+
+- name: Delete database secrets
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Secret
+    name: "{{ item }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  loop:
+    - "{{ ocp4_workload_automation_orchestrator_backend_db_secret }}"
+    - "{{ ocp4_workload_automation_orchestrator_temporal_db_secret }}"
+    - "{{ ocp4_workload_automation_orchestrator_postgres_admin_secret }}"
+  ignore_errors: true
+
+- name: Delete PostgreSQL StatefulSet
+  kubernetes.core.k8s:
+    state: absent
+    api_version: apps/v1
+    kind: StatefulSet
+    name: "{{ ocp4_workload_automation_orchestrator_postgres_service }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  ignore_errors: true
+
+- name: Delete PostgreSQL Service
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Service
+    name: "{{ ocp4_workload_automation_orchestrator_postgres_service }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  ignore_errors: true
+
+- name: Delete PostgreSQL PVC
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ ocp4_workload_automation_orchestrator_postgres_service }}-data"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  ignore_errors: true
+
+- name: Remove Automation Orchestrator operator
+  ansible.builtin.include_role:
+    name: install_operator
+  vars:
+    install_operator_action: remove
+    install_operator_name: automation-orchestrator-operator
+    install_operator_namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+    install_operator_channel: "{{ ocp4_workload_automation_orchestrator_channel }}"
+    install_operator_automatic_install_plan_approval: >-
+      {{ ocp4_workload_automation_orchestrator_automatic_install_plan_approval }}
+    install_operator_starting_csv: "{{ ocp4_workload_automation_orchestrator_starting_csv }}"
+    install_operator_catalogsource_setup: false
+
+- name: Delete namespace
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Namespace
+    name: "{{ ocp4_workload_automation_orchestrator_namespace }}"

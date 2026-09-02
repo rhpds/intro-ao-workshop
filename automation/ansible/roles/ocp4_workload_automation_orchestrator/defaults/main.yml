@@ -1,3 +1,95 @@
-#SPDX-License-Identifier: MIT-0
 ---
-# defaults file for ocp4_workload_automation_orchestrator
+become_override: false
+ocp_username: system:admin
+silent: false
+
+# -------------------------------------------------------
+# OLM Operator settings
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_channel: stable
+ocp4_workload_automation_orchestrator_automatic_install_plan_approval: true
+# Pin a specific CSV version; leave empty for latest in channel
+ocp4_workload_automation_orchestrator_starting_csv: ""
+
+# -------------------------------------------------------
+# Namespace and instance settings
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_namespace: automation-orchestrator
+ocp4_workload_automation_orchestrator_name: aap-orchestrator
+
+# Ingress hostname prefix — final host = <value>.<cluster-apps-domain>
+# Defaults to <name>.<cluster-apps-domain> when empty
+ocp4_workload_automation_orchestrator_ingress_hostname: ""
+
+# -------------------------------------------------------
+# PostgreSQL instance settings
+# All postgres resources are deployed in the same namespace as AO.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_postgres_service: ao-postgres-15
+ocp4_workload_automation_orchestrator_postgres_image: registry.redhat.io/rhel9/postgresql-15
+ocp4_workload_automation_orchestrator_postgres_image_tag: "latest"
+ocp4_workload_automation_orchestrator_postgres_storage_size: 10Gi
+# Empty string = cluster default StorageClass
+ocp4_workload_automation_orchestrator_postgres_storage_class: ""
+
+# Postgres superuser credentials — used by the database setup Job
+ocp4_workload_automation_orchestrator_postgres_admin_user: postgres
+ocp4_workload_automation_orchestrator_postgres_admin_password: >-
+  {{ lookup('password', output_dir ~ '/ao_postgres_admin_password',
+            length=20, chars=['ascii_letters', 'digits']) }}
+ocp4_workload_automation_orchestrator_postgres_admin_secret: ao-postgres-admin
+
+# -------------------------------------------------------
+# PostgreSQL connection settings (for AO secrets + CR)
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_postgres_host: >-
+  {{ ocp4_workload_automation_orchestrator_postgres_service }}.{{
+     ocp4_workload_automation_orchestrator_namespace }}.svc.cluster.local
+ocp4_workload_automation_orchestrator_postgres_port: 5432
+ocp4_workload_automation_orchestrator_postgres_ssl_mode: prefer
+
+# Pool tuning
+ocp4_workload_automation_orchestrator_postgres_pool_size: 20
+ocp4_workload_automation_orchestrator_postgres_max_overflow: 10
+ocp4_workload_automation_orchestrator_postgres_pool_timeout_seconds: 5
+
+# -------------------------------------------------------
+# Backend (orchestrator) database credentials
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_backend_db: ao_orchestrator_db
+ocp4_workload_automation_orchestrator_backend_db_user: ao_orchestrator_user
+ocp4_workload_automation_orchestrator_backend_db_password: >-
+  {{ lookup('password', output_dir ~ '/ao_backend_db_password',
+            length=20, chars=['ascii_letters', 'digits']) }}
+ocp4_workload_automation_orchestrator_backend_db_secret: orchestrator-pg-credentials
+
+# -------------------------------------------------------
+# Temporal database credentials
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_temporal_db: ao_temporal_db
+# NOTE: temporal_visibility is hardcoded by the AO operator — do not rename
+ocp4_workload_automation_orchestrator_temporal_visibility_db: temporal_visibility
+ocp4_workload_automation_orchestrator_temporal_db_user: ao_temporal_user
+ocp4_workload_automation_orchestrator_temporal_db_password: >-
+  {{ lookup('password', output_dir ~ '/ao_temporal_db_password',
+            length=20, chars=['ascii_letters', 'digits']) }}
+ocp4_workload_automation_orchestrator_temporal_db_secret: temporal-pg-credentials
+
+# -------------------------------------------------------
+# Background worker auto-scaling
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_worker_min_replicas: 1
+ocp4_workload_automation_orchestrator_worker_max_replicas: 5
+ocp4_workload_automation_orchestrator_worker_target_cpu_utilization: 80
+
+# -------------------------------------------------------
+# Wait / retry tuning
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_operator_wait_retries: 30
+ocp4_workload_automation_orchestrator_operator_wait_delay: 10
+ocp4_workload_automation_orchestrator_postgres_wait_retries: 20
+ocp4_workload_automation_orchestrator_postgres_wait_delay: 10
+ocp4_workload_automation_orchestrator_db_setup_wait_retries: 20
+ocp4_workload_automation_orchestrator_db_setup_wait_delay: 10
+ocp4_workload_automation_orchestrator_instance_wait_retries: 40
+ocp4_workload_automation_orchestrator_instance_wait_delay: 15

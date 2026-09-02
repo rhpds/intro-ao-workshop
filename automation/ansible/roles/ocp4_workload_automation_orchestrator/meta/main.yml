@@ -1,8 +1,12 @@
-#SPDX-License-Identifier: MIT-0
+---
 galaxy_info:
-  author: rlopez133
-  description: Deploys and configures Ansible Automation Orchestrator on OpenShift Container Platform 4
-  license: GPL-2.0-or-later
-  min_ansible_version: 2.9
-  galaxy_tags: []
+  role_name: ocp4_workload_automation_orchestrator
+  author: Mitesh Sharma
+  description: >-
+    Installs the Automation Orchestrator operator via OLM and creates a
+    ready-to-use AutomationOrchestrator instance backed by an existing
+    PostgreSQL server.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
 dependencies: []

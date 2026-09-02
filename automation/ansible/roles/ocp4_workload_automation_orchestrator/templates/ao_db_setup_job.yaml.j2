@@ -1,0 +1,104 @@
+---
+# One-shot Job that creates the temporal databases AO requires.
+# The backend database (ao_orchestrator_db) and its user are already created
+# by the PostgreSQL image startup via POSTGRESQL_USER/DATABASE env vars.
+# This Job only needs to create the two Temporal databases and their user,
+# then grant public schema permissions on all three (required for PostgreSQL 15+).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ao-db-setup
+  namespace: {{ ocp4_workload_automation_orchestrator_namespace }}
+  labels:
+    app: ao-db-setup
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 120
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: psql
+          image: {{ ocp4_workload_automation_orchestrator_postgres_image }}:{{ ocp4_workload_automation_orchestrator_postgres_image_tag }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+
+              PGHOST="{{ ocp4_workload_automation_orchestrator_postgres_host }}"
+              PGPORT="{{ ocp4_workload_automation_orchestrator_postgres_port }}"
+              PGUSER="{{ ocp4_workload_automation_orchestrator_postgres_admin_user }}"
+
+              run_sql() {
+                PGPASSWORD="${PGADMINPASSWORD}" psql \
+                  -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" "$@"
+              }
+
+              echo "==> Creating Temporal databases and user (idempotent)..."
+              run_sql -d postgres <<SQL
+                SELECT 'CREATE DATABASE {{ ocp4_workload_automation_orchestrator_temporal_db }}'
+                  WHERE NOT EXISTS (
+                    SELECT FROM pg_database
+                    WHERE datname = '{{ ocp4_workload_automation_orchestrator_temporal_db }}'
+                  ) \gexec
+
+                SELECT 'CREATE USER {{ ocp4_workload_automation_orchestrator_temporal_db_user }}
+                  WITH PASSWORD ''${TEMPORAL_DB_PASSWORD}'''
+                  WHERE NOT EXISTS (
+                    SELECT FROM pg_roles
+                    WHERE rolname = '{{ ocp4_workload_automation_orchestrator_temporal_db_user }}'
+                  ) \gexec
+
+                GRANT ALL PRIVILEGES ON DATABASE {{ ocp4_workload_automation_orchestrator_temporal_db }}
+                  TO {{ ocp4_workload_automation_orchestrator_temporal_db_user }};
+
+                SELECT 'CREATE DATABASE {{ ocp4_workload_automation_orchestrator_temporal_visibility_db }}'
+                  WHERE NOT EXISTS (
+                    SELECT FROM pg_database
+                    WHERE datname = '{{ ocp4_workload_automation_orchestrator_temporal_visibility_db }}'
+                  ) \gexec
+
+                GRANT ALL PRIVILEGES ON DATABASE {{ ocp4_workload_automation_orchestrator_temporal_visibility_db }}
+                  TO {{ ocp4_workload_automation_orchestrator_temporal_db_user }};
+              SQL
+
+              echo "==> Granting public schema permissions (PostgreSQL 15+ requirement)..."
+
+              # Backend DB — grant to the backend user (already owns the DB,
+              # but PG15 still requires explicit public schema grant)
+              run_sql -d {{ ocp4_workload_automation_orchestrator_backend_db }} <<SQL
+                GRANT USAGE, CREATE ON SCHEMA public
+                  TO {{ ocp4_workload_automation_orchestrator_backend_db_user }};
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                  GRANT ALL ON TABLES TO {{ ocp4_workload_automation_orchestrator_backend_db_user }};
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                  GRANT ALL ON SEQUENCES TO {{ ocp4_workload_automation_orchestrator_backend_db_user }};
+              SQL
+
+              for DB in \
+                {{ ocp4_workload_automation_orchestrator_temporal_db }} \
+                {{ ocp4_workload_automation_orchestrator_temporal_visibility_db }}; do
+                run_sql -d "${DB}" <<SQL
+                  GRANT USAGE, CREATE ON SCHEMA public
+                    TO {{ ocp4_workload_automation_orchestrator_temporal_db_user }};
+                  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT ALL ON TABLES TO {{ ocp4_workload_automation_orchestrator_temporal_db_user }};
+                  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT ALL ON SEQUENCES TO {{ ocp4_workload_automation_orchestrator_temporal_db_user }};
+              SQL
+              done
+
+              echo "==> Database setup complete."
+          env:
+            - name: PGADMINPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ ocp4_workload_automation_orchestrator_postgres_admin_secret }}
+                  key: password
+            - name: TEMPORAL_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ ocp4_workload_automation_orchestrator_temporal_db_secret }}
+                  key: password

@@ -1,0 +1,12 @@
+---
+- name: Install Automation Orchestrator operator
+  ansible.builtin.include_tasks: install_operator.yml
+
+- name: Setup PostgreSQL instance
+  ansible.builtin.include_tasks: setup_postgres.yml
+
+- name: Setup databases
+  ansible.builtin.include_tasks: setup_databases.yml
+
+- name: Create AutomationOrchestrator instance
+  ansible.builtin.include_tasks: create_instance.yml
