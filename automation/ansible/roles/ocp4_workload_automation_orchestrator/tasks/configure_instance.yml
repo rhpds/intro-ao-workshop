@@ -1,119 +1,83 @@
 ---
-# Post-install env var patches required for AO to communicate with AAP
-# on private/cluster-internal networks (lab and internal environments).
+# Configure AO network access — env vars required for AO to communicate
+# with AAP on private/cluster-internal networks.
 #
 # APP_OIDC_ALLOW_PRIVATE_NETWORKS — lets the backend fetch OIDC discovery
-# and JWKS endpoints from RFC1918/cluster addresses. Required when AAP
-# lives on an internal OpenShift Route. backend only.
+# and JWKS from RFC1918/cluster addresses. Required when AAP lives on an
+# internal OpenShift Route.
 #
-# APP_INTEGRATION_URL_ALLOWED_HOSTS — allowlist for outbound integration
-# URLs. Must be set on backend, worker, AND background-worker — each
-# Deployment runs independently and does not inherit env from the others.
+# APP_INTEGRATION_URL_ALLOWED_HOSTS — outbound integration URL allowlist.
+# Must be set on backend, worker, AND background-worker independently.
 #
-# ⚠ These patches are applied directly to the Deployments. The operator
-# may reset them on the next reconcile (CR change, upgrade). Re-run the
-# role to restore them.
+# Approach mirrors ansible/product-demos infrastructure/ao/network-access.yml:
+# fetch deployments first to get the real container name, then loop with
+# strategic-merge so operator-managed vars are preserved.
+#
 # Reference: https://github.com/lennysh/cheat-sheets/tree/main/automation-orchestrator
+
+- name: Get Automation Orchestrator Route
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: "{{ ocp4_workload_automation_orchestrator_name }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  register: r_ao_route
+  until: r_ao_route.resources | default([]) | length > 0
+  retries: 10
+  delay: 6
+
+- name: Get backend, worker, and background-worker Deployments
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+  register: r_ao_deployments
+  until: r_ao_deployments.resources | default([]) | length > 0
+  retries: 10
+  delay: 6
+  loop:
+    - "{{ ocp4_workload_automation_orchestrator_name }}-backend"
+    - "{{ ocp4_workload_automation_orchestrator_name }}-worker"
+    - "{{ ocp4_workload_automation_orchestrator_name }}-background-worker"
 
 - name: Build integration URL allowlist
   ansible.builtin.set_fact:
     _ocp4_workload_automation_orchestrator_allowed_hosts: >-
-      {{ ([_ocp4_workload_automation_orchestrator_ingress_host]
-          + ([ocp4_workload_automation_orchestrator_aap_hostname]
+      {{ ([r_ao_route.resources[0].spec.host]
+          + ([ocp4_workload_automation_orchestrator_aap_hostname
+              | ansible.builtin.urlsplit('hostname')]
              if ocp4_workload_automation_orchestrator_aap_hostname | length > 0
-             else [])) | to_json }}
+             else []))
+         | unique | list }}
 
-- name: Patch backend — OIDC private networks + integration allowlist
+- name: Patch backend, worker, background-worker with env vars
   kubernetes.core.k8s:
     state: patched
+    merge_type: strategic-merge
     api_version: apps/v1
     kind: Deployment
-    name: "{{ ocp4_workload_automation_orchestrator_name }}-backend"
+    name: "{{ item.metadata.name }}"
     namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+    wait: true
+    wait_timeout: 120
     definition:
       spec:
         template:
           spec:
             containers:
-              - name: backend
-                env:
-                  - name: APP_OIDC_ALLOW_PRIVATE_NETWORKS
-                    value: "{{ ocp4_workload_automation_orchestrator_oidc_allow_private_networks }}"
-                  - name: APP_INTEGRATION_URL_ALLOWED_HOSTS
-                    value: "{{ _ocp4_workload_automation_orchestrator_allowed_hosts }}"
+              - name: "{{ item.spec.template.spec.containers[0].name }}"
+                env: >-
+                  {{ [{'name': 'APP_INTEGRATION_URL_ALLOWED_HOSTS',
+                        'value': _ocp4_workload_automation_orchestrator_allowed_hosts | to_json}]
+                     + ([{'name': 'APP_OIDC_ALLOW_PRIVATE_NETWORKS', 'value': ocp4_workload_automation_orchestrator_oidc_allow_private_networks}]
+                        if item.metadata.name == ocp4_workload_automation_orchestrator_name ~ '-backend'
+                        else []) }}
+  notify: restart remaining ao deployments
+  loop: "{{ r_ao_deployments.results | map(attribute='resources') | flatten }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
 
-- name: Patch worker — integration allowlist
-  kubernetes.core.k8s:
-    state: patched
-    api_version: apps/v1
-    kind: Deployment
-    name: "{{ ocp4_workload_automation_orchestrator_name }}-worker"
-    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
-    definition:
-      spec:
-        template:
-          spec:
-            containers:
-              - name: worker
-                env:
-                  - name: APP_INTEGRATION_URL_ALLOWED_HOSTS
-                    value: "{{ _ocp4_workload_automation_orchestrator_allowed_hosts }}"
-
-- name: Patch background-worker — integration allowlist
-  kubernetes.core.k8s:
-    state: patched
-    api_version: apps/v1
-    kind: Deployment
-    name: "{{ ocp4_workload_automation_orchestrator_name }}-background-worker"
-    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
-    definition:
-      spec:
-        template:
-          spec:
-            containers:
-              - name: background-worker
-                env:
-                  - name: APP_INTEGRATION_URL_ALLOWED_HOSTS
-                    value: "{{ _ocp4_workload_automation_orchestrator_allowed_hosts }}"
-
-- name: Wait for backend rollout to complete
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: "{{ ocp4_workload_automation_orchestrator_name }}-backend"
-    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
-  register: r_backend
-  retries: 20
-  delay: 10
-  until:
-    - r_backend.resources | length > 0
-    - (r_backend.resources[0].status.updatedReplicas | default(0)) == (r_backend.resources[0].spec.replicas | default(1))
-    - (r_backend.resources[0].status.readyReplicas | default(0)) == (r_backend.resources[0].spec.replicas | default(1))
-
-- name: Wait for worker rollout to complete
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: "{{ ocp4_workload_automation_orchestrator_name }}-worker"
-    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
-  register: r_worker
-  retries: 20
-  delay: 10
-  until:
-    - r_worker.resources | length > 0
-    - (r_worker.resources[0].status.updatedReplicas | default(0)) == (r_worker.resources[0].spec.replicas | default(1))
-    - (r_worker.resources[0].status.readyReplicas | default(0)) == (r_worker.resources[0].spec.replicas | default(1))
-
-- name: Wait for background-worker rollout to complete
-  kubernetes.core.k8s_info:
-    api_version: apps/v1
-    kind: Deployment
-    name: "{{ ocp4_workload_automation_orchestrator_name }}-background-worker"
-    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
-  register: r_bg_worker
-  retries: 20
-  delay: 10
-  until:
-    - r_bg_worker.resources | length > 0
-    - (r_bg_worker.resources[0].status.updatedReplicas | default(0)) == (r_bg_worker.resources[0].spec.replicas | default(1))
-    - (r_bg_worker.resources[0].status.readyReplicas | default(0)) == (r_bg_worker.resources[0].spec.replicas | default(1))
+- name: Show configured allowlist
+  ansible.builtin.debug:
+    msg: "APP_INTEGRATION_URL_ALLOWED_HOSTS: {{ _ocp4_workload_automation_orchestrator_allowed_hosts }}"

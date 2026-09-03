@@ -1,0 +1,37 @@
+---
+- name: List remaining AO deployments to restart
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ ocp4_workload_automation_orchestrator_name }}"
+  register: r_ao_all
+  listen: restart remaining ao deployments
+
+- name: Restart remaining AO deployments
+  kubernetes.core.k8s:
+    state: patched
+    merge_type: strategic-merge
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item.metadata.name }}"
+    namespace: "{{ ocp4_workload_automation_orchestrator_namespace }}"
+    wait: true
+    wait_timeout: 120
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+  loop: >-
+    {{ r_ao_all.resources | default([])
+       | rejectattr('metadata.name', 'in',
+           [ocp4_workload_automation_orchestrator_name ~ '-backend',
+            ocp4_workload_automation_orchestrator_name ~ '-worker',
+            ocp4_workload_automation_orchestrator_name ~ '-background-worker'])
+       | list }}
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  listen: restart remaining ao deployments
