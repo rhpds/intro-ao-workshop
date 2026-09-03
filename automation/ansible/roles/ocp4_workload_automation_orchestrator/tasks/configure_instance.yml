@@ -45,10 +45,13 @@
   ansible.builtin.set_fact:
     _ocp4_workload_automation_orchestrator_allowed_hosts: >-
       {{ ([r_ao_route.resources[0].spec.host]
-          + ([ocp4_workload_automation_orchestrator_aap_hostname
-              | ansible.builtin.urlsplit('hostname')]
-             if ocp4_workload_automation_orchestrator_aap_hostname | length > 0
+          + ([(ocp4_workload_automation_orchestrator_aap_hostname
+               | ansible.builtin.urlsplit('hostname'))]
+             if (ocp4_workload_automation_orchestrator_aap_hostname | length > 0
+                 and (ocp4_workload_automation_orchestrator_aap_hostname
+                      | ansible.builtin.urlsplit('hostname')))
              else []))
+         | select('string')
          | unique | list }}
 
 - name: Patch backend, worker, background-worker with env vars
