@@ -10,3 +10,6 @@
 
 - name: Create AutomationOrchestrator instance
   ansible.builtin.include_tasks: create_instance.yml
+
+- name: Configure instance env vars
+  ansible.builtin.include_tasks: configure_instance.yml

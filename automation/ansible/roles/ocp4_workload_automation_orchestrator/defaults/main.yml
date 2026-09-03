@@ -76,6 +76,19 @@ ocp4_workload_automation_orchestrator_temporal_db_password: >-
 ocp4_workload_automation_orchestrator_temporal_db_secret: temporal-pg-credentials
 
 # -------------------------------------------------------
+# AAP integration settings
+# -------------------------------------------------------
+# Hostname of the AAP platform gateway (no scheme, no trailing slash).
+# Used to build the APP_INTEGRATION_URL_ALLOWED_HOSTS allowlist so AO
+# workers can call AAP and so OIDC callbacks to private-network AAP work.
+# Example: aap.apps.cluster.example.com
+ocp4_workload_automation_orchestrator_aap_hostname: ""
+
+# Allow OIDC fetches to private/RFC1918 addresses (needed when AAP is on
+# an internal OpenShift Route). Set to false in production environments.
+ocp4_workload_automation_orchestrator_oidc_allow_private_networks: "true"
+
+# -------------------------------------------------------
 # Background worker auto-scaling
 # -------------------------------------------------------
 ocp4_workload_automation_orchestrator_worker_min_replicas: 1
