@@ -88,6 +88,11 @@ ocp4_workload_automation_orchestrator_aap_hostname: ""
 # an internal OpenShift Route). Set to false in production environments.
 ocp4_workload_automation_orchestrator_oidc_allow_private_networks: "true"
 
+# Additional hosts to add to APP_INTEGRATION_URL_ALLOWED_HOSTS allowlist.
+# Use for external integrations (e.g., other AAP instances, webhook targets).
+# Example: ['webhook.example.com', 'aap-secondary.apps.cluster.example.com']
+ocp4_workload_automation_orchestrator_additional_allowed_hosts: []
+
 # -------------------------------------------------------
 # Background worker auto-scaling
 # -------------------------------------------------------

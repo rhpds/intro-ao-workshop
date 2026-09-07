@@ -50,6 +50,9 @@
              if (ocp4_workload_automation_orchestrator_aap_hostname | length > 0
                  and (ocp4_workload_automation_orchestrator_aap_hostname
                       | ansible.builtin.urlsplit('hostname')))
+             else [])
+          + (ocp4_workload_automation_orchestrator_additional_allowed_hosts
+             if ocp4_workload_automation_orchestrator_additional_allowed_hosts | default([]) | length > 0
              else []))
          | select('string')
          | unique | list }}
@@ -79,6 +82,11 @@
   loop_control:
     label: "{{ item.metadata.name }}"
 
-- name: Show configured allowlist
+- name: Show configured allowlist breakdown
   ansible.builtin.debug:
-    msg: "APP_INTEGRATION_URL_ALLOWED_HOSTS: {{ _ocp4_workload_automation_orchestrator_allowed_hosts }}"
+    msg: |
+      APP_INTEGRATION_URL_ALLOWED_HOSTS allowlist:
+        AO Route host: {{ r_ao_route.resources[0].spec.host }}
+        AAP hostname: {{ ocp4_workload_automation_orchestrator_aap_hostname | default('(not provided)') }}
+        Additional hosts: {{ ocp4_workload_automation_orchestrator_additional_allowed_hosts | default([]) }}
+        Final allowlist: {{ _ocp4_workload_automation_orchestrator_allowed_hosts }}
