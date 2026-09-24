@@ -11,6 +11,7 @@ view_switcher:
 tabs:
   - name: OCP Console
     url: 'https://console-openshift-console.${DOMAIN}'
+    type: iframe
   - name: ">_ terminal"
     path: /wetty
   - name: AAP
