@@ -1,0 +1,58 @@
+---
+- name: Collect external IPs from CNV VM annotations
+  module_defaults:
+    group/k8s:
+      host: "{{ sandbox_openshift_api_url }}"
+      api_key: "{{ sandbox_openshift_api_key }}"
+      validate_certs: false
+  block:
+    - name: Query VM annotations for each cnv_instance
+      kubernetes.core.k8s_info:
+        api_version: kubevirt.io/v1
+        kind: VirtualMachine
+        name: "{{ item.name }}"
+        namespace: "{{ openshift_cnv_namespace }}"
+      loop: "{{ cnv_instances | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: r_vm_info
+
+    - name: Build node info list from VM annotations
+      ansible.builtin.set_fact:
+        _cnv_node_info: >-
+          {{
+            _cnv_node_info | default([]) + [{
+              'name': item.item.name,
+              'external_ip': item.resources[0].metadata.annotations.external_ip | default(''),
+              'external_ports': item.resources[0].metadata.annotations.external_ports | default(''),
+              'ssh_user': cnv_node_info_ssh_user
+            }]
+          }}
+      loop: "{{ r_vm_info.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.resources | length > 0
+
+    - name: Publish node IPs to agnosticd user-info
+      agnosticd.core.agnosticd_user_info:
+        data:
+          cnv_nodes: "{{ _cnv_node_info }}"
+      when: _cnv_node_info | default([]) | length > 0
+
+    - name: Publish individual node IPs as flat keys
+      agnosticd.core.agnosticd_user_info:
+        data: "{{ {item.name ~ '_external_ip': item.external_ip} }}"
+      loop: "{{ _cnv_node_info | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when:
+        - item.external_ip | default('') != ''
+
+    - name: Print node info summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.name }}: {{ item.external_ip }}:22
+          (user: {{ item.ssh_user }})
+      loop: "{{ _cnv_node_info | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"

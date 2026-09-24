@@ -1,0 +1,4 @@
+---
+- name: Nothing to remove — node IPs are read-only metadata
+  ansible.builtin.debug:
+    msg: "ocp4_workload_cnv_node_info has no destroy tasks"

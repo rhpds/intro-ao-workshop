@@ -1,0 +1,3 @@
+---
+# SSH user to report alongside each node's IP
+cnv_node_info_ssh_user: cloud-user
