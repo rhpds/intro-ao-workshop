@@ -1,3 +1,6 @@
 ---
+# Namespace where CNV VMs live — mirrors cnv_instances role default
+openshift_cnv_namespace: "{{ sandbox_openshift_namespace }}"
+
 # SSH user to report alongside each node's IP
 cnv_node_info_ssh_user: cloud-user
