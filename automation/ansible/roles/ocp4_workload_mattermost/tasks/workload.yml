@@ -21,9 +21,20 @@
         name: mattermost
         namespace: "{{ ocp4_workload_mattermost_namespace }}"
 
-# Upstream postgres:13 and mattermost images run as fixed non-root UIDs
-# (999 and 2000 respectively) that differ from OCP's random UID allocation,
-# so anyuid SCC is required.
+# PostgreSQL uses quay.io/sclorg/postgresql-15-c9s which is OCP-native
+# and runs fine with the default restricted SCC — no special SA needed.
+- name: Create PostgreSQL ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: mattermost-postgres
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+
+# Only the Mattermost app image still needs anyuid (upstream image hardcodes USER 2000).
+# PostgreSQL uses the OCP-native SCLORG image and runs with restricted SCC.
 - name: Grant anyuid SCC to Mattermost ServiceAccount
   kubernetes.core.k8s:
     state: present
@@ -55,9 +66,10 @@
         namespace: "{{ ocp4_workload_mattermost_namespace }}"
       type: Opaque
       stringData:
-        POSTGRES_DB: "{{ ocp4_workload_mattermost_postgres_db }}"
-        POSTGRES_USER: "{{ ocp4_workload_mattermost_postgres_user }}"
-        POSTGRES_PASSWORD: "{{ ocp4_workload_mattermost_postgres_password }}"
+        # SCLORG postgresql-15-c9s uses POSTGRESQL_* env var names
+        POSTGRESQL_DATABASE: "{{ ocp4_workload_mattermost_postgres_db }}"
+        POSTGRESQL_USER: "{{ ocp4_workload_mattermost_postgres_user }}"
+        POSTGRESQL_PASSWORD: "{{ ocp4_workload_mattermost_postgres_password }}"
 
 # -------------------------------------------------------
 # PersistentVolumeClaims
@@ -116,10 +128,7 @@
             labels:
               app: mattermost-postgres
           spec:
-            serviceAccountName: mattermost
-            securityContext:
-              runAsUser: 999
-              fsGroup: 999
+            serviceAccountName: mattermost-postgres
             containers:
               - name: postgres
                 image: "{{ ocp4_workload_mattermost_postgres_image }}"
@@ -130,7 +139,7 @@
                   - containerPort: 5432
                 volumeMounts:
                   - name: postgres-data
-                    mountPath: /var/lib/postgresql/data
+                    mountPath: /var/lib/pgsql/data
                     subPath: pgdata
                 readinessProbe:
                   exec:
@@ -238,6 +247,12 @@
           ocp4_workload_mattermost_postgres_db
           }}?sslmode=disable&connect_timeout=10
         MM_SERVICESETTINGS_SITEURL: "{{ _mattermost_site_url }}"
+        # Skip setup wizard and disable email verification for lab use
+        MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
+        MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
+        MM_EMAILSETTINGS_SMTPSERVER: ""
+        # Lower minimum password length so lab passwords like 'redhat123' work
+        MM_PASSWORDSETTINGS_MINIMUMLENGTH: "5"
 
 - name: Deploy Mattermost
   kubernetes.core.k8s:
@@ -350,14 +365,6 @@
   ansible.builtin.set_fact:
     _mattermost_pod_name: "{{ _mattermost_pods.resources[0].metadata.name }}"
 
-- name: Copy Mattermost backup archive into pod
-  kubernetes.core.k8s_cp:
-    namespace: "{{ ocp4_workload_mattermost_namespace }}"
-    pod: "{{ _mattermost_pod_name }}"
-    remote_path: /tmp/backup.zip
-    local_path: "{{ role_path }}/files/{{ ocp4_workload_mattermost_backup_file }}"
-    state: to_pod
-
 - name: Wait for mmctl local mode to be available
   kubernetes.core.k8s_exec:
     namespace: "{{ ocp4_workload_mattermost_namespace }}"
@@ -367,6 +374,7 @@
   retries: 10
   delay: 5
   until: _mmctl_ready.return_code == 0
+  changed_when: false
 
 - name: Create Mattermost admin user
   kubernetes.core.k8s_exec:
@@ -383,11 +391,84 @@
     _admin_create.return_code != 0 and
     'already exists' not in (_admin_create.stderr | default(''))
 
-- name: Import Mattermost backup
+# Store backup in a ConfigMap so the Mattermost pod can read it via a volume mount.
+# This avoids kubectl cp (unreliable with Alpine/distroless exec) and the
+# upload session API (stores files in the wrong location for --bypass-upload).
+- name: Read backup file as base64
+  ansible.builtin.slurp:
+    src: "{{ role_path }}/files/{{ ocp4_workload_mattermost_backup_file }}"
+  register: _backup_b64
+
+- name: Create backup ConfigMap with binaryData
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: mattermost-backup
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      binaryData:
+        backup.zip: "{{ _backup_b64.content }}"
+
+- name: Patch Mattermost Deployment to mount backup ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: mattermost
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        template:
+          spec:
+            containers:
+              - name: mattermost
+                volumeMounts:
+                  - name: backup
+                    mountPath: /mattermost/backup
+                    readOnly: true
+            volumes:
+              - name: backup
+                configMap:
+                  name: mattermost-backup
+    merge_type: strategic-merge
+
+- name: Wait for Mattermost pod to restart with backup volume
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: mattermost
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+  register: _mm_dep_patched
+  retries: "{{ ocp4_workload_mattermost_wait_retries }}"
+  delay: "{{ ocp4_workload_mattermost_wait_delay }}"
+  until: >-
+    _mm_dep_patched.resources | length > 0 and
+    (_mm_dep_patched.resources[0].status.readyReplicas | default(0)) >= 1
+
+- name: Get Mattermost pod name after restart
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    label_selectors:
+      - app=mattermost
+  register: _mm_pods_restarted
+  retries: 10
+  delay: 5
+  until: >-
+    _mm_pods_restarted.resources | length > 0 and
+    _mm_pods_restarted.resources[0].status.phase == 'Running'
+
+- name: Update Mattermost pod name fact
+  ansible.builtin.set_fact:
+    _mattermost_pod_name: "{{ _mm_pods_restarted.resources[0].metadata.name }}"
+
+- name: Import Mattermost backup from ConfigMap mount via mmctl
   kubernetes.core.k8s_exec:
     namespace: "{{ ocp4_workload_mattermost_namespace }}"
     pod: "{{ _mattermost_pod_name }}"
-    command: mmctl --local import process --bypass-upload /tmp/backup.zip
+    command: mmctl --local import process --bypass-upload /mattermost/backup/backup.zip
 
 - name: Wait for backup import job to complete
   kubernetes.core.k8s_exec:
@@ -398,6 +479,32 @@
   retries: 12
   delay: 5
   until: "'pending' not in (_import_status.stdout | default(''))"
+  changed_when: false
+
+# The backup may contain an admin user with a different password.
+# Reset to the desired password so subsequent tasks work reliably.
+- name: Wait for import data to be fully committed
+  ansible.builtin.pause:
+    seconds: 30
+
+- name: Reset admin password after import
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local user password admin {{ ocp4_workload_mattermost_admin_password }}
+
+- name: Ensure automators team exists
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: >-
+      mmctl --local team create
+      --name automators
+      --display-name "Automators"
+  register: _team_create
+  failed_when: >-
+    _team_create.return_code != 0 and
+    'already exists' not in (_team_create.stderr | default(''))
 
 - name: Create ansibleadmin user
   kubernetes.core.k8s_exec:
@@ -420,21 +527,24 @@
     pod: "{{ _mattermost_pod_name }}"
     command: mmctl --local team add automators ansibleadmin@ansible.com
 
-- name: Get town-square channel details
+- name: Ensure town-square channel exists in automators team
   kubernetes.core.k8s_exec:
     namespace: "{{ ocp4_workload_mattermost_namespace }}"
     pod: "{{ _mattermost_pod_name }}"
-    command: mmctl --local channel search town-square
-  register: _channel_output
-
-- name: Extract town-square Channel ID
-  ansible.builtin.set_fact:
-    _channel_id: >-
-      {{ _channel_output.stdout_lines
-         | select('search', 'Channel ID')
-         | map('regex_replace', '^.*Channel ID :', '')
-         | map('trim')
-         | first }}
+    command: >-
+      mmctl --local channel create
+      --team automators
+      --name town-square
+      --display-name "Town Square"
+  register: _channel_create
+  retries: 6
+  delay: 10
+  until: >-
+    _channel_create.return_code == 0 or
+    'already exists' in (_channel_create.stderr | default(''))
+  failed_when: >-
+    _channel_create.return_code != 0 and
+    'already exists' not in (_channel_create.stderr | default(''))
 
 - name: Create incoming webhook on town-square
   kubernetes.core.k8s_exec:
@@ -442,7 +552,7 @@
     pod: "{{ _mattermost_pod_name }}"
     command: >-
       mmctl --local webhook create-incoming
-      --channel {{ _channel_id }}
+      --channel automators:town-square
       --user admin
       --display-name "Incoming Webhook"
       --lock-to-channel
