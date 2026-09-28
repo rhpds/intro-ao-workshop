@@ -464,6 +464,18 @@
   ansible.builtin.set_fact:
     _mattermost_pod_name: "{{ _mm_pods_restarted.resources[0].metadata.name }}"
 
+# Pod restarted — wait for mmctl local socket to reappear before importing
+- name: Wait for mmctl local mode to be available after pod restart
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local system version
+  register: _mmctl_ready_post_restart
+  retries: 15
+  delay: 10
+  until: _mmctl_ready_post_restart.return_code == 0
+  changed_when: false
+
 - name: Import Mattermost backup from ConfigMap mount via mmctl
   kubernetes.core.k8s_exec:
     namespace: "{{ ocp4_workload_mattermost_namespace }}"
