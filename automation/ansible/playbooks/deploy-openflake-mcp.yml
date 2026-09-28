@@ -1,0 +1,268 @@
+---
+# Deploy the OpenFlake MCP server to OpenShift, from AAP or from a laptop.
+- name: Deploy the OpenFlake MCP server to OpenShift
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # --- Required. Supply via AAP survey or -e. -------------------------
+    # openflake_instance_url:  https://your.openflake.example.com/   (trailing slash)
+    # openflake_username:      service account user
+    # openflake_password:      service account password
+    openflake_git_uri: https://github.com/rlopez133/openflake-mcp.git
+
+    # --- Optional. ------------------------------------------------------
+    openflake_namespace: openflake-mcp
+    openflake_git_ref: main
+    # Leave empty to reuse the existing token, or mint one on first deploy.
+    openflake_bearer_token: ""
+    # Mint a fresh token even though one already exists. Breaks every client
+    # the moment the new pod serves traffic — there is no grace period.
+    openflake_rotate_token: false
+    openflake_build_timeout: 900
+    openflake_rollout_timeout: 600
+    openflake_validate_certs: true
+
+    # --- Derived. Do not override. --------------------------------------
+    repo_root: "{{ playbook_dir }}/.."
+    app_name: openflake-mcp
+
+  tasks:
+    - name: Require the OpenFlake connection details
+      ansible.builtin.assert:
+        that:
+          - openflake_instance_url is defined and openflake_instance_url | length > 0
+          - openflake_username is defined and openflake_username | length > 0
+          - openflake_password is defined and openflake_password | length > 0
+          - openflake_git_uri is defined and openflake_git_uri | length > 0
+        fail_msg: >-
+          openflake_instance_url, openflake_username, openflake_password and
+          openflake_git_uri are all required. Set them in the job template
+          survey or pass them with -e.
+        quiet: true
+
+    # The upstream client joins paths onto the instance URL, so a missing
+    # trailing slash silently produces wrong request paths rather than an error.
+    - name: Normalise the instance URL to a trailing slash
+      ansible.builtin.set_fact:
+        openflake_instance_url_norm: "{{ openflake_instance_url | regex_replace('/*$', '') }}/"
+
+    - name: Ensure the namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ openflake_namespace }}"
+            labels:
+              app: "{{ app_name }}"
+
+    # ---------------------------------------------------------------------
+    # Bearer token. nginx is the only thing between a public Route and
+    # OpenFlake, so this secret is the entire authentication story.
+    #
+    # Resolved before the env secret is written, because the token is stored
+    # there too as OPENFLAKE_BEARER_TOKEN so there is one obvious place to
+    # look for it. nginx still gets its copy from the conf secret below.
+    # ---------------------------------------------------------------------
+
+    - name: Look for an existing nginx config secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ app_name }}-nginx-conf"
+        namespace: "{{ openflake_namespace }}"
+      register: existing_nginx_conf
+
+    - name: Decide whether to write a token
+      ansible.builtin.set_fact:
+        token_secret_exists: "{{ existing_nginx_conf.resources | length > 0 }}"
+        token_supplied: "{{ openflake_bearer_token | length > 0 }}"
+
+    - name: Decide whether to write a token (cont.)
+      ansible.builtin.set_fact:
+        write_token: "{{ token_supplied or not token_secret_exists or openflake_rotate_token }}"
+
+    # 64 hex chars, the same shape as `openssl rand -hex 32`. When the token is
+    # being reused it gets read back out of the rendered nginx config, so this
+    # is always the live value — the env secret and the final report can both
+    # rely on it whether or not a new token was minted this run.
+    - name: Settle on the token value
+      ansible.builtin.set_fact:
+        effective_token: >-
+          {{ openflake_bearer_token if token_supplied
+             else (lookup('password', '/dev/null chars=hexdigits length=64') | lower
+                   if write_token
+                   else (existing_nginx_conf.resources[0].data['default.conf']
+                         | b64decode
+                         | regex_findall('expected_token "([^"]+)"')
+                         | first)) }}
+      no_log: true
+
+    # Rendered from nginx/default.conf.template rather than inlined here, so
+    # the Host-header pinning and SSE timeouts have exactly one source.
+    - name: Write the nginx config secret
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ openflake_namespace }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ app_name }}-nginx-conf"
+            labels:
+              app: "{{ app_name }}"
+          type: Opaque
+          stringData:
+            default.conf: >-
+              {{ lookup('file', repo_root ~ '/nginx/default.conf.template')
+                 | replace('REPLACE_ME', effective_token) }}
+      when: write_token
+      no_log: true
+
+    - name: Write the OpenFlake connection secret
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ openflake_namespace }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ app_name }}-env"
+            labels:
+              app: "{{ app_name }}"
+          type: Opaque
+          stringData:
+            OPENFLAKE_INSTANCE_URL: "{{ openflake_instance_url_norm }}"
+            OPENFLAKE_USERNAME: "{{ openflake_username }}"
+            OPENFLAKE_PASSWORD: "{{ openflake_password }}"
+            # start.py does not read this — it is here so the token has one
+            # obvious home next to the other connection details.
+            OPENFLAKE_BEARER_TOKEN: "{{ effective_token }}"
+      no_log: true
+
+    # ---------------------------------------------------------------------
+    # Build
+    # ---------------------------------------------------------------------
+
+    - name: Apply the ImageStream and BuildConfig
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ openflake_namespace }}"
+        definition: >-
+          {{ lookup('file', repo_root ~ '/openshift/build.yaml')
+             | replace('GIT_URI', openflake_git_uri)
+             | replace('GIT_REF', openflake_git_ref)
+             | from_yaml_all | list }}
+
+    - name: Start a build and wait for it
+      community.okd.openshift_build:
+        namespace: "{{ openflake_namespace }}"
+        build_config_name: "{{ app_name }}"
+        state: started
+        wait: true
+        wait_timeout: "{{ openflake_build_timeout }}"
+      register: build_result
+
+    - name: Confirm the image tag was pushed
+      kubernetes.core.k8s_info:
+        api_version: image.openshift.io/v1
+        kind: ImageStreamTag
+        name: "{{ app_name }}:latest"
+        namespace: "{{ openflake_namespace }}"
+      register: image_tag
+      failed_when: image_tag.resources | length == 0
+
+    # ---------------------------------------------------------------------
+    # Deploy
+    # ---------------------------------------------------------------------
+
+    - name: Apply the Deployment, Service and Route
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ openflake_namespace }}"
+        definition: >-
+          {{ lookup('file', repo_root ~ '/openshift/deploy.yaml')
+             | from_yaml_all | list }}
+
+    # Forces a fresh pod when only the secrets changed. envFrom is resolved at
+    # pod start, so editing openflake-mcp-env alone changes nothing.
+    - name: Restart the deployment to pick up secret changes
+      kubernetes.core.k8s:
+        state: patched
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ openflake_namespace }}"
+        definition:
+          spec:
+            template:
+              metadata:
+                annotations:
+                  kubectl.kubernetes.io/restartedAt: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
+    - name: Wait for the rollout
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app_name }}"
+        namespace: "{{ openflake_namespace }}"
+      register: rollout
+      until: >-
+        rollout.resources | length > 0 and
+        rollout.resources[0].status.observedGeneration | default(0)
+          >= rollout.resources[0].metadata.generation and
+        rollout.resources[0].status.updatedReplicas | default(0)
+          == rollout.resources[0].spec.replicas and
+        rollout.resources[0].status.availableReplicas | default(0)
+          == rollout.resources[0].spec.replicas
+      retries: "{{ (openflake_rollout_timeout | int / 10) | int }}"
+      delay: 10
+
+    - name: Read the Route
+      kubernetes.core.k8s_info:
+        api_version: route.openshift.io/v1
+        kind: Route
+        name: "{{ app_name }}"
+        namespace: "{{ openflake_namespace }}"
+      register: route
+
+    - name: Build the endpoint URL
+      ansible.builtin.set_fact:
+        endpoint: "https://{{ route.resources[0].spec.host }}"
+
+    # The Route is public and the app has no auth of its own. If an
+    # unauthenticated request returns anything but 401, the gate is open.
+    - name: Check that the bearer gate rejects unauthenticated requests
+      ansible.builtin.uri:
+        url: "{{ endpoint }}/"
+        method: GET
+        status_code: 401
+        validate_certs: "{{ openflake_validate_certs }}"
+      retries: 6
+      delay: 5
+      register: gate_check
+      until: gate_check is succeeded
+
+    - name: Report
+      ansible.builtin.debug:
+        msg:
+          - "Endpoint:  {{ endpoint }}/mcp"
+          - "Header:    Authorization: Bearer {{ effective_token }}"
+          - "Namespace: {{ openflake_namespace }}"
+          - "Instance:  {{ openflake_instance_url_norm }}"
+          - "Built:     {{ openflake_git_ref }} @ {{ openflake_git_uri }}"
+          - "Gate:      unauthenticated request returned 401"
+          - >-
+            {{ 'Token: newly minted this run.' if write_token
+               else 'Token: unchanged from the previous run.' }}
+            Also stored as OPENFLAKE_BEARER_TOKEN in the
+            {{ app_name }}-env secret:
+            oc get secret {{ app_name }}-env -n {{ openflake_namespace }}
+            -o jsonpath='{.data.OPENFLAKE_BEARER_TOKEN}' | base64 -d
+          - >-
+            Credentials are not verified by this playbook. A running pod only
+            proves the three env vars are present. Make one real tool call --
+            bad credentials surface as OpenFlake 401s, not startup errors.
