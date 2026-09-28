@@ -17,8 +17,9 @@
   register: r_ao_instance
   retries: "{{ ocp4_workload_automation_orchestrator_instance_wait_retries }}"
   delay: "{{ ocp4_workload_automation_orchestrator_instance_wait_delay }}"
+  failed_when: false
   until:
-    - r_ao_instance.resources | length > 0
+    - r_ao_instance.resources | default([]) | length > 0
     - r_ao_instance.resources[0].status is defined
     - r_ao_instance.resources[0].status.conditions is defined
     - >-
