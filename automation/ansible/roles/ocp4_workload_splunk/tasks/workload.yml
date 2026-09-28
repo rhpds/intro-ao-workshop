@@ -1,0 +1,388 @@
+---
+# -------------------------------------------------------
+# Namespace & RBAC
+# -------------------------------------------------------
+- name: Create Splunk namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ocp4_workload_splunk_namespace }}"
+
+- name: Create Splunk ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: splunk
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+
+# splunk/splunk image starts as root and drops privileges internally;
+# privileged SCC is required to match the original role's splunk_privileged: true.
+- name: Grant privileged SCC to Splunk ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "splunk-privileged-{{ ocp4_workload_splunk_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:openshift:scc:privileged
+      subjects:
+        - kind: ServiceAccount
+          name: splunk
+          namespace: "{{ ocp4_workload_splunk_namespace }}"
+
+# -------------------------------------------------------
+# Secrets
+# -------------------------------------------------------
+- name: Create Splunk credentials Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: splunk-credentials
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      type: Opaque
+      stringData:
+        SPLUNK_PASSWORD: "{{ ocp4_workload_splunk_password }}"
+        SPLUNK_START_ARGS: "--accept-license"
+        SPLUNK_GENERAL_TERMS: "--accept-sgt-current-at-splunk-com"
+
+# -------------------------------------------------------
+# PersistentVolumeClaims
+# -------------------------------------------------------
+- name: Create Splunk var PVC (runtime data and indexes)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: splunk-var
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: "{{ ocp4_workload_splunk_storage_class | default(omit, true) }}"
+        resources:
+          requests:
+            storage: "{{ ocp4_workload_splunk_var_storage_size }}"
+
+- name: Create Splunk etc PVC (apps and configuration)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: splunk-etc
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: "{{ ocp4_workload_splunk_storage_class | default(omit, true) }}"
+        resources:
+          requests:
+            storage: "{{ ocp4_workload_splunk_etc_storage_size }}"
+
+# -------------------------------------------------------
+# Splunk Deployment
+# -------------------------------------------------------
+- name: Deploy Splunk
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: splunk
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: splunk
+        template:
+          metadata:
+            labels:
+              app: splunk
+          spec:
+            serviceAccountName: splunk
+            securityContext:
+              runAsUser: 0
+            containers:
+              - name: splunk
+                image: "{{ ocp4_workload_splunk_image }}"
+                envFrom:
+                  - secretRef:
+                      name: splunk-credentials
+                securityContext:
+                  privileged: true
+                ports:
+                  - containerPort: "{{ ocp4_workload_splunk_web_port }}"
+                    name: web
+                  - containerPort: "{{ ocp4_workload_splunk_syslog_port }}"
+                    name: syslog
+                    protocol: TCP
+                  - containerPort: "{{ ocp4_workload_splunk_syslog_port }}"
+                    name: syslog-udp
+                    protocol: UDP
+                  - containerPort: "{{ ocp4_workload_splunk_syslog_alt_port }}"
+                    name: syslog-alt
+                    protocol: TCP
+                  - containerPort: "{{ ocp4_workload_splunk_syslog_alt_port }}"
+                    name: syslog-alt-udp
+                    protocol: UDP
+                  - containerPort: "{{ ocp4_workload_splunk_hec_port }}"
+                    name: hec
+                readinessProbe:
+                  httpGet:
+                    path: /
+                    port: "{{ ocp4_workload_splunk_web_port }}"
+                  initialDelaySeconds: 60
+                  periodSeconds: 10
+                  failureThreshold: 20
+                volumeMounts:
+                  - name: splunk-var
+                    mountPath: /opt/splunk/var
+                  - name: splunk-etc
+                    mountPath: /opt/splunk/etc
+            volumes:
+              - name: splunk-var
+                persistentVolumeClaim:
+                  claimName: splunk-var
+              - name: splunk-etc
+                persistentVolumeClaim:
+                  claimName: splunk-etc
+
+# -------------------------------------------------------
+# Services
+# -------------------------------------------------------
+- name: Create Splunk web UI Service (ClusterIP)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: splunk-web
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      spec:
+        selector:
+          app: splunk
+        ports:
+          - name: web
+            port: "{{ ocp4_workload_splunk_web_port }}"
+            targetPort: "{{ ocp4_workload_splunk_web_port }}"
+
+# NodePort exposes syslog/HEC to external hosts (e.g. student RHEL VMs).
+# Students/automation send logs to <OCP node IP>:<nodePort>.
+- name: Create Splunk ingestion Service (NodePort for syslog and HEC)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: splunk-ingest
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      spec:
+        type: NodePort
+        selector:
+          app: splunk
+        ports:
+          - name: syslog-tcp
+            port: "{{ ocp4_workload_splunk_syslog_port }}"
+            targetPort: "{{ ocp4_workload_splunk_syslog_port }}"
+            protocol: TCP
+          - name: syslog-alt-tcp
+            port: "{{ ocp4_workload_splunk_syslog_alt_port }}"
+            targetPort: "{{ ocp4_workload_splunk_syslog_alt_port }}"
+            protocol: TCP
+          - name: hec
+            port: "{{ ocp4_workload_splunk_hec_port }}"
+            targetPort: "{{ ocp4_workload_splunk_hec_port }}"
+            protocol: TCP
+
+# -------------------------------------------------------
+# Route (web UI only — syslog/HEC go through NodePort)
+# -------------------------------------------------------
+- name: Create Splunk web UI Route
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: splunk
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+      spec:
+        to:
+          kind: Service
+          name: splunk-web
+        port:
+          targetPort: web
+        tls:
+          termination: edge
+          insecureEdgeTerminationPolicy: Redirect
+
+# -------------------------------------------------------
+# Wait for Splunk to be ready
+# -------------------------------------------------------
+- name: Wait for Splunk Deployment to be ready
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: splunk
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+  register: _splunk_deployment
+  retries: "{{ ocp4_workload_splunk_wait_retries }}"
+  delay: "{{ ocp4_workload_splunk_wait_delay }}"
+  until: >-
+    _splunk_deployment.resources | length > 0 and
+    (_splunk_deployment.resources[0].status.readyReplicas | default(0)) >= 1
+
+- name: Get Splunk pod name
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+    label_selectors:
+      - app=splunk
+  register: _splunk_pods
+  retries: 10
+  delay: 5
+  until: >-
+    _splunk_pods.resources | length > 0 and
+    _splunk_pods.resources[0].status.phase == 'Running'
+
+- name: Set Splunk pod name fact
+  ansible.builtin.set_fact:
+    _splunk_pod_name: "{{ _splunk_pods.resources[0].metadata.name }}"
+
+# -------------------------------------------------------
+# App installation (replaces: download → podman cp → extract → chown)
+# curl runs directly inside the pod — no host temp dir needed.
+# -------------------------------------------------------
+- name: Download and extract Splunk apps inside pod
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+    pod: "{{ _splunk_pod_name }}"
+    command: >-
+      sh -c "curl -sL {{ item.url }} -o /tmp/{{ item.filename }}
+      && tar -xzf /tmp/{{ item.filename }} -C {{ ocp4_workload_splunk_container_apps_path }}
+      && chown -R splunk:splunk {{ ocp4_workload_splunk_container_apps_path }}
+      && rm -f /tmp/{{ item.filename }}"
+  loop: "{{ ocp4_workload_splunk_apps }}"
+  register: _app_install
+  failed_when: _app_install.return_code != 0
+
+# Restart the pod so Splunk picks up the newly installed apps.
+# Deleting the pod lets the Deployment recreate it immediately.
+- name: Delete Splunk pod to reload apps
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: "{{ _splunk_pod_name }}"
+        namespace: "{{ ocp4_workload_splunk_namespace }}"
+
+- name: Wait for Splunk Deployment to be ready after app reload
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: splunk
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+  register: _splunk_deployment_reload
+  retries: "{{ ocp4_workload_splunk_wait_retries }}"
+  delay: "{{ ocp4_workload_splunk_wait_delay }}"
+  until: >-
+    _splunk_deployment_reload.resources | length > 0 and
+    (_splunk_deployment_reload.resources[0].status.readyReplicas | default(0)) >= 1
+
+- name: Get Splunk pod name after reload
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+    label_selectors:
+      - app=splunk
+  register: _splunk_pods_reload
+  retries: 10
+  delay: 5
+  until: >-
+    _splunk_pods_reload.resources | length > 0 and
+    _splunk_pods_reload.resources[0].status.phase == 'Running'
+
+- name: Update Splunk pod name fact
+  ansible.builtin.set_fact:
+    _splunk_pod_name: "{{ _splunk_pods_reload.resources[0].metadata.name }}"
+
+# -------------------------------------------------------
+# TCP data inputs via Splunk REST API (replaces podman exec curl)
+# -------------------------------------------------------
+- name: Create Splunk TCP data inputs
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+    pod: "{{ _splunk_pod_name }}"
+    command: >-
+      curl -sk -u admin:{{ ocp4_workload_splunk_password }}
+      https://localhost:8089/services/data/inputs/tcp/raw
+      -d name={{ item.port }}
+      -d sourcetype={{ item.sourcetype }}
+      -d index={{ item.index }}
+  loop: "{{ ocp4_workload_splunk_data_inputs }}"
+  when: ocp4_workload_splunk_data_inputs | default([]) | length > 0
+
+# -------------------------------------------------------
+# Collect access info for summary
+# -------------------------------------------------------
+- name: Get Splunk Route hostname
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: splunk
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+  register: _splunk_route
+
+- name: Get Splunk ingestion NodePort values
+  kubernetes.core.k8s_info:
+    kind: Service
+    name: splunk-ingest
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+  register: _splunk_ingest_svc
+
+- name: Set NodePort facts
+  ansible.builtin.set_fact:
+    _splunk_syslog_nodeport: >-
+      {{ (_splunk_ingest_svc.resources[0].spec.ports
+          | selectattr('name', 'equalto', 'syslog-tcp')
+          | map(attribute='nodePort') | first) }}
+    _splunk_syslog_alt_nodeport: >-
+      {{ (_splunk_ingest_svc.resources[0].spec.ports
+          | selectattr('name', 'equalto', 'syslog-alt-tcp')
+          | map(attribute='nodePort') | first) }}
+    _splunk_hec_nodeport: >-
+      {{ (_splunk_ingest_svc.resources[0].spec.ports
+          | selectattr('name', 'equalto', 'hec')
+          | map(attribute='nodePort') | first) }}
+
+- name: Show Splunk deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "Splunk Web UI:            https://{{ _splunk_route.resources[0].spec.host }}"
+      - "Username:                 admin"
+      - "Password:                 {{ ocp4_workload_splunk_password }}"
+      - ""
+      - "Syslog TCP NodePort:      {{ _splunk_syslog_nodeport }}  (maps to port {{ ocp4_workload_splunk_syslog_port }})"
+      - "Syslog Alt TCP NodePort:  {{ _splunk_syslog_alt_nodeport }}  (maps to port {{ ocp4_workload_splunk_syslog_alt_port }})"
+      - "HEC NodePort:             {{ _splunk_hec_nodeport }}  (maps to port {{ ocp4_workload_splunk_hec_port }})"
+      - ""
+      - "Send syslog to:           <OCP worker node IP>:<NodePort above>"
+      - "Installed apps:           {{ ocp4_workload_splunk_apps | map(attribute='filename') | list }}"

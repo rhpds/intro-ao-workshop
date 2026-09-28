@@ -1,0 +1,32 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+ocp4_workload_mattermost_namespace: mattermost
+ocp4_workload_mattermost_version: "10.12"
+
+# Container images
+ocp4_workload_mattermost_image: "docker.io/mattermost/mattermost-team-edition:{{ ocp4_workload_mattermost_version }}"
+ocp4_workload_mattermost_postgres_image: docker.io/library/postgres:13
+
+# Credentials
+ocp4_workload_mattermost_postgres_db: mattermost
+ocp4_workload_mattermost_postgres_user: mmadmin
+ocp4_workload_mattermost_postgres_password: "{{ common_password | default('mmansible') }}"
+ocp4_workload_mattermost_admin_password: "{{ common_password | default('ansible123!') }}"
+
+# Site URL — auto-derived from the OCP Route when left empty
+ocp4_workload_mattermost_site_url: ""
+
+# Storage (empty string = use cluster default StorageClass)
+ocp4_workload_mattermost_postgres_storage_size: 10Gi
+ocp4_workload_mattermost_data_storage_size: 10Gi
+ocp4_workload_mattermost_storage_class: ""
+
+# Backup file — must exist in roles/ocp4_workload_mattermost/files/
+ocp4_workload_mattermost_backup_file: gjyd3bpjn3895dey1wb7tsyi7o_export.zip
+
+# Wait / retry tuning
+ocp4_workload_mattermost_wait_retries: 30
+ocp4_workload_mattermost_wait_delay: 10

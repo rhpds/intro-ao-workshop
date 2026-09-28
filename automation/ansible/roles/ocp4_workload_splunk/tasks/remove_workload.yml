@@ -1,0 +1,18 @@
+---
+- name: Remove Splunk namespace (deletes all namespaced resources)
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ocp4_workload_splunk_namespace }}"
+
+- name: Remove privileged ClusterRoleBinding for Splunk ServiceAccount
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "splunk-privileged-{{ ocp4_workload_splunk_namespace }}"

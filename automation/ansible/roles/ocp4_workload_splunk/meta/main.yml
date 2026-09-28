@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_splunk
+  author: Mitesh Sharma
+  description: >-
+    Deploys Splunk on OpenShift using a Deployment, PVCs, a Route for the web UI,
+    and a NodePort Service for syslog/HEC ingestion from external hosts.
+    Converted from the lb2961.ai_driven_aap.splunk Podman-based role.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []

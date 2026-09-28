@@ -1,0 +1,69 @@
+---
+# Role: lightspeed_mcp_server
+# Runs the Red Hat Lightspeed MCP server as a container on the bastion,
+# providing access to Red Hat Insights services (Advisor, Vulnerability,
+# Remediation, Inventory, RHSM, Image Builder, etc.).
+
+- name: Pull Lightspeed MCP container image
+  become: true
+  containers.podman.podman_image:
+    name: "{{ lightspeed_mcp_image }}"
+
+- name: Run Lightspeed MCP container (HTTP mode)
+  become: true
+  containers.podman.podman_container:
+    name: "{{ lightspeed_mcp_container_name }}"
+    image: "{{ lightspeed_mcp_image }}"
+    state: started
+    restart_policy: always
+    command: "{{ '--all-tools ' if lightspeed_mcp_all_tools | bool else '' }}http --host 0.0.0.0"
+    env:
+      LIGHTSPEED_CLIENT_ID: "{{ lightspeed_mcp_client_id }}"
+      LIGHTSPEED_CLIENT_SECRET: "{{ lightspeed_mcp_client_secret }}"
+    ports:
+      - "{{ lightspeed_mcp_port }}:8000"
+
+- name: Create systemd service for Lightspeed MCP server
+  become: true
+  ansible.builtin.template:
+    src: podman-container.service.j2
+    dest: "/etc/systemd/system/podman-{{ lightspeed_mcp_container_name }}.service"
+    mode: "0644"
+  vars:
+    container_name: "{{ lightspeed_mcp_container_name }}"
+  register: _lightspeed_service
+
+- name: Enable Lightspeed MCP server systemd service
+  become: true
+  ansible.builtin.systemd:
+    name: "podman-{{ lightspeed_mcp_container_name }}.service"
+    enabled: true
+    state: started
+    daemon_reload: "{{ _lightspeed_service.changed }}"
+
+- name: Wait for Lightspeed MCP server to be ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ lightspeed_mcp_port }}/mcp"
+    method: GET
+    status_code: [200, 405, 406]
+  register: _lightspeed_health
+  retries: 12
+  delay: 5
+  until: _lightspeed_health is not failed
+  ignore_errors: true
+
+- name: Get Lightspeed MCP container logs on failure
+  when: _lightspeed_health is failed
+  become: true
+  ansible.builtin.command: podman logs --tail 50 {{ lightspeed_mcp_container_name }}
+  register: _lightspeed_logs
+  changed_when: false
+  failed_when: false
+
+- name: Show Lightspeed MCP logs and fail
+  when: _lightspeed_health is failed
+  ansible.builtin.fail:
+    msg: |
+      Lightspeed MCP server failed to start. Container logs:
+      {{ _lightspeed_logs.stdout | default('no stdout') }}
+      {{ _lightspeed_logs.stderr | default('no stderr') }}

@@ -1,0 +1,46 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+ocp4_workload_splunk_namespace: splunk
+
+# Container image
+ocp4_workload_splunk_image: splunk/splunk:9.4.12
+
+# Credentials
+ocp4_workload_splunk_password: "{{ common_password | default('admin123') }}"
+
+# Ports (container-side — same values used in Service specs)
+ocp4_workload_splunk_web_port: 8000
+ocp4_workload_splunk_syslog_port: 5514
+ocp4_workload_splunk_syslog_alt_port: 1514
+ocp4_workload_splunk_hec_port: 8088
+
+# Storage (empty string = use cluster default StorageClass)
+ocp4_workload_splunk_var_storage_size: 20Gi
+ocp4_workload_splunk_etc_storage_size: 5Gi
+ocp4_workload_splunk_storage_class: ""
+
+# Splunk apps to install — downloaded directly inside the running pod via curl
+# Each entry needs 'url' and 'filename'
+ocp4_workload_splunk_apps:
+  - url: "https://my-splunk-apps.s3.us-east-1.amazonaws.com/apps/app-for-cisco-network-data_281.tgz"
+    filename: "app-for-cisco-network-data_281.tgz"
+  - url: "https://my-splunk-apps.s3.us-east-1.amazonaws.com/apps/deprecated-add-on-for-cisco-network-data_279.tgz"
+    filename: "deprecated-add-on-for-cisco-network-data_279.tgz"
+  - url: "https://my-splunk-apps.s3.us-east-1.amazonaws.com/apps/red-hat-event-driven-ansible-add-on-for-splunk_101.tgz"
+    filename: "red-hat-event-driven-ansible-add-on-for-splunk_101.tgz"
+
+ocp4_workload_splunk_container_apps_path: /opt/splunk/etc/apps
+
+# TCP data inputs created via Splunk REST API after startup.
+# Port 5514 is intentionally omitted — left for students to configure (lab exercise).
+ocp4_workload_splunk_data_inputs:
+  - port: "{{ ocp4_workload_splunk_syslog_alt_port }}"
+    sourcetype: syslog
+    index: main
+
+# Wait / retry tuning
+ocp4_workload_splunk_wait_retries: 30
+ocp4_workload_splunk_wait_delay: 10

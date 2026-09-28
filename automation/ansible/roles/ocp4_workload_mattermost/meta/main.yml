@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_mattermost
+  author: Mitesh Sharma
+  description: >-
+    Deploys Mattermost Team Edition on OpenShift using Deployments, PVCs, and a Route.
+    Converted from the lb2961.ai_driven_aap.mattermost Podman-based role.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []

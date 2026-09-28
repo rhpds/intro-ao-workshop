@@ -1,0 +1,18 @@
+---
+- name: Remove Mattermost namespace (deletes all namespaced resources)
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ocp4_workload_mattermost_namespace }}"
+
+- name: Remove anyuid ClusterRoleBinding for Mattermost ServiceAccount
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "mattermost-anyuid-{{ ocp4_workload_mattermost_namespace }}"

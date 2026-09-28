@@ -1,0 +1,467 @@
+---
+# -------------------------------------------------------
+# Namespace & RBAC
+# -------------------------------------------------------
+- name: Create Mattermost namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ocp4_workload_mattermost_namespace }}"
+
+- name: Create Mattermost ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: mattermost
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+
+# Upstream postgres:13 and mattermost images run as fixed non-root UIDs
+# (999 and 2000 respectively) that differ from OCP's random UID allocation,
+# so anyuid SCC is required.
+- name: Grant anyuid SCC to Mattermost ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "mattermost-anyuid-{{ ocp4_workload_mattermost_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:openshift:scc:anyuid
+      subjects:
+        - kind: ServiceAccount
+          name: mattermost
+          namespace: "{{ ocp4_workload_mattermost_namespace }}"
+
+# -------------------------------------------------------
+# Secrets
+# -------------------------------------------------------
+- name: Create PostgreSQL credentials Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: mattermost-postgres-credentials
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      type: Opaque
+      stringData:
+        POSTGRES_DB: "{{ ocp4_workload_mattermost_postgres_db }}"
+        POSTGRES_USER: "{{ ocp4_workload_mattermost_postgres_user }}"
+        POSTGRES_PASSWORD: "{{ ocp4_workload_mattermost_postgres_password }}"
+
+# -------------------------------------------------------
+# PersistentVolumeClaims
+# -------------------------------------------------------
+- name: Create PostgreSQL PVC
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: mattermost-postgres-data
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: "{{ ocp4_workload_mattermost_storage_class | default(omit, true) }}"
+        resources:
+          requests:
+            storage: "{{ ocp4_workload_mattermost_postgres_storage_size }}"
+
+- name: Create Mattermost application data PVC
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: mattermost-app-data
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: "{{ ocp4_workload_mattermost_storage_class | default(omit, true) }}"
+        resources:
+          requests:
+            storage: "{{ ocp4_workload_mattermost_data_storage_size }}"
+
+# -------------------------------------------------------
+# PostgreSQL Deployment
+# -------------------------------------------------------
+- name: Deploy PostgreSQL
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: mattermost-postgres
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: mattermost-postgres
+        template:
+          metadata:
+            labels:
+              app: mattermost-postgres
+          spec:
+            serviceAccountName: mattermost
+            securityContext:
+              runAsUser: 999
+              fsGroup: 999
+            containers:
+              - name: postgres
+                image: "{{ ocp4_workload_mattermost_postgres_image }}"
+                envFrom:
+                  - secretRef:
+                      name: mattermost-postgres-credentials
+                ports:
+                  - containerPort: 5432
+                volumeMounts:
+                  - name: postgres-data
+                    mountPath: /var/lib/postgresql/data
+                    subPath: pgdata
+                readinessProbe:
+                  exec:
+                    command: ["pg_isready", "-U", "{{ ocp4_workload_mattermost_postgres_user }}"]
+                  initialDelaySeconds: 5
+                  periodSeconds: 5
+                  failureThreshold: 12
+            volumes:
+              - name: postgres-data
+                persistentVolumeClaim:
+                  claimName: mattermost-postgres-data
+
+- name: Create PostgreSQL Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: mattermost-postgres
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        selector:
+          app: mattermost-postgres
+        ports:
+          - port: 5432
+            targetPort: 5432
+
+- name: Wait for PostgreSQL Deployment to be ready
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: mattermost-postgres
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+  register: _postgres_deployment
+  retries: "{{ ocp4_workload_mattermost_wait_retries }}"
+  delay: "{{ ocp4_workload_mattermost_wait_delay }}"
+  until: >-
+    _postgres_deployment.resources | length > 0 and
+    (_postgres_deployment.resources[0].status.readyReplicas | default(0)) >= 1
+
+# -------------------------------------------------------
+# Route (create early to resolve site URL before deploying app)
+# -------------------------------------------------------
+- name: Create Mattermost Route
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: mattermost
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        to:
+          kind: Service
+          name: mattermost
+        port:
+          targetPort: 8065
+        tls:
+          termination: edge
+          insecureEdgeTerminationPolicy: Redirect
+
+- name: Get Mattermost Route hostname
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: mattermost
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+  register: _mattermost_route
+  retries: 10
+  delay: 5
+  until: >-
+    _mattermost_route.resources | length > 0 and
+    _mattermost_route.resources[0].spec.host is defined
+
+- name: Set Mattermost site URL
+  ansible.builtin.set_fact:
+    _mattermost_site_url: >-
+      {{ ocp4_workload_mattermost_site_url
+         if ocp4_workload_mattermost_site_url
+         else 'https://' ~ _mattermost_route.resources[0].spec.host }}
+
+# -------------------------------------------------------
+# Mattermost Deployment
+# -------------------------------------------------------
+- name: Create Mattermost application Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: mattermost-config
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      type: Opaque
+      stringData:
+        MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+        MM_USERNAME: "{{ ocp4_workload_mattermost_postgres_user }}"
+        MM_PASSWORD: "{{ ocp4_workload_mattermost_postgres_password }}"
+        MM_DBNAME: "{{ ocp4_workload_mattermost_postgres_db }}"
+        MM_SQLSETTINGS_DATASOURCE: >-
+          postgres://{{ ocp4_workload_mattermost_postgres_user }}:{{
+          ocp4_workload_mattermost_postgres_password | urlencode
+          }}@mattermost-postgres:5432/{{
+          ocp4_workload_mattermost_postgres_db
+          }}?sslmode=disable&connect_timeout=10
+        MM_SERVICESETTINGS_SITEURL: "{{ _mattermost_site_url }}"
+
+- name: Deploy Mattermost
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: mattermost
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: mattermost
+        template:
+          metadata:
+            labels:
+              app: mattermost
+          spec:
+            serviceAccountName: mattermost
+            securityContext:
+              runAsUser: 2000
+              fsGroup: 2000
+            containers:
+              - name: mattermost
+                image: "{{ ocp4_workload_mattermost_image }}"
+                envFrom:
+                  - secretRef:
+                      name: mattermost-config
+                ports:
+                  - containerPort: 8065
+                # All mattermost directories consolidated on a single PVC via subPath
+                volumeMounts:
+                  - name: app-data
+                    mountPath: /mattermost/config
+                    subPath: config
+                  - name: app-data
+                    mountPath: /mattermost/data
+                    subPath: data
+                  - name: app-data
+                    mountPath: /mattermost/logs
+                    subPath: logs
+                  - name: app-data
+                    mountPath: /mattermost/plugins
+                    subPath: plugins
+                  - name: app-data
+                    mountPath: /mattermost/client/plugins
+                    subPath: client-plugins
+                  - name: app-data
+                    mountPath: /mattermost/bleve-indexes
+                    subPath: bleve-indexes
+                readinessProbe:
+                  httpGet:
+                    path: /api/v4/system/ping
+                    port: 8065
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  failureThreshold: 15
+            volumes:
+              - name: app-data
+                persistentVolumeClaim:
+                  claimName: mattermost-app-data
+
+- name: Create Mattermost Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: mattermost
+        namespace: "{{ ocp4_workload_mattermost_namespace }}"
+      spec:
+        selector:
+          app: mattermost
+        ports:
+          - port: 8065
+            targetPort: 8065
+
+- name: Wait for Mattermost Deployment to be ready
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: mattermost
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+  register: _mattermost_deployment
+  retries: "{{ ocp4_workload_mattermost_wait_retries }}"
+  delay: "{{ ocp4_workload_mattermost_wait_delay }}"
+  until: >-
+    _mattermost_deployment.resources | length > 0 and
+    (_mattermost_deployment.resources[0].status.readyReplicas | default(0)) >= 1
+
+# -------------------------------------------------------
+# Post-deployment configuration (replaces podman exec)
+# -------------------------------------------------------
+- name: Get Mattermost pod name
+  kubernetes.core.k8s_info:
+    kind: Pod
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    label_selectors:
+      - app=mattermost
+  register: _mattermost_pods
+  retries: 10
+  delay: 5
+  until: >-
+    _mattermost_pods.resources | length > 0 and
+    _mattermost_pods.resources[0].status.phase == 'Running'
+
+- name: Set Mattermost pod name fact
+  ansible.builtin.set_fact:
+    _mattermost_pod_name: "{{ _mattermost_pods.resources[0].metadata.name }}"
+
+- name: Copy Mattermost backup archive into pod
+  kubernetes.core.k8s_cp:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    remote_path: /tmp/backup.zip
+    local_path: "{{ role_path }}/files/{{ ocp4_workload_mattermost_backup_file }}"
+    state: to_pod
+
+- name: Wait for mmctl local mode to be available
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local system version
+  register: _mmctl_ready
+  retries: 10
+  delay: 5
+  until: _mmctl_ready.return_code == 0
+
+- name: Create Mattermost admin user
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: >-
+      mmctl --local user create
+      --email admin@ansible.com
+      --username admin
+      --password {{ ocp4_workload_mattermost_admin_password }}
+      --system-admin
+  register: _admin_create
+  failed_when: >-
+    _admin_create.return_code != 0 and
+    'already exists' not in (_admin_create.stderr | default(''))
+
+- name: Import Mattermost backup
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local import process --bypass-upload /tmp/backup.zip
+
+- name: Wait for backup import job to complete
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local import job list
+  register: _import_status
+  retries: 12
+  delay: 5
+  until: "'pending' not in (_import_status.stdout | default(''))"
+
+- name: Create ansibleadmin user
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: >-
+      mmctl --local user create
+      --email ansibleadmin@ansible.com
+      --username ansibleadmin
+      --password {{ ocp4_workload_mattermost_admin_password }}
+      --system-admin
+  register: _ansibleadmin_create
+  failed_when: >-
+    _ansibleadmin_create.return_code != 0 and
+    'already exists' not in (_ansibleadmin_create.stderr | default(''))
+
+- name: Add ansibleadmin to automators team
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local team add automators ansibleadmin@ansible.com
+
+- name: Get town-square channel details
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local channel search town-square
+  register: _channel_output
+
+- name: Extract town-square Channel ID
+  ansible.builtin.set_fact:
+    _channel_id: >-
+      {{ _channel_output.stdout_lines
+         | select('search', 'Channel ID')
+         | map('regex_replace', '^.*Channel ID :', '')
+         | map('trim')
+         | first }}
+
+- name: Create incoming webhook on town-square
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: >-
+      mmctl --local webhook create-incoming
+      --channel {{ _channel_id }}
+      --user admin
+      --display-name "Incoming Webhook"
+      --lock-to-channel
+
+- name: List webhooks
+  kubernetes.core.k8s_exec:
+    namespace: "{{ ocp4_workload_mattermost_namespace }}"
+    pod: "{{ _mattermost_pod_name }}"
+    command: mmctl --local webhook list
+  register: _webhook_list
+
+- name: Extract incoming webhook token
+  ansible.builtin.set_fact:
+    mattermost_incoming_token: "{{ _webhook_list.stdout | regex_search('\\((.*?)\\)', '\\1') | first }}"
+
+- name: Show Mattermost deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "Mattermost URL:             {{ _mattermost_site_url }}"
+      - "Admin username:             admin"
+      - "Admin password:             {{ ocp4_workload_mattermost_admin_password }}"
+      - "Incoming Webhook Token:     {{ mattermost_incoming_token }}"
