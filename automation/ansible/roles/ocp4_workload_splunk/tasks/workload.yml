@@ -386,3 +386,20 @@
       - ""
       - "Send syslog to:           <OCP worker node IP>:<NodePort above>"
       - "Installed apps:           {{ ocp4_workload_splunk_apps | map(attribute='filename') | list }}"
+
+- name: Share Splunk access details via agnosticd_user_info
+  agnosticd.core.agnosticd_user_info:
+    msg: |
+      Splunk Web UI: https://{{ _splunk_route.resources[0].spec.host }}
+      Username: admin
+      Password: {{ ocp4_workload_splunk_password }}
+      Syslog TCP NodePort: {{ _splunk_syslog_nodeport }} (port {{ ocp4_workload_splunk_syslog_port }})
+      Syslog Alt TCP NodePort: {{ _splunk_syslog_alt_nodeport }} (port {{ ocp4_workload_splunk_syslog_alt_port }})
+      HEC NodePort: {{ _splunk_hec_nodeport }} (port {{ ocp4_workload_splunk_hec_port }})
+    data:
+      splunk_url: "https://{{ _splunk_route.resources[0].spec.host }}"
+      splunk_username: admin
+      splunk_password: "{{ ocp4_workload_splunk_password }}"
+      splunk_syslog_nodeport: "{{ _splunk_syslog_nodeport }}"
+      splunk_syslog_alt_nodeport: "{{ _splunk_syslog_alt_nodeport }}"
+      splunk_hec_nodeport: "{{ _splunk_hec_nodeport }}"

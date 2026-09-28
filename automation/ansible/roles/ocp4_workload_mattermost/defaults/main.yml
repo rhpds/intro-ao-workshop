@@ -5,12 +5,13 @@ silent: false
 
 ocp4_workload_mattermost_namespace: mattermost
 ocp4_workload_mattermost_version: "10.12"
+ocp4_workload_mattermost_postgres_version: "20260923"
 
 # Container images
 # Mattermost upstream image — still needs anyuid SCC (hardcodes USER 2000)
 ocp4_workload_mattermost_image: "docker.io/mattermost/mattermost-team-edition:{{ ocp4_workload_mattermost_version }}"
 # OCP-native PostgreSQL (SCLORG / CentOS Stream 9) — runs with restricted SCC
-ocp4_workload_mattermost_postgres_image: quay.io/sclorg/postgresql-15-c9s:latest
+ocp4_workload_mattermost_postgres_image: "quay.io/sclorg/postgresql-15-c9s:{{ ocp4_workload_mattermost_postgres_version }}"
 
 # Credentials
 ocp4_workload_mattermost_postgres_db: mattermost

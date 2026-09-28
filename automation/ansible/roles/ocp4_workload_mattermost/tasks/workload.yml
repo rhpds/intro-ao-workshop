@@ -575,3 +575,16 @@
       - "Admin username:             admin"
       - "Admin password:             {{ ocp4_workload_mattermost_admin_password }}"
       - "Incoming Webhook Token:     {{ mattermost_incoming_token }}"
+
+- name: Share Mattermost access details via agnosticd_user_info
+  agnosticd.core.agnosticd_user_info:
+    msg: |
+      Mattermost URL: {{ _mattermost_site_url }}
+      Username: admin
+      Password: {{ ocp4_workload_mattermost_admin_password }}
+      Incoming Webhook Token: {{ mattermost_incoming_token }}
+    data:
+      mattermost_url: "{{ _mattermost_site_url }}"
+      mattermost_username: admin
+      mattermost_password: "{{ ocp4_workload_mattermost_admin_password }}"
+      mattermost_webhook_token: "{{ mattermost_incoming_token }}"
