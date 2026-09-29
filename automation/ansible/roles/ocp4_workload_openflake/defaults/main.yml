@@ -1,0 +1,66 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+ocp4_workload_openflake_namespace: openflake
+ocp4_workload_openflake_release_name: openflake
+ocp4_workload_openflake_create_namespace: true
+
+# Vendored inside the role: ansible-galaxy installs roles standalone, so a
+# path outside role_path would not survive installation.
+ocp4_workload_openflake_chart_path: "{{ role_path }}/files/helm/openflake"
+
+ocp4_workload_openflake_image_registry: quay.io/rlopez133/openflake
+ocp4_workload_openflake_image_tag: stable
+# The tag is mutable, so IfNotPresent would reuse a stale cached layer.
+ocp4_workload_openflake_image_pull_policy: Always
+ocp4_workload_openflake_image_pull_secrets: []
+
+# Empty lets OpenShift generate a hostname, which the role then reconciles
+# into BASE_URL/CORS_ORIGINS with a second Helm pass. Setting it skips that.
+ocp4_workload_openflake_route_host: ""
+ocp4_workload_openflake_route_enabled: true
+ocp4_workload_openflake_route_tls_enabled: true
+
+ocp4_workload_openflake_admin_username: admin
+# Cached in output_dir, so every reference in the same run resolves to the
+# same value -- including the one that configures the MCP workload.
+ocp4_workload_openflake_admin_password: >-
+  {{ lookup('password', output_dir ~ '/openflake_admin_password',
+            length=20, chars=['ascii_letters', 'digits']) }}
+# Left empty, the chart generates these and preserves them across upgrades.
+ocp4_workload_openflake_secret_key: ""
+ocp4_workload_openflake_postgres_password: ""
+ocp4_workload_openflake_existing_secret: ""
+
+ocp4_workload_openflake_postgres_storage_size: 10Gi
+ocp4_workload_openflake_attachments_storage_size: 5Gi
+ocp4_workload_openflake_storage_class: ""
+
+# Deep-merged last, so it wins over everything above.
+ocp4_workload_openflake_values: {}
+
+ocp4_workload_openflake_wait: true
+ocp4_workload_openflake_wait_timeout: 10m
+ocp4_workload_openflake_namespace_delete_timeout: 600
+ocp4_workload_openflake_verify: true
+ocp4_workload_openflake_verify_retries: 30
+ocp4_workload_openflake_verify_delay: 10
+ocp4_workload_openflake_verify_public_url: false
+ocp4_workload_openflake_verify_public_url_certs: true
+
+# helm shells out to its own binary and needs a kubeconfig of its own -- it
+# does not inherit the connection kubernetes.core.k8s uses.
+ocp4_workload_openflake_api_url: "{{ openshift_api_url | default('') }}"
+ocp4_workload_openflake_api_key: "{{ openshift_api_key | default('') }}"
+ocp4_workload_openflake_validate_certs: false
+
+ocp4_workload_openflake_helm_binary: ""
+# Download helm when it is not on PATH. Needs egress to get.helm.sh.
+ocp4_workload_openflake_helm_install_if_missing: true
+ocp4_workload_openflake_helm_version: v3.16.3
+ocp4_workload_openflake_helm_install_dir: /tmp/openflake-helm
+
+ocp4_workload_openflake_remove_pvcs: true
+ocp4_workload_openflake_remove_namespace: true

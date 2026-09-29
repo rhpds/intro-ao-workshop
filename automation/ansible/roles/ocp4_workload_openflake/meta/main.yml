@@ -1,0 +1,17 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_openflake
+  author: Roger Lopez
+  description: >-
+    Deploys OpenFlake -- a lightweight ITSM platform with a
+    ServiceNow-compatible REST API -- on OpenShift via its Helm chart.
+    Converted from rh1-lb1284 playbooks/openshift/openflake.
+  license: Apache-2.0
+  min_ansible_version: "2.15"
+  galaxy_tags:
+    - openshift
+    - kubernetes
+    - helm
+    - itsm
+
+dependencies: []

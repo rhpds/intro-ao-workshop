@@ -1,0 +1,139 @@
+---
+- name: Run preflight checks
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Assemble the base Helm values
+  ansible.builtin.set_fact:
+    _ocp4_workload_openflake_release_values:
+      image:
+        registry: "{{ ocp4_workload_openflake_image_registry }}"
+        tag: "{{ ocp4_workload_openflake_image_tag }}"
+        pullPolicy: "{{ ocp4_workload_openflake_image_pull_policy }}"
+      auth:
+        adminUsername: "{{ ocp4_workload_openflake_admin_username }}"
+      route:
+        enabled: "{{ ocp4_workload_openflake_route_enabled | bool }}"
+        tls:
+          enabled: "{{ ocp4_workload_openflake_route_tls_enabled | bool }}"
+      postgresql:
+        persistence:
+          size: "{{ ocp4_workload_openflake_postgres_storage_size }}"
+      backend:
+        attachments:
+          persistence:
+            size: "{{ ocp4_workload_openflake_attachments_storage_size }}"
+
+- name: Layer in the optional settings that were supplied
+  ansible.builtin.set_fact:
+    _ocp4_workload_openflake_release_values: >-
+      {{
+        _ocp4_workload_openflake_release_values
+        | combine({'route': {'host': ocp4_workload_openflake_route_host}}
+                  if ocp4_workload_openflake_route_host else {}, recursive=True)
+        | combine({'image': {'pullSecrets': ocp4_workload_openflake_image_pull_secrets}}
+                  if ocp4_workload_openflake_image_pull_secrets else {}, recursive=True)
+        | combine({'postgresql': {'persistence': {'storageClass': ocp4_workload_openflake_storage_class}},
+                   'backend': {'attachments': {'persistence': {'storageClass': ocp4_workload_openflake_storage_class}}}}
+                  if ocp4_workload_openflake_storage_class else {}, recursive=True)
+      }}
+
+# Merged separately so the whole values dict can be hidden from the job
+# output without also hiding the settings above.
+- name: Merge explicitly supplied credentials
+  ansible.builtin.set_fact:
+    _ocp4_workload_openflake_release_values: >-
+      {{
+        _ocp4_workload_openflake_release_values
+        | combine({'auth': {'adminPassword': ocp4_workload_openflake_admin_password}}
+                  if ocp4_workload_openflake_admin_password else {}, recursive=True)
+        | combine({'auth': {'secretKey': ocp4_workload_openflake_secret_key}}
+                  if ocp4_workload_openflake_secret_key else {}, recursive=True)
+        | combine({'auth': {'existingSecret': ocp4_workload_openflake_existing_secret}}
+                  if ocp4_workload_openflake_existing_secret else {}, recursive=True)
+        | combine({'postgresql': {'password': ocp4_workload_openflake_postgres_password}}
+                  if ocp4_workload_openflake_postgres_password else {}, recursive=True)
+        | combine(ocp4_workload_openflake_values, recursive=True)
+      }}
+  no_log: true
+
+- name: Install or upgrade the OpenFlake release
+  kubernetes.core.helm:
+    release_name: "{{ ocp4_workload_openflake_release_name }}"
+    release_namespace: "{{ ocp4_workload_openflake_namespace }}"
+    chart_ref: "{{ ocp4_workload_openflake_chart_path }}"
+    create_namespace: "{{ ocp4_workload_openflake_create_namespace | bool }}"
+    release_values: "{{ _ocp4_workload_openflake_release_values }}"
+    binary_path: "{{ ocp4_workload_openflake_helm_binary | default(omit, true) }}"
+    host: "{{ ocp4_workload_openflake_api_url | default(omit, true) }}"
+    api_key: "{{ ocp4_workload_openflake_api_key | default(omit, true) }}"
+    validate_certs: "{{ ocp4_workload_openflake_validate_certs | bool }}"
+    wait: "{{ ocp4_workload_openflake_wait | bool }}"
+    wait_timeout: "{{ ocp4_workload_openflake_wait_timeout }}"
+    release_state: present
+
+# When no hostname was supplied, OpenShift picked one. The backend was
+# installed pointing BASE_URL/CORS_ORIGINS at the in-cluster Service, so read
+# the real hostname back and run a second pass. Helm is idempotent, so later
+# runs converge to a no-op rather than churning the deployment.
+- name: Look up the Route created for this release
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    namespace: "{{ ocp4_workload_openflake_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ ocp4_workload_openflake_release_name }}"
+      - "app.kubernetes.io/part-of=openflake"
+  register: _ocp4_workload_openflake_route_info
+  when:
+    - ocp4_workload_openflake_route_enabled | bool
+    - not ocp4_workload_openflake_route_host
+
+- name: Record the hostname OpenShift generated
+  ansible.builtin.set_fact:
+    _ocp4_workload_openflake_generated_host: >-
+      {{ (_ocp4_workload_openflake_route_info.resources | default([]) | first | default({})).spec.host | default('') }}
+  when:
+    - ocp4_workload_openflake_route_enabled | bool
+    - not ocp4_workload_openflake_route_host
+
+- name: Reconcile BASE_URL and CORS_ORIGINS with the generated hostname
+  kubernetes.core.helm:
+    release_name: "{{ ocp4_workload_openflake_release_name }}"
+    release_namespace: "{{ ocp4_workload_openflake_namespace }}"
+    chart_ref: "{{ ocp4_workload_openflake_chart_path }}"
+    release_values: >-
+      {{ _ocp4_workload_openflake_release_values
+         | combine({'route': {'host': _ocp4_workload_openflake_generated_host}}, recursive=True) }}
+    binary_path: "{{ ocp4_workload_openflake_helm_binary | default(omit, true) }}"
+    host: "{{ ocp4_workload_openflake_api_url | default(omit, true) }}"
+    api_key: "{{ ocp4_workload_openflake_api_key | default(omit, true) }}"
+    validate_certs: "{{ ocp4_workload_openflake_validate_certs | bool }}"
+    wait: "{{ ocp4_workload_openflake_wait | bool }}"
+    wait_timeout: "{{ ocp4_workload_openflake_wait_timeout }}"
+    release_state: present
+  when: _ocp4_workload_openflake_generated_host | default('') | length > 0
+
+- name: Record the public URL
+  ansible.builtin.set_fact:
+    ocp4_workload_openflake_public_url: >-
+      {{ (ocp4_workload_openflake_route_tls_enabled | bool) | ternary('https://', 'http://')
+         ~ (ocp4_workload_openflake_route_host or _ocp4_workload_openflake_generated_host | default('')) }}
+  when: ocp4_workload_openflake_route_enabled | bool
+
+- name: Verify the deployment
+  ansible.builtin.include_tasks: verify.yml
+  when: ocp4_workload_openflake_verify | bool
+
+- name: Share OpenFlake access details via agnosticd_user_info
+  agnosticd.core.agnosticd_user_info:
+    msg: |
+      OpenFlake URL:      {{ ocp4_workload_openflake_public_url }}
+      OpenFlake username: {{ ocp4_workload_openflake_admin_username }}
+      OpenFlake password: {{ ocp4_workload_openflake_admin_password }}
+    data:
+      openflake_url: "{{ ocp4_workload_openflake_public_url }}"
+      openflake_admin_username: "{{ ocp4_workload_openflake_admin_username }}"
+      openflake_admin_password: "{{ ocp4_workload_openflake_admin_password }}"
+      openflake_namespace: "{{ ocp4_workload_openflake_namespace }}"
+  when: ocp4_workload_openflake_route_enabled | bool
+  no_log: true

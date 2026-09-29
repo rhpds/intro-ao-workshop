@@ -1,0 +1,9 @@
+---
+# default(..., true) treats an empty string as unset, so an empty
+# ocp4_workload_openflake_helm_binary falls back to a PATH lookup.
+_ocp4_workload_openflake_helm_bin: "{{ ocp4_workload_openflake_helm_binary | default('helm', true) }}"
+
+# _helm_arch is set from `uname -m` in preflight.yml, so these only resolve
+# inside that block.
+_ocp4_workload_openflake_helm_tarball: "helm-{{ ocp4_workload_openflake_helm_version }}-linux-{{ _ocp4_workload_openflake_helm_arch | default('') }}.tar.gz"
+_ocp4_workload_openflake_helm_url: "https://get.helm.sh/{{ _ocp4_workload_openflake_helm_tarball }}"
