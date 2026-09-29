@@ -129,12 +129,14 @@
   when: ocp4_workload_openflake_mcp_image | length == 0
   ansible.builtin.uri:
     url: >-
-      {{ lookup('env', 'K8S_AUTH_HOST') }}/apis/build.openshift.io/v1/namespaces/{{
+      {{ openshift_api_url | default(lookup('env', 'K8S_AUTH_HOST'))
+      }}/apis/build.openshift.io/v1/namespaces/{{
       ocp4_workload_openflake_mcp_namespace }}/buildconfigs/{{
       ocp4_workload_openflake_mcp_app_name }}/instantiatebinary
     method: POST
     headers:
-      Authorization: "Bearer {{ lookup('env', 'K8S_AUTH_API_KEY') }}"
+      Authorization: >-
+        Bearer {{ openshift_api_key | default(lookup('env', 'K8S_AUTH_API_KEY')) }}
       Content-Type: application/octet-stream
     src: /tmp/openflake-build-context.tar.gz
     validate_certs: false
