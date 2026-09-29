@@ -6,12 +6,19 @@
   changed_when: false
   failed_when: false
 
-# kubernetes.core.helm shells out to the helm CLI, which the stock execution
-# environments do not ship. Rather than require a custom EE, fetch the
-# official release into a scratch directory and use it from there.
+# command only returns rc when it actually execs. A missing binary fails
+# before that and returns a dict with no rc at all, so every check below
+# defaults to 1 rather than reading an attribute that may not exist.
+- name: Normalise the result of the helm check
+  ansible.builtin.set_fact:
+    _ocp4_workload_openflake_helm_rc: "{{ _ocp4_workload_openflake_helm_check.rc | default(1) | int }}"
+
+# kubernetes.core.helm shells out to the helm CLI, which ee-multicloud does
+# not ship -- so this runs on every deploy, not just as a fallback. It needs
+# egress to get.helm.sh from the execution node.
 - name: Install helm on the fly
   when:
-    - _ocp4_workload_openflake_helm_check.rc != 0
+    - _ocp4_workload_openflake_helm_rc | int != 0
     - ocp4_workload_openflake_helm_install_if_missing | bool
   block:
     - name: Read the execution node architecture
@@ -87,25 +94,29 @@
       changed_when: false
       failed_when: false
 
+    - name: Normalise the result of the re-check
+      ansible.builtin.set_fact:
+        _ocp4_workload_openflake_helm_rc: "{{ _ocp4_workload_openflake_helm_check.rc | default(1) | int }}"
+
 - name: Fail when helm is unavailable
   ansible.builtin.fail:
     msg: |
       Could not run '{{ _ocp4_workload_openflake_helm_bin }} version --short'
-      (rc={{ _ocp4_workload_openflake_helm_check.rc }}).
+      (rc={{ _ocp4_workload_openflake_helm_rc }}).
 
       kubernetes.core.helm shells out to the helm CLI. Either:
         - leave ocp4_workload_openflake_helm_install_if_missing true (the
           default) and give the execution environment egress to get.helm.sh; or
         - set ocp4_workload_openflake_helm_binary to an absolute path to helm.
 
-      Error: {{ _ocp4_workload_openflake_helm_check.stderr
-                | default(_ocp4_workload_openflake_helm_check.msg | default('')) | trim }}
-  when: _ocp4_workload_openflake_helm_check.rc != 0
+      Error: {{ _ocp4_workload_openflake_helm_check.stderr | default('', true)
+                or _ocp4_workload_openflake_helm_check.msg | default('no error reported') }}
+  when: _ocp4_workload_openflake_helm_rc | int != 0
 
 - name: Report the helm version in use
   ansible.builtin.debug:
     msg: >-
-      Using helm {{ _ocp4_workload_openflake_helm_check.stdout | trim }}
+      Using helm {{ _ocp4_workload_openflake_helm_check.stdout | default('') | trim }}
       at '{{ _ocp4_workload_openflake_helm_bin }}'
 
 - name: Confirm the chart directory exists
