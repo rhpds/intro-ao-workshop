@@ -6,9 +6,10 @@ silent: false
 ocp4_workload_openflake_mcp_namespace: openflake-mcp
 ocp4_workload_openflake_mcp_app_name: openflake-mcp
 
-# Source repository — the OCP build clones this directly
-ocp4_workload_openflake_mcp_git_uri: https://github.com/rlopez133/openflake-mcp.git
-ocp4_workload_openflake_mcp_git_ref: main
+# Pre-built container image.
+# Leave empty ("") to build from git on OCP (BuildConfig).
+# Set to a quay.io/... image to skip the build and deploy directly.
+ocp4_workload_openflake_mcp_image: ""
 
 # Required at runtime — supply via AAP survey or -e
 ocp4_workload_openflake_mcp_instance_url: ""

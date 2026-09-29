@@ -10,6 +10,8 @@ spec:
     local: true
 
 ---
+# Binary source: the Ansible role uploads Containerfile + start.py from
+# files/app/ directly — no external git repository required.
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:
@@ -18,10 +20,7 @@ metadata:
     app: "{{ ocp4_workload_openflake_mcp_app_name }}"
 spec:
   source:
-    type: Git
-    git:
-      uri: "{{ ocp4_workload_openflake_mcp_git_uri }}"
-      ref: "{{ ocp4_workload_openflake_mcp_git_ref }}"
+    type: Binary
   strategy:
     type: Docker
     dockerStrategy:

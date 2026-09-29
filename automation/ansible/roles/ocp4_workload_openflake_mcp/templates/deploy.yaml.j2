@@ -2,37 +2,32 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: openflake-mcp
+  name: "{{ ocp4_workload_openflake_mcp_app_name }}"
+  namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
   labels:
-    app: openflake-mcp
-  annotations:
-    image.openshift.io/triggers: |
-      [{
-        "from": {"kind": "ImageStreamTag", "name": "openflake-mcp:latest"},
-        "fieldPath": "spec.template.spec.containers[?(@.name==\"openflake-mcp\")].image"
-      }]
+    app: "{{ ocp4_workload_openflake_mcp_app_name }}"
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: openflake-mcp
+      app: "{{ ocp4_workload_openflake_mcp_app_name }}"
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
-        app: openflake-mcp
+        app: "{{ ocp4_workload_openflake_mcp_app_name }}"
     spec:
       containers:
-        - name: openflake-mcp
-          image: openflake-mcp:latest
+        - name: "{{ ocp4_workload_openflake_mcp_app_name }}"
+          image: "{{ _effective_image }}"
           imagePullPolicy: Always
           ports:
             - name: app
               containerPort: 8000
           envFrom:
             - secretRef:
-                name: openflake-mcp-env
+                name: "{{ ocp4_workload_openflake_mcp_app_name }}-env"
           readinessProbe:
             tcpSocket:
               port: 8000
@@ -100,7 +95,7 @@ spec:
       volumes:
         - name: nginx-conf
           secret:
-            secretName: openflake-mcp-nginx-conf
+            secretName: "{{ ocp4_workload_openflake_mcp_app_name }}-nginx-conf"
             defaultMode: 0440
         - name: nginx-cache
           emptyDir: {}
@@ -111,13 +106,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: openflake-mcp
+  name: "{{ ocp4_workload_openflake_mcp_app_name }}"
+  namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
   labels:
-    app: openflake-mcp
+    app: "{{ ocp4_workload_openflake_mcp_app_name }}"
 spec:
   type: ClusterIP
   selector:
-    app: openflake-mcp
+    app: "{{ ocp4_workload_openflake_mcp_app_name }}"
   ports:
     - name: http
       port: 8080
@@ -127,15 +123,16 @@ spec:
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: openflake-mcp
+  name: "{{ ocp4_workload_openflake_mcp_app_name }}"
+  namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
   labels:
-    app: openflake-mcp
+    app: "{{ ocp4_workload_openflake_mcp_app_name }}"
   annotations:
     haproxy.router.openshift.io/timeout: 1h
 spec:
   to:
     kind: Service
-    name: openflake-mcp
+    name: "{{ ocp4_workload_openflake_mcp_app_name }}"
     weight: 100
   port:
     targetPort: http

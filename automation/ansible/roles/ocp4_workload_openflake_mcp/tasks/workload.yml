@@ -107,24 +107,61 @@
   no_log: true
 
 # -------------------------------------------------------
-# Build
+# Build (only when no pre-built image is provided)
 # -------------------------------------------------------
 - name: Apply ImageStream and BuildConfig
+  when: ocp4_workload_openflake_mcp_image | length == 0
   kubernetes.core.k8s:
     state: present
     namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
     definition: "{{ lookup('template', role_path + '/templates/build.yaml.j2') | from_yaml_all | list }}"
 
-- name: Start a build and wait for it to complete
-  community.okd.openshift_build:
-    namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
-    build_config_name: "{{ ocp4_workload_openflake_mcp_app_name }}"
-    state: started
-    wait: true
-    wait_timeout: "{{ ocp4_workload_openflake_mcp_build_timeout }}"
-  register: _build_result
+# community.okd.openshift_build doesn't support binary builds (no from_dir).
+# Instead: tar the role's files/app/ directory and POST to the OCP
+# instantiatebinary endpoint — equivalent to `oc start-build --from-dir`.
+- name: Create build context tar from bundled role files
+  when: ocp4_workload_openflake_mcp_image | length == 0
+  ansible.builtin.command:
+    cmd: tar -czf /tmp/openflake-build-context.tar.gz -C {{ role_path }}/files/app .
+  changed_when: true
 
-- name: Confirm the image tag was pushed to the ImageStream
+- name: Upload build context and trigger OCP binary build
+  when: ocp4_workload_openflake_mcp_image | length == 0
+  ansible.builtin.uri:
+    url: >-
+      {{ lookup('env', 'K8S_AUTH_HOST') }}/apis/build.openshift.io/v1/namespaces/{{
+      ocp4_workload_openflake_mcp_namespace }}/buildconfigs/{{
+      ocp4_workload_openflake_mcp_app_name }}/instantiatebinary
+    method: POST
+    headers:
+      Authorization: "Bearer {{ lookup('env', 'K8S_AUTH_API_KEY') }}"
+      Content-Type: application/octet-stream
+    src: /tmp/openflake-build-context.tar.gz
+    validate_certs: false
+    status_code: [200, 201]
+    timeout: 30
+  register: _binary_build
+  no_log: true
+
+- name: Wait for binary build to complete
+  when: ocp4_workload_openflake_mcp_image | length == 0
+  kubernetes.core.k8s_info:
+    api_version: build.openshift.io/v1
+    kind: Build
+    name: "{{ _binary_build.json.metadata.name }}"
+    namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
+  register: _build_status
+  retries: "{{ (ocp4_workload_openflake_mcp_build_timeout | int / 10) | int }}"
+  delay: 10
+  until: >-
+    _build_status.resources | length > 0 and
+    _build_status.resources[0].status.phase in ['Complete', 'Failed', 'Error']
+  failed_when: >-
+    _build_status.resources | length == 0 or
+    _build_status.resources[0].status.phase in ['Failed', 'Error']
+
+- name: Confirm image tag was pushed to ImageStream
+  when: ocp4_workload_openflake_mcp_image | length == 0
   kubernetes.core.k8s_info:
     api_version: image.openshift.io/v1
     kind: ImageStreamTag
@@ -133,6 +170,15 @@
   register: _image_tag
   failed_when: _image_tag.resources | length == 0
 
+# Resolve the effective image: use the ImageStream tag when built on OCP,
+# or the supplied external image when one is provided.
+- name: Set effective image fact
+  ansible.builtin.set_fact:
+    _effective_image: >-
+      {{ ocp4_workload_openflake_mcp_image
+         if ocp4_workload_openflake_mcp_image | length > 0
+         else (ocp4_workload_openflake_mcp_app_name + ':latest') }}
+
 # -------------------------------------------------------
 # Deploy
 # -------------------------------------------------------
@@ -140,7 +186,7 @@
   kubernetes.core.k8s:
     state: present
     namespace: "{{ ocp4_workload_openflake_mcp_namespace }}"
-    definition: "{{ lookup('file', role_path + '/files/deploy.yaml') | from_yaml_all | list }}"
+    definition: "{{ lookup('template', role_path + '/templates/deploy.yaml.j2') | from_yaml_all | list }}"
 
 # Forces a fresh pod when only secrets changed — envFrom is resolved at pod
 # start, so editing the secret alone has no effect without a restart.
@@ -210,7 +256,7 @@
       - "Header:     Authorization: Bearer {{ _effective_token }}"
       - "Namespace:  {{ ocp4_workload_openflake_mcp_namespace }}"
       - "Instance:   {{ _openflake_instance_url }}"
-      - "Built:      {{ ocp4_workload_openflake_mcp_git_ref }} @ {{ ocp4_workload_openflake_mcp_git_uri }}"
+      - "Image:      {{ ocp4_workload_openflake_mcp_image if ocp4_workload_openflake_mcp_image | length > 0 else 'binary build from role files/app/' }}"
       - "Gate:       unauthenticated request returned 401"
       - >-
         {{ 'Token: newly minted this run.' if _write_token
