@@ -1,0 +1,187 @@
+---
+# -------------------------------------------------------
+# Namespace & RBAC
+# -------------------------------------------------------
+- name: Create Lightspeed MCP namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+
+- name: Create Lightspeed MCP ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: lightspeed-mcp
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+
+# ghcr.io/redhatinsights/red-hat-lightspeed-mcp may run as a fixed non-root UID;
+# anyuid allows it to start without OCP rejecting the security context.
+- name: Grant anyuid SCC to Lightspeed MCP ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "lightspeed-mcp-anyuid-{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:openshift:scc:anyuid
+      subjects:
+        - kind: ServiceAccount
+          name: lightspeed-mcp
+          namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+
+# -------------------------------------------------------
+# Credentials Secret
+# -------------------------------------------------------
+- name: Create Lightspeed MCP credentials Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: lightspeed-mcp-credentials
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      type: Opaque
+      stringData:
+        LIGHTSPEED_CLIENT_ID: "{{ ocp4_workload_lightspeed_mcp_server_client_id }}"
+        LIGHTSPEED_CLIENT_SECRET: "{{ ocp4_workload_lightspeed_mcp_server_client_secret }}"
+
+# -------------------------------------------------------
+# Deployment (stateless — no PVC required)
+# -------------------------------------------------------
+- name: Set Lightspeed MCP container args
+  ansible.builtin.set_fact:
+    _lightspeed_args: >-
+      {{ ['--all-tools', 'http', '--host', '0.0.0.0']
+         if ocp4_workload_lightspeed_mcp_server_all_tools | bool
+         else ['http', '--host', '0.0.0.0'] }}
+
+- name: Deploy Lightspeed MCP server
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: lightspeed-mcp
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: lightspeed-mcp
+        template:
+          metadata:
+            labels:
+              app: lightspeed-mcp
+          spec:
+            serviceAccountName: lightspeed-mcp
+            containers:
+              - name: lightspeed-mcp
+                image: "{{ ocp4_workload_lightspeed_mcp_server_image }}"
+                args: "{{ _lightspeed_args }}"
+                envFrom:
+                  - secretRef:
+                      name: lightspeed-mcp-credentials
+                ports:
+                  - containerPort: "{{ ocp4_workload_lightspeed_mcp_server_port }}"
+                    name: mcp
+                readinessProbe:
+                  httpGet:
+                    path: /mcp
+                    port: mcp
+                  initialDelaySeconds: 10
+                  periodSeconds: 5
+                  failureThreshold: 12
+
+# -------------------------------------------------------
+# Service & Route
+# -------------------------------------------------------
+- name: Create Lightspeed MCP Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: lightspeed-mcp
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      spec:
+        selector:
+          app: lightspeed-mcp
+        ports:
+          - name: mcp
+            port: "{{ ocp4_workload_lightspeed_mcp_server_port }}"
+            targetPort: mcp
+
+- name: Create Lightspeed MCP Route
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: route.openshift.io/v1
+      kind: Route
+      metadata:
+        name: lightspeed-mcp
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      spec:
+        to:
+          kind: Service
+          name: lightspeed-mcp
+        port:
+          targetPort: mcp
+        tls:
+          termination: edge
+          insecureEdgeTerminationPolicy: Redirect
+
+# -------------------------------------------------------
+# Health check
+# -------------------------------------------------------
+- name: Wait for Lightspeed MCP Deployment to be ready
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    name: lightspeed-mcp
+    namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+  register: _lightspeed_deployment
+  retries: "{{ ocp4_workload_lightspeed_mcp_server_wait_retries }}"
+  delay: "{{ ocp4_workload_lightspeed_mcp_server_wait_delay }}"
+  failed_when: false
+  until: >-
+    _lightspeed_deployment.resources | default([]) | length > 0 and
+    (_lightspeed_deployment.resources[0].status.readyReplicas | default(0)) >= 1
+
+- name: Get Lightspeed MCP Route hostname
+  kubernetes.core.k8s_info:
+    api_version: route.openshift.io/v1
+    kind: Route
+    name: lightspeed-mcp
+    namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+  register: _lightspeed_route
+
+- name: Set Lightspeed MCP endpoint URL fact
+  ansible.builtin.set_fact:
+    lightspeed_mcp_endpoint: "https://{{ _lightspeed_route.resources[0].spec.host }}/mcp"
+
+- name: Show Lightspeed MCP deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "Lightspeed MCP endpoint:  {{ lightspeed_mcp_endpoint }}"
+      - "All tools enabled:        {{ ocp4_workload_lightspeed_mcp_server_all_tools }}"
+
+- name: Share Lightspeed MCP access details via agnosticd_user_info
+  agnosticd.core.agnosticd_user_info:
+    msg: |
+      Lightspeed MCP endpoint: {{ lightspeed_mcp_endpoint }}
+      All tools enabled: {{ ocp4_workload_lightspeed_mcp_server_all_tools }}
+    data:
+      lightspeed_mcp_endpoint: "{{ lightspeed_mcp_endpoint }}"

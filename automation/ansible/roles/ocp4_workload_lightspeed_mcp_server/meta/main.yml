@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_lightspeed_mcp_server
+  author: Mitesh Sharma
+  description: >-
+    Deploys the Red Hat Lightspeed MCP server on OpenShift, exposing Red Hat Insights
+    toolsets (Advisor, Vulnerability, Remediation, Inventory, RHSM, Image Builder, etc.)
+    via an OCP Route. Converted from the lb2961.ai_driven_aap.lightspeed_mcp_server role.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []

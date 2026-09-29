@@ -1,0 +1,25 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+ocp4_workload_lightspeed_mcp_server_namespace: lightspeed-mcp
+
+# Container image — pin to a specific digest/tag in production instead of 'latest'
+ocp4_workload_lightspeed_mcp_server_image: ghcr.io/redhatinsights/red-hat-lightspeed-mcp:latest
+
+# Enable all available Insights tool groups.
+# Set to false to start with a minimal toolset.
+ocp4_workload_lightspeed_mcp_server_all_tools: true
+
+# Service account credentials from console.redhat.com → Settings → Service Accounts
+# Must be supplied at runtime — do not hardcode in catalog YAML.
+ocp4_workload_lightspeed_mcp_server_client_id: ""
+ocp4_workload_lightspeed_mcp_server_client_secret: ""
+
+# MCP endpoint port (container-internal; the Route exposes it over HTTPS)
+ocp4_workload_lightspeed_mcp_server_port: 8000
+
+# Wait / retry tuning
+ocp4_workload_lightspeed_mcp_server_wait_retries: 12
+ocp4_workload_lightspeed_mcp_server_wait_delay: 10

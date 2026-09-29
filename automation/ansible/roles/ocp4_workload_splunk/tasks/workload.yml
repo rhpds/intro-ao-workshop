@@ -245,8 +245,9 @@
   register: _splunk_deployment
   retries: "{{ ocp4_workload_splunk_wait_retries }}"
   delay: "{{ ocp4_workload_splunk_wait_delay }}"
+  failed_when: false
   until: >-
-    _splunk_deployment.resources | length > 0 and
+    _splunk_deployment.resources | default([]) | length > 0 and
     (_splunk_deployment.resources[0].status.readyReplicas | default(0)) >= 1
 
 - name: Get Splunk pod name
@@ -258,8 +259,9 @@
   register: _splunk_pods
   retries: 10
   delay: 5
+  failed_when: false
   until: >-
-    _splunk_pods.resources | length > 0 and
+    _splunk_pods.resources | default([]) | length > 0 and
     _splunk_pods.resources[0].status.phase == 'Running'
 
 - name: Set Splunk pod name fact
@@ -303,8 +305,9 @@
   register: _splunk_deployment_reload
   retries: "{{ ocp4_workload_splunk_wait_retries }}"
   delay: "{{ ocp4_workload_splunk_wait_delay }}"
+  failed_when: false
   until: >-
-    _splunk_deployment_reload.resources | length > 0 and
+    _splunk_deployment_reload.resources | default([]) | length > 0 and
     (_splunk_deployment_reload.resources[0].status.readyReplicas | default(0)) >= 1
 
 - name: Get Splunk pod name after reload
@@ -316,8 +319,9 @@
   register: _splunk_pods_reload
   retries: 10
   delay: 5
+  failed_when: false
   until: >-
-    _splunk_pods_reload.resources | length > 0 and
+    _splunk_pods_reload.resources | default([]) | length > 0 and
     _splunk_pods_reload.resources[0].status.phase == 'Running'
 
 - name: Update Splunk pod name fact
