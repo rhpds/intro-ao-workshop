@@ -1,0 +1,9 @@
+---
+- name: Remove OpenFlake MCP namespace (deletes all namespaced resources)
+  kubernetes.core.k8s:
+    state: absent
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ ocp4_workload_openflake_mcp_namespace }}"

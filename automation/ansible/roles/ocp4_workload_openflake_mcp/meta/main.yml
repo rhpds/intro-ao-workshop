@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_openflake_mcp
+  author: Mitesh Sharma
+  description: >-
+    Deploys the OpenFlake MCP server on OpenShift — builds the image from Git,
+    gates the Route with a bearer token via nginx sidecar, and exposes the MCP
+    endpoint. Converted from rlopez133/openflake-mcp playbooks/deploy-openflake-mcp.yml.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []

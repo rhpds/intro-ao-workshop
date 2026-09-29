@@ -1,0 +1,35 @@
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: "{{ ocp4_workload_openflake_mcp_app_name }}"
+  labels:
+    app: "{{ ocp4_workload_openflake_mcp_app_name }}"
+spec:
+  lookupPolicy:
+    local: true
+
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: "{{ ocp4_workload_openflake_mcp_app_name }}"
+  labels:
+    app: "{{ ocp4_workload_openflake_mcp_app_name }}"
+spec:
+  source:
+    type: Git
+    git:
+      uri: "{{ ocp4_workload_openflake_mcp_git_uri }}"
+      ref: "{{ ocp4_workload_openflake_mcp_git_ref }}"
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: "{{ ocp4_workload_openflake_mcp_app_name }}:latest"
+  resources:
+    limits:
+      memory: 2Gi

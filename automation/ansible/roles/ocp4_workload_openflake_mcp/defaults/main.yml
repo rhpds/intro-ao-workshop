@@ -1,0 +1,28 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+ocp4_workload_openflake_mcp_namespace: openflake-mcp
+ocp4_workload_openflake_mcp_app_name: openflake-mcp
+
+# Source repository — the OCP build clones this directly
+ocp4_workload_openflake_mcp_git_uri: https://github.com/rlopez133/openflake-mcp.git
+ocp4_workload_openflake_mcp_git_ref: main
+
+# Required at runtime — supply via AAP survey or -e
+ocp4_workload_openflake_mcp_instance_url: ""
+ocp4_workload_openflake_mcp_username: ""
+ocp4_workload_openflake_mcp_password: ""
+
+# Bearer token for the nginx gate.
+# Leave empty to reuse an existing token, or to mint one on first deploy.
+ocp4_workload_openflake_mcp_bearer_token: ""
+# Set to true to force-mint a new token even when one already exists.
+ocp4_workload_openflake_mcp_rotate_token: false
+
+# Timeout tuning (seconds)
+ocp4_workload_openflake_mcp_build_timeout: 900
+ocp4_workload_openflake_mcp_rollout_timeout: 600
+
+ocp4_workload_openflake_mcp_validate_certs: true
