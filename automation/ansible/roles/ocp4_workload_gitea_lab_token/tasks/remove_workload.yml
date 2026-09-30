@@ -1,0 +1,5 @@
+---
+- name: No resources to remove for the Gitea lab token
+  ansible.builtin.debug:
+    msg: >-
+      The Gitea personal access token is removed with the Gitea instance itself.
