@@ -1,0 +1,16 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+ocp4_workload_gitea_lab_token_name: aap-cve-remediation
+ocp4_workload_gitea_lab_token_repo: lightspeed_playbooks
+ocp4_workload_gitea_lab_token_scopes:
+  - write:activitypub
+  - write:misc
+  - write:notification
+  - write:organization
+  - write:package
+  - write:issue
+  - write:repository
+  - write:user

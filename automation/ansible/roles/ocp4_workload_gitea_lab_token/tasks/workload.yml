@@ -1,0 +1,53 @@
+---
+- name: Read Gitea access details published by ocp4_workload_gitea_operator
+  ansible.builtin.set_fact:
+    _gitea_url: "{{ lookup('agnosticd.core.agnosticd_user_data', 'gitea_console_url') }}"
+    _gitea_user: "{{ lookup('agnosticd.core.agnosticd_user_data', 'gitea_user') }}"
+    _gitea_password: "{{ lookup('agnosticd.core.agnosticd_user_data', 'gitea_password') }}"
+
+- name: Remove any token left over from a previous run
+  ansible.builtin.uri:
+    url: "{{ _gitea_url }}/api/v1/users/{{ _gitea_user }}/tokens/{{ ocp4_workload_gitea_lab_token_name }}"
+    method: DELETE
+    url_username: "{{ _gitea_user }}"
+    url_password: "{{ _gitea_password }}"
+    force_basic_auth: true
+    status_code: [204, 404]
+    validate_certs: false
+
+- name: Create a Gitea personal access token for the lab user
+  ansible.builtin.uri:
+    url: "{{ _gitea_url }}/api/v1/users/{{ _gitea_user }}/tokens"
+    method: POST
+    url_username: "{{ _gitea_user }}"
+    url_password: "{{ _gitea_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "{{ ocp4_workload_gitea_lab_token_name }}"
+      scopes: "{{ ocp4_workload_gitea_lab_token_scopes }}"
+    status_code: 201
+    validate_certs: false
+  register: _gitea_token
+
+- name: Create the playbook repository the CVE workflow commits into
+  ansible.builtin.uri:
+    url: "{{ _gitea_url }}/api/v1/user/repos"
+    method: POST
+    headers:
+      Authorization: "token {{ _gitea_token.json.sha1 }}"
+    body_format: json
+    body:
+      name: "{{ ocp4_workload_gitea_lab_token_repo }}"
+      auto_init: true
+      private: false
+    status_code: [201, 409]
+    validate_certs: false
+
+- name: Share the Gitea API token via agnosticd_user_info
+  agnosticd.core.agnosticd_user_info:
+    data:
+      gitea_api_url: "{{ _gitea_url }}"
+      gitea_api_token: "{{ _gitea_token.json.sha1 }}"
+      gitea_playbook_repo: "{{ _gitea_user }}/{{ ocp4_workload_gitea_lab_token_repo }}"
+      gitea_playbook_repo_url: "{{ _gitea_url }}/{{ _gitea_user }}/{{ ocp4_workload_gitea_lab_token_repo }}.git"
