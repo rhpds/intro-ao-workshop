@@ -1,0 +1,163 @@
+---
+- name: Grow root partition and filesystem on Linux host
+  hosts: "{{ _host | default('all') }}"
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Apply defaults
+      ansible.builtin.set_fact:
+        disk_mount: "{{ disk_mount | default('/') }}"
+        disk_use_percent: "{{ disk_use_percent | default('unknown') }}"
+        disk_tier: "{{ disk_tier | default('critical') }}"
+        disk_expand_gb: "{{ disk_expand_gb | default(5) | int }}"
+
+    - name: Discover block device for mount
+      ansible.builtin.command:
+        cmd: findmnt -n -o SOURCE {{ disk_mount }}
+      register: _root_source
+      changed_when: false
+      check_mode: false
+
+    - name: Resolve parent disk for partition
+      ansible.builtin.command:
+        cmd: lsblk -no PKNAME {{ _root_source.stdout | trim }}
+      register: _root_disk_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: Set device names
+      ansible.builtin.set_fact:
+        _root_partition: "{{ _root_source.stdout | trim }}"
+        _root_part_name: "{{ _root_source.stdout | trim | basename }}"
+        _root_disk: "/dev/{{ _root_disk_cmd.stdout | trim }}"
+        _root_disk_name: "{{ _root_disk_cmd.stdout | trim }}"
+
+    # Geometry from sysfs rather than parted/sfdisk: the backup GPT header is
+    # still at the old boundary, so partition-table tools may warn or disagree
+    # about usable space. sysfs values are always 512-byte sectors.
+    - name: Read disk and partition geometry from sysfs
+      ansible.builtin.command:
+        argv:
+          - cat
+          - "/sys/class/block/{{ _root_disk_name }}/size"
+          - "/sys/class/block/{{ _root_part_name }}/start"
+          - "/sys/class/block/{{ _root_part_name }}/size"
+          - "/sys/class/block/{{ _root_part_name }}/partition"
+      register: _geom
+      changed_when: false
+      check_mode: false
+
+    - name: Compute disk, free and requested sizes
+      ansible.builtin.set_fact:
+        _root_partition_num: "{{ _geom.stdout_lines[3] | trim }}"
+        _disk_bytes: "{{ (_geom.stdout_lines[0] | int) * 512 }}"
+        _free_bytes: "{{ ((_geom.stdout_lines[0] | int) - (_geom.stdout_lines[1] | int) - (_geom.stdout_lines[2] | int)) * 512 }}"
+        _expand_bytes: "{{ (disk_expand_gb | int) * 1073741824 }}"
+        volume_size_before_gb: "{{ ((_geom.stdout_lines[2] | int) * 512 / 1073741824) | round(1) }}"
+
+    - name: Fail if free space after partition is less than disk_expand_gb
+      ansible.builtin.assert:
+        that:
+          - (_free_bytes | int) >= (_expand_bytes | int)
+        fail_msg: >-
+          Only {{ ((_free_bytes | int) / 1073741824) | round(2) }} GiB free after
+          {{ _root_partition }} on {{ _root_disk }}; disk_expand_gb={{ disk_expand_gb }}.
+          The virtual disk must be grown at the hypervisor first.
+        quiet: true
+
+    # Rounded to nearest (not floored) so sector-level slop at the partition
+    # end (GPT reservation, growpart's own end calculation) can't turn 70.0 into 69.
+    - name: Compute growpart --free-percent target
+      ansible.builtin.set_fact:
+        _free_percent: "{{ [0, (((_free_bytes | int) - (_expand_bytes | int)) / (_disk_bytes | int) * 100) | round | int] | max }}"
+
+    - name: Preview partition and filesystem grow (check mode)
+      ansible.builtin.debug:
+        msg: >-
+          [check mode] Would run growpart --free-percent={{ _free_percent }}
+          {{ _root_disk }} {{ _root_partition_num }} and xfs_growfs {{ disk_mount }}.
+      when: ansible_check_mode
+
+    - name: Dry-run partition grow (check mode)
+      ansible.builtin.command:
+        argv:
+          - growpart
+          - -N
+          - "--free-percent={{ _free_percent }}"
+          - "{{ _root_disk }}"
+          - "{{ _root_partition_num }}"
+      register: _growpart_dry
+      changed_when: false
+      failed_when: _growpart_dry.rc != 0 and 'NOCHANGE' not in (_growpart_dry.stdout + _growpart_dry.stderr)
+      check_mode: false
+      when: ansible_check_mode
+
+    - name: Grow partition by disk_expand_gb
+      ansible.builtin.command:
+        argv:
+          - growpart
+          - "--free-percent={{ _free_percent }}"
+          - "{{ _root_disk }}"
+          - "{{ _root_partition_num }}"
+      register: _growpart
+      changed_when: "'CHANGED' in _growpart.stdout"
+      failed_when: _growpart.rc != 0 and 'NOCHANGE' not in (_growpart.stdout + _growpart.stderr)
+      when: not ansible_check_mode
+
+    - name: Grow XFS filesystem on mount
+      ansible.builtin.command:
+        cmd: xfs_growfs {{ disk_mount }}
+      register: _xfs_grow
+      changed_when: _growpart is changed
+      when: not ansible_check_mode
+
+    - name: Read partition size after grow
+      ansible.builtin.command:
+        argv:
+          - cat
+          - "/sys/class/block/{{ _root_part_name }}/size"
+      register: _part_size_after
+      changed_when: false
+      when: not ansible_check_mode
+
+    # Check mode: take the projected size from growpart -N ("new: size=N").
+    - name: Resolve partition size after grow (sectors)
+      ansible.builtin.set_fact:
+        _after_sectors: >-
+          {{ (_growpart_dry.stdout | regex_findall('new: size=([0-9]+)') | first | default(_geom.stdout_lines[2]))
+             if ansible_check_mode else (_part_size_after.stdout | trim) }}
+
+    - name: Set partition size after grow
+      ansible.builtin.set_fact:
+        volume_size_after_gb: "{{ ((_after_sectors | trim | int) * 512 / 1073741824) | round(1) }}"
+
+    - name: Show filesystem size after grow
+      ansible.builtin.command:
+        cmd: df -hT {{ disk_mount }}
+      register: _df_after
+      changed_when: false
+      check_mode: false
+
+    - name: Display expanded filesystem
+      ansible.builtin.debug:
+        msg: "{{ _df_after.stdout_lines }}"
+
+    - name: Set disk use percent from live df when not supplied
+      ansible.builtin.set_fact:
+        disk_use_percent: >-
+          {%- set supplied = disk_use_percent | default('unknown') | string -%}
+          {%- if supplied not in ['unknown', ''] -%}
+          {{ supplied }}
+          {%- elif (_df_after.stdout_lines | length) > 1 -%}
+          {{ _df_after.stdout_lines[1] | regex_findall('([0-9]+)%') | first | default('unknown') }}
+          {%- else -%}
+          unknown
+          {%- endif -%}
+
+    - name: Set notify artifact values for expansion branch
+      ansible.builtin.set_fact:
+        remediation_action: Expand Disk Volume
+        dry_run: "{{ ansible_check_mode }}"
+
+    - name: Publish notify artifacts for downstream steps
+      ansible.builtin.include_tasks: tasks/publish_notify_artifacts.yml
