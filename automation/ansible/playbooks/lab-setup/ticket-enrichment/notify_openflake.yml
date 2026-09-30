@@ -1,0 +1,153 @@
+---
+# Update an OpenFlake incident from automation.
+#
+# OpenFlake implements a ServiceNow-compatible subset of the Table API
+# (/api/now/* is rewritten to /api/flake/*), but it is NOT ServiceNow:
+#
+# Required vars: openflake_instance_url, openflake_username, openflake_password, ticket_id
+- name: Incidents | Update OpenFlake Ticket
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    notification_title: "AO Automation Update"
+    notification_body: ""
+    openflake_ticket_state: ""
+    openflake_comment_body: ""
+    openflake_close_notes: ""
+    openflake_validate_certs: true
+    remediation_title: ""
+    remediation_summary: ""
+    remediation_close: ""
+
+  tasks:
+    - name: Normalise the instance URL (strip trailing slashes)
+      ansible.builtin.set_fact:
+        openflake_url: "{{ openflake_instance_url | regex_replace('/*$', '') }}"
+
+    - name: Look up ticket sys_id by number
+      ansible.builtin.uri:
+        url: "{{ openflake_url }}/api/flake/table/incident?sysparm_query=number={{ ticket_id }}&sysparm_limit=1"
+        method: GET
+        user: "{{ openflake_username }}"
+        password: "{{ openflake_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ openflake_validate_certs | bool }}"
+        headers:
+          Accept: "application/json"
+        status_code: 200
+      register: openflake_lookup
+
+    - name: Fail if ticket not found
+      ansible.builtin.fail:
+        msg: "OpenFlake ticket {{ ticket_id }} not found"
+      when: openflake_lookup.json.result | length == 0
+
+    - name: Assert the lookup returned the requested ticket
+      ansible.builtin.assert:
+        that:
+          - openflake_lookup.json.result[0].number == ticket_id
+        fail_msg: >-
+          Lookup for {{ ticket_id }} returned
+          {{ openflake_lookup.json.result[0].number }} -- refusing to update the
+          wrong ticket.
+
+    - name: Set ticket facts
+      ansible.builtin.set_fact:
+        openflake_sys_id: "{{ openflake_lookup.json.result[0].sys_id }}"
+        openflake_existing_work_notes: "{{ openflake_lookup.json.result[0].work_notes | default('', true) }}"
+
+    - name: Resolve the note text, preferring measured results over predictions
+      vars:
+        rem_title: "{{ remediation_title | default('', true) }}"
+        rem_summary: "{{ remediation_summary | default('', true) }}"
+        rem_close: "{{ remediation_close | default('', true) }}"
+        resolved_body: "{{ rem_summary if rem_summary | length > 0 else notification_body }}"
+      ansible.builtin.set_fact:
+        note_title: "{{ rem_title if rem_title | length > 0 else (notification_title | default('AO Automation Update', true)) }}"
+        note_body: "{{ resolved_body }}"
+        note_close: "{{ openflake_close_notes if openflake_close_notes | length > 0 else (rem_close if rem_close | length > 0 else resolved_body) }}"
+
+    - name: Format notification body with newlines before numbered steps
+      ansible.builtin.set_fact:
+        notification_body_formatted: "{{ note_body | default('') | regex_replace('([^\\n]) ([0-9]+\\. )', '\\1\\n\\2') | regex_replace('([^\\n]) (Rollback:)', '\\1\\n\\n\\2') }}"
+
+    # The blank lines below are real YAML newlines. Do NOT rewrite them as
+    # "\n" inside a Jinja string literal -- Ansible stores that escape
+    # verbatim and the note renders as "...]\n\nIncident ..." in the UI.
+    - name: Build this run's work note
+      ansible.builtin.set_fact:
+        openflake_work_note: |-
+          [{{ note_title }}]
+
+          {{ notification_body_formatted }}
+
+    - name: Append the note to any existing work notes
+      ansible.builtin.set_fact:
+        openflake_work_notes_value: |-
+          {% if openflake_existing_work_notes | length > 0 %}{{ openflake_existing_work_notes }}
+
+          {% endif %}{{ openflake_work_note }}
+
+    # `| string` because set_fact literal-evaluates a rendered template, so a
+    # note that comes out as "[]" or "{}" turns into a real list or dict and the
+    # Table API rejects it on a Text column.
+    - name: Build update payload
+      ansible.builtin.set_fact:
+        openflake_payload:
+          work_notes: "{{ openflake_work_notes_value | string }}"
+
+    # Built conditionally -- `omit` does NOT work inside set_fact, it leaks a
+    # literal __omit_place_holder__ string into the payload and the PATCH fails
+    # on the 8-char state column.
+    #
+    # `| string` because a state written as 2 rather than "2" in the AO node's
+    # extra vars reaches the Table API as a number and comes back a 500.
+    - name: Add state to payload when a target state was requested
+      ansible.builtin.set_fact:
+        openflake_payload: "{{ openflake_payload | combine({'state': openflake_ticket_state | string}) }}"
+      when: openflake_ticket_state | default('', true) | string | length > 0
+
+    - name: Add the customer-facing comment when one was supplied
+      ansible.builtin.set_fact:
+        openflake_payload: "{{ openflake_payload | combine({'comments': openflake_comment_body | string}) }}"
+      when: openflake_comment_body | default('', true) | string | length > 0
+
+    - name: Add resolution fields when resolving or closing
+      ansible.builtin.set_fact:
+        openflake_payload: >-
+          {{ openflake_payload | combine({
+               'close_code': 'Solved (Permanently)',
+               'close_notes': note_close | default('Resolved by automated remediation.', true) | string,
+               'resolved_at': now(utc=true).strftime('%Y-%m-%d %H:%M:%S')
+             }) }}
+      when: openflake_ticket_state | default('', true) | string in ['6', '7']
+
+    - name: Add closed_at when closing
+      ansible.builtin.set_fact:
+        openflake_payload: "{{ openflake_payload | combine({'closed_at': now(utc=true).strftime('%Y-%m-%d %H:%M:%S')}) }}"
+      when: openflake_ticket_state | default('', true) | string == '7'
+
+    - name: Update ticket
+      ansible.builtin.uri:
+        url: "{{ openflake_url }}/api/flake/table/incident/{{ openflake_sys_id }}"
+        method: PATCH
+        user: "{{ openflake_username }}"
+        password: "{{ openflake_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ openflake_validate_certs | bool }}"
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+        body_format: json
+        body: "{{ openflake_payload }}"
+        status_code: 200
+      register: openflake_update
+
+    - name: Log result
+      ansible.builtin.debug:
+        msg: |
+          OpenFlake ticket {{ ticket_id }} updated.
+          State: {{ openflake_update.json.result.state }}
+          URL: {{ openflake_url }}/incidents/{{ openflake_sys_id }}
