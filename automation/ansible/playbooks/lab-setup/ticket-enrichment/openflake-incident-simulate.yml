@@ -1,0 +1,301 @@
+---
+# Simulate incidents against OpenFlake and fire AO webhooks.
+
+
+# Play 1: Plant issues on target host
+- name: Simulate - Plant Issues on Host
+  hosts: "{{ target_host | default('all:!localhost') }}"
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Build scenario list
+      ansible.builtin.set_fact:
+        active_scenarios: "{{ scenario_list if scenario_list is sequence and scenario_list is not string else [scenario_list] }}"
+
+    # --- auto_remediate: fill disk with large log files ---
+    - name: Baseline /var/log usage before planting
+      ansible.builtin.command:
+        cmd: df -BG --output=pcent,used,size /var/log
+      register: sim_df_before
+      changed_when: false
+      when: "'auto_remediate' in active_scenarios"
+
+    - name: Fill disk with large log file to simulate capacity issue
+      ansible.builtin.shell: |
+        fallocate -l 5G /var/log/capacity_test.log 2>/dev/null || \
+          dd if=/dev/zero bs=1M count=5120 of=/var/log/capacity_test.log 2>/dev/null
+        echo "Capacity issue simulated: 5GB log file created"
+      when: "'auto_remediate' in active_scenarios"
+      changed_when: true
+
+    - name: Measure /var/log usage after planting
+      ansible.builtin.command:
+        cmd: df -BG --output=pcent,used,size /var/log
+      register: sim_df_after
+      changed_when: false
+      when: "'auto_remediate' in active_scenarios"
+
+    # Growth rate, not a full disk -- 5G on a 30G volume is nowhere near ENOSPC.
+    - name: Write log growth alerts to syslog
+      ansible.builtin.shell: |
+        for i in {1..20}; do
+          logger -t monitoring -p daemon.err "Filesystem /var/log grew 5G in under 60s - growth rate threshold exceeded"
+          logger -t app -p local0.err "Log rotation cannot keep pace with write volume on /var/log"
+        done
+      when: "'auto_remediate' in active_scenarios"
+      changed_when: true
+      ignore_errors: true
+
+    # --- needs_approval: spawn CPU-eating process ---
+    - name: Spawn runaway process to simulate high CPU
+      ansible.builtin.shell: |
+        nohup nice -n 10 bash -c 'while true; do :; done' </dev/null >/dev/null 2>&1 &
+        echo $! > /tmp/runaway_process.pid
+        echo "Runaway process planted with PID $(cat /tmp/runaway_process.pid)"
+      when: "'needs_approval' in active_scenarios"
+      changed_when: true
+
+    # ps %CPU is a lifetime average, so it reads near zero if sampled immediately.
+    - name: Measure the runaway process's real CPU usage
+      ansible.builtin.shell: |
+        sleep 3
+        pid=$(cat /tmp/runaway_process.pid)
+        cpu=$(ps -p "$pid" -o pcpu= 2>/dev/null | tr -d ' ')
+        echo "${cpu:-0} $(nproc)"
+      register: sim_cpu
+      changed_when: false
+      when: "'needs_approval' in active_scenarios"
+
+    - name: Write high CPU alerts to syslog
+      ansible.builtin.shell: |
+        PID=$(cat /tmp/runaway_process.pid 2>/dev/null || echo "unknown")
+        for i in {1..15}; do
+          logger -t monitoring -p daemon.warning "HIGH CPU: Process ${PID} consuming excessive CPU. System response times degraded."
+          logger -t app -p local0.err "WARN: Request timeout - upstream service not responding within SLA"
+        done
+      when: "'needs_approval' in active_scenarios"
+      changed_when: true
+      ignore_errors: true
+
+    # --- inform_only: fake failed SSH login attempts ---
+    - name: Write failed SSH login attempts to syslog
+      ansible.builtin.shell: |
+        for i in {1..30}; do
+          logger -t sshd -p auth.warning "Failed password for invalid user admin from 203.0.113.$((RANDOM % 254 + 1)) port $((RANDOM % 60000 + 1024)) ssh2"
+          logger -t sshd -p auth.warning "Failed password for invalid user root from 198.51.100.$((RANDOM % 254 + 1)) port $((RANDOM % 60000 + 1024)) ssh2"
+        done
+        logger -t sshd -p auth.alert "Repeated authentication failures detected - possible brute force attack"
+      when: "'inform_only' in active_scenarios"
+      changed_when: true
+      ignore_errors: true
+
+    - name: Report simulation complete
+      ansible.builtin.debug:
+        msg: "Issues planted on {{ inventory_hostname }} for scenarios: {{ active_scenarios | join(', ') }}"
+
+    - name: Publish the affected host to the ticket plays
+      ansible.builtin.set_fact:
+        affected_host: "{{ inventory_hostname }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+    # Split per scenario -- a combined set_fact would fail on the undefined
+    # register of whichever scenario did not run.
+    - name: Publish the measured disk impact
+      ansible.builtin.set_fact:
+        sim_disk_pct_before: "{{ sim_df_before.stdout_lines[1].split()[0] | regex_replace('%', '') }}"
+        sim_disk_pct: "{{ sim_df_after.stdout_lines[1].split()[0] | regex_replace('%', '') }}"
+        sim_disk_used: "{{ sim_df_after.stdout_lines[1].split()[1] }}"
+        sim_disk_size: "{{ sim_df_after.stdout_lines[1].split()[2] }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+      when: "'auto_remediate' in active_scenarios"
+
+    # sim_cpu_pct is per-process (one saturated core = 100%). The remediation
+    # playbook reports system-wide (100 - idle), so publish that figure too --
+    # otherwise the ticket opens in one unit and closes in another.
+    - name: Publish the measured CPU impact
+      ansible.builtin.set_fact:
+        sim_cpu_pct: "{{ sim_cpu.stdout.split()[0] }}"
+        sim_cpu_cores: "{{ sim_cpu.stdout.split()[1] }}"
+        sim_cpu_total_pct: "{{ (((sim_cpu.stdout.split()[0] | float) / (sim_cpu.stdout.split()[1] | int)) | round | int) }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+      when: "'needs_approval' in active_scenarios"
+
+# Play 2: Create OpenFlake incidents and fire AO webhooks
+- name: Simulate - Create Tickets and Fire Webhooks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    # Measured in Play 1 rather than derived from target_host, so the ticket
+    # reports what actually happened on the box.
+    sim_host: "{{ hostvars['localhost'].affected_host | default('unknown host') }}"
+    sim_disk_pct_before: "{{ hostvars['localhost'].sim_disk_pct_before | default('unknown') }}"
+    sim_disk_pct: "{{ hostvars['localhost'].sim_disk_pct | default('unknown') }}"
+    sim_disk_used: "{{ hostvars['localhost'].sim_disk_used | default('unknown') }}"
+    sim_disk_size: "{{ hostvars['localhost'].sim_disk_size | default('unknown') }}"
+    sim_cpu_pct: "{{ hostvars['localhost'].sim_cpu_pct | default('unknown') }}"
+    sim_cpu_cores: "{{ hostvars['localhost'].sim_cpu_cores | default('unknown') }}"
+    sim_cpu_total_pct: "{{ hostvars['localhost'].sim_cpu_total_pct | default('unknown') }}"
+
+    openflake_instance_url: "{{ lookup('env', 'OPENFLAKE_INSTANCE_URL') }}"
+    openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default('admin', true) }}"
+    openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') }}"
+
+    ao_base_url: "{{ lookup('env', 'AO_BASE_URL')  }}"
+    ao_sa_client_id: "{{ lookup('env', 'AO_CLIENT_ID') }}"
+    ao_sa_client_secret: "{{ lookup('env', 'AO_CLIENT_SECRET') }}"
+    ao_webhook_path: "openflake-incident"
+
+    scenarios:
+      auto_remediate:
+        short_description: "Abnormal log volume growth on {{ sim_host }}"
+        description: "/var/log usage on {{ sim_host }} rose from {{ sim_disk_pct_before }}% to {{ sim_disk_pct }}% ({{ sim_disk_used }} of {{ sim_disk_size }}) within a minute. Growth traced to /var/log/capacity_test.log. Automated cleanup safe to execute."
+        category: "infrastructure"
+        severity: "1-Critical"
+        expected_route: "auto_remediate"
+      needs_approval:
+        short_description: "Application environment running slow on {{ sim_host }}, high CPU utilization detected"
+        description: "Monitoring detected a process on {{ sim_host }} sustaining {{ sim_cpu_pct }}% of one core, driving overall utilization on this {{ sim_cpu_cores }}-core host to {{ sim_cpu_total_pct }}%. Application response times degraded beyond SLA thresholds. A runaway process may be consuming resources. Terminating it will free CPU but may interrupt an active workload. Human review recommended before action."
+        category: "infrastructure"
+        severity: "2-High"
+        expected_route: "needs_approval"
+      inform_only:
+        short_description: "Multiple failed SSH login attempts detected on {{ sim_host }}"
+        description: "Security monitoring detected 60+ failed SSH authentication attempts from multiple external IP addresses on {{ sim_host }} within the last 15 minutes. Pattern consistent with brute force attack. No successful logins observed. Requires security team investigation."
+        category: "security"
+        severity: "3-Medium"
+        expected_route: "inform_only"
+
+    openflake_urgency_map:
+      "1-Critical": "1"
+      "2-High": "2"
+      "3-Medium": "3"
+      "4-Low": "4"
+
+    openflake_priority_map:
+      "1-Critical": "1"
+      "2-High": "3"
+      "3-Medium": "3"
+      "4-Low": "5"
+
+  tasks:
+    - name: Build scenario list
+      ansible.builtin.set_fact:
+        active_scenarios: "{{ scenario_list if scenario_list is sequence and scenario_list is not string else [scenario_list] }}"
+
+    - name: Show scenarios to run
+      ansible.builtin.debug:
+        msg: "Running scenarios: {{ active_scenarios | join(', ') }}"
+
+    - name: Normalise the instance URL (strip trailing slashes)
+      ansible.builtin.set_fact:
+        openflake_url: "{{ openflake_instance_url | regex_replace('/*$', '') }}"
+
+    - name: Look up the CI for the target host
+      ansible.builtin.uri:
+        url: "{{ openflake_url }}/api/flake/table/cmdb_ci?sysparm_query=name={{ sim_host }}&sysparm_limit=1"
+        method: GET
+        user: "{{ openflake_username }}"
+        password: "{{ openflake_password }}"
+        force_basic_auth: true
+        headers:
+          Accept: "application/json"
+        status_code: [200]
+      register: ci_lookup
+      failed_when: false
+
+    - name: Record the CI sys_id
+      ansible.builtin.set_fact:
+        sim_host_sys_id: "{{ (ci_lookup.json.result | default([]) | first | default({})).sys_id | default('') }}"
+
+    - name: Warn when the CI was not found
+      ansible.builtin.debug:
+        msg: "No cmdb_ci named '{{ sim_host }}' in OpenFlake -- incidents will be created without a CI link."
+      when: sim_host_sys_id | length == 0
+
+    - name: Create incident tickets
+      ansible.builtin.uri:
+        url: "{{ openflake_url }}/api/flake/table/incident"
+        method: POST
+        user: "{{ openflake_username }}"
+        password: "{{ openflake_password }}"
+        force_basic_auth: true
+        headers:
+          Content-Type: "application/json"
+          Accept: "application/json"
+        body_format: json
+        body:
+          short_description: "{{ scenarios[item].short_description }}"
+          description: "{{ scenarios[item].description }}"
+          category: "{{ scenarios[item].category }}"
+          urgency: "{{ openflake_urgency_map[scenarios[item].severity] | default('2') }}"
+          impact: "{{ openflake_urgency_map[scenarios[item].severity] | default('2') }}"
+          priority: "{{ openflake_priority_map[scenarios[item].severity] | default('4') }}"
+          cmdb_ci: "{{ sim_host_sys_id }}"
+          state: "1"
+        status_code: [200, 201]
+      loop: "{{ active_scenarios }}"
+      register: openflake_tickets
+
+    - name: Build ticket map
+      ansible.builtin.set_fact:
+        ticket_map: "{{ ticket_map | default({}) | combine({result.item: result.json.result.number}) }}"
+      loop: "{{ openflake_tickets.results }}"
+      loop_control:
+        loop_var: result
+
+    - name: Show created tickets
+      ansible.builtin.debug:
+        msg: "Created incident tickets: {{ ticket_map }}"
+
+    - name: Get AO service account token
+      ansible.builtin.uri:
+        url: "{{ ao_base_url }}/api/v1/auth/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+          client_id: "{{ ao_sa_client_id }}"
+          client_secret: "{{ ao_sa_client_secret }}"
+        status_code: [200, 201]
+      register: ao_token_resp
+
+    - name: Fire AO webhook for each incident
+      ansible.builtin.uri:
+        url: "{{ ao_base_url }}/api/v1/webhooks/{{ ao_webhook_path }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ ao_token_resp.json.access_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          incident_number: "{{ ticket_map[item] }}"
+        status_code: [200, 201, 202]
+        validate_certs: false
+      loop: "{{ active_scenarios }}"
+      register: webhook_results
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          INCIDENT WORKFLOWS TRIGGERED
+          ============================================================
+          {% for result in webhook_results.results %}
+          [{{ result.item | upper }}]
+            Ticket:         {{ ticket_map[result.item] }}
+            Description:    {{ scenarios[result.item].short_description }}
+            Category:       {{ scenarios[result.item].category }}
+            Severity:       {{ scenarios[result.item].severity }}
+            Expected Route: {{ scenarios[result.item].expected_route }}
+            Execution:      {{ result.json.execution_id | default('N/A') }}
+            Status:         {{ 'FIRED' if result.status in [200,201,202] else 'FAILED' }}
+          {% endfor %}
+          ============================================================

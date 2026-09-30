@@ -1,0 +1,111 @@
+---
+- name: Incidents | High CPU - Process Cleanup
+  hosts: "{{ target_host | default('all:!localhost') }}"
+  become: true
+  gather_facts: true
+  vars:
+    cpu_threshold: "{{ cpu_threshold_pct | default(80) }}"
+
+  tasks:
+    - name: Capture CPU usage before cleanup
+      ansible.builtin.shell: |
+        top -bn2 -d 1 | awk '/^%Cpu/ {v = 100 - $8} END {printf "%.0f", v}'
+      register: cpu_before
+      changed_when: false
+
+    - name: Identify high-CPU processes
+      ansible.builtin.shell: |
+        ps aux --sort=-%cpu | awk 'NR>1 && $3 > {{ cpu_threshold }} {print $2, $3, $11}' | head -10
+      register: high_cpu_procs
+      changed_when: false
+
+    - name: Show high-CPU processes found
+      ansible.builtin.debug:
+        msg: "High CPU processes (>{{ cpu_threshold }}%): {{ high_cpu_procs.stdout_lines | default(['none found']) }}"
+
+    - name: Check for known runaway process marker
+      ansible.builtin.stat:
+        path: /tmp/runaway_process.pid
+      register: pid_marker
+
+    - name: Read runaway process PID
+      ansible.builtin.slurp:
+        src: /tmp/runaway_process.pid
+      register: runaway_pid_file
+      when: pid_marker.stat.exists
+
+    - name: Kill runaway process by PID marker
+      ansible.builtin.shell: |
+        PID="{{ (runaway_pid_file.content | b64decode | trim) }}"
+        if kill -0 "$PID" 2>/dev/null; then
+          kill "$PID"
+          echo 1
+        else
+          echo 0
+        fi
+      register: marker_kill
+      when: pid_marker.stat.exists
+      changed_when: marker_kill.stdout | trim | int > 0
+      ignore_errors: true
+
+    - name: Kill any remaining high-CPU bash busy loops
+      ansible.builtin.shell: |
+        KILLED=0
+        for PID in $(ps aux --sort=-%cpu | awk 'NR>1 && $3 > {{ cpu_threshold }} && $11 ~ /bash/ {print $2}'); do
+          kill "$PID" 2>/dev/null && KILLED=$((KILLED+1))
+        done
+        echo "$KILLED"
+      register: sweep_kill
+      changed_when: sweep_kill.stdout | trim | int > 0
+
+    - name: Clean up PID marker file
+      ansible.builtin.file:
+        path: /tmp/runaway_process.pid
+        state: absent
+      when: pid_marker.stat.exists
+
+    - name: Wait for CPU to stabilize
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Capture CPU usage after cleanup
+      ansible.builtin.shell: |
+        top -bn2 -d 1 | awk '/^%Cpu/ {v = 100 - $8} END {printf "%.0f", v}'
+      register: cpu_after
+      changed_when: false
+
+    - name: Record measured results
+      ansible.builtin.set_fact:
+        cpu_pct_before: "{{ cpu_before.stdout | trim }}"
+        cpu_pct_after: "{{ cpu_after.stdout | trim }}"
+        procs_killed: "{{ (marker_kill.stdout | default('0') | trim | int) + (sweep_kill.stdout | trim | int) }}"
+
+    - name: Report results
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          PROCESS CLEANUP COMPLETE
+          ============================================================
+          CPU Before: {{ cpu_pct_before }}% → After: {{ cpu_pct_after }}%
+          High-CPU processes found: {{ high_cpu_procs.stdout_lines | length }}
+          Processes killed: {{ procs_killed }}
+          ============================================================
+
+    - name: Publish results as artifacts
+      ansible.builtin.set_stats:
+        data:
+          remediation_title: "Remediation Complete: Process Cleanup"
+          remediation_summary: |-
+            Runaway process terminated.
+
+            CPU utilization: {{ cpu_pct_before }}% -> {{ cpu_pct_after }}%
+            High-CPU processes found: {{ high_cpu_procs.stdout_lines | length }}
+            Processes terminated: {{ procs_killed }}
+          remediation_close: >-
+            Process cleanup completed. CPU utilization {{ cpu_pct_before }}% ->
+            {{ cpu_pct_after }}%, {{ procs_killed }} process(es) terminated.
+          cpu_before: "{{ cpu_pct_before }}"
+          cpu_after: "{{ cpu_pct_after }}"
+          high_cpu_processes_found: "{{ high_cpu_procs.stdout_lines | length }}"
+          processes_killed: "{{ procs_killed }}"
+          status: "completed"

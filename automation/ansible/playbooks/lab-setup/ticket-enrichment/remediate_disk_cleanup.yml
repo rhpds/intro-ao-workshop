@@ -1,0 +1,141 @@
+---
+- name: Incidents | Capacity - Disk Cleanup
+  hosts: "{{ target_host | default('all:!localhost') }}"
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Set variable defaults
+      ansible.builtin.set_fact:
+        incident_type: "{{ incident_type | default('unclassified') }}"
+
+    - name: Record remediation start time
+      ansible.builtin.command: date -u +'%Y-%m-%d %H:%M:%S'
+      register: remediation_start
+      changed_when: false
+
+    - name: Capture disk usage before cleanup
+      ansible.builtin.command:
+        cmd: df --output=pcent /var/log
+      register: disk_before
+      changed_when: false
+
+    - name: Clear app session storage (remount fresh tmpfs)
+      ansible.builtin.shell: |
+        umount /var/log/app-sessions 2>/dev/null || true
+        mount -t tmpfs -o size=1m tmpfs /var/log/app-sessions
+        echo "Session storage cleared"
+      changed_when: true
+      ignore_errors: true
+      when: incident_type != 'capacity_issue'
+
+    - name: Find large files in /var/log (> threshold MB)
+      ansible.builtin.find:
+        paths: /var/log
+        size: "{{ large_file_threshold_mb | default(100) }}m"
+        recurse: true
+        file_type: file
+        excludes:
+          - "*.journal"
+          - "*.journal~"
+      register: large_log_files
+
+    - name: Remove large log files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ large_log_files.files }}"
+      loop_control:
+        label: "{{ item.path }} ({{ (item.size / 1048576) | round(0) }}MB)"
+
+    - name: Remove compressed log archives
+      ansible.builtin.find:
+        paths: /var/log
+        patterns: "*.gz"
+        age: "{{ log_retention_days | default(7) }}d"
+        recurse: true
+      register: old_gz_logs
+
+    - name: Delete compressed logs
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_gz_logs.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Force log rotation
+      ansible.builtin.command: logrotate -f /etc/logrotate.conf
+      ignore_errors: true
+      changed_when: true
+
+    - name: Clear dnf cache
+      ansible.builtin.command: dnf clean all
+      when: ansible_facts['os_family'] == 'RedHat'
+      ignore_errors: true
+      changed_when: true
+
+    - name: Capture disk usage after cleanup
+      ansible.builtin.command:
+        cmd: df --output=pcent /var/log
+      register: disk_after
+      changed_when: false
+
+    - name: Record measured results
+      ansible.builtin.set_fact:
+        disk_pct_before: "{{ disk_before.stdout_lines[1] | trim }}"
+        disk_pct_after: "{{ disk_after.stdout_lines[1] | trim }}"
+        mb_freed: "{{ large_log_files.files | map(attribute='size') | sum | int // 1048576 }}"
+        gz_mb_freed: "{{ old_gz_logs.files | map(attribute='size') | sum | int // 1048576 }}"
+
+    - name: Report results
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          DISK CLEANUP COMPLETE
+          ============================================================
+          Before: {{ disk_pct_before }} → After: {{ disk_pct_after }}
+          Large files removed: {{ large_log_files.files | length }}
+          Compressed logs removed: {{ old_gz_logs.files | length }}
+          Space freed: {{ mb_freed | int + gz_mb_freed | int }}MB
+          ============================================================
+
+    - name: Drop Linux page cache to free memory
+      ansible.builtin.shell: sync && echo 3 > /proc/sys/vm/drop_caches
+      changed_when: true
+      ignore_errors: true
+
+    - name: Gather post-remediation memory
+      ansible.builtin.shell: "free | awk '/Mem:/{printf \"%d\", ($3/$2)*100}'"
+      register: mem_pct_after
+      changed_when: false
+
+    - name: Check for new disk errors since remediation started
+      ansible.builtin.shell: |
+        journalctl -p err --since "{{ remediation_start.stdout }}" --utc --no-pager --output=short 2>/dev/null | \
+        grep -i "no space\|disk full\|ENOSPC" | wc -l
+      register: disk_errors_after
+      changed_when: false
+      ignore_errors: true
+
+    - name: Publish results as artifacts
+      ansible.builtin.set_stats:
+        data:
+          remediation_title: "Remediation Complete: Disk Cleanup"
+          remediation_summary: |-
+            Disk cleanup completed.
+
+            Filesystem usage: {{ disk_pct_before }} -> {{ disk_pct_after }}
+            Large log files removed: {{ large_log_files.files | length }}
+            Space freed: {{ mb_freed | int + gz_mb_freed | int }} MB
+            Disk errors since remediation started: {{ disk_errors_after.stdout | trim }}
+          remediation_close: >-
+            Disk cleanup completed. Filesystem usage {{ disk_pct_before }} ->
+            {{ disk_pct_after }}, {{ mb_freed | int + gz_mb_freed | int }} MB freed
+            across {{ large_log_files.files | length }} large log file(s).
+          disk_before: "{{ disk_pct_before }}"
+          disk_after: "{{ disk_pct_after }}"
+          large_files_removed: "{{ large_log_files.files | length }}"
+          mb_freed: "{{ mb_freed | int + gz_mb_freed | int }}"
+          memory_used_pct_after: "{{ mem_pct_after.stdout | trim }}"
+          disk_errors_remaining: "{{ disk_errors_after.stdout | trim }}"
+          status: "completed"
