@@ -272,13 +272,24 @@
 # App installation (replaces: download → podman cp → extract → chown)
 # curl runs directly inside the pod — no host temp dir needed.
 # -------------------------------------------------------
-- name: Download and extract Splunk apps inside pod
+# Apps are bundled in files/apps/ — no S3 dependency at runtime.
+# Splunk image is Ubuntu-based (has tar) so k8s_cp works reliably here.
+- name: Copy Splunk apps from role files into pod
+  kubernetes.core.k8s_cp:
+    namespace: "{{ ocp4_workload_splunk_namespace }}"
+    pod: "{{ _splunk_pod_name }}"
+    local_path: "{{ role_path }}/files/apps/{{ item.filename }}"
+    remote_path: "/tmp/{{ item.filename }}"
+    state: to_pod
+  loop: "{{ ocp4_workload_splunk_apps }}"
+
+- name: Extract Splunk apps and set ownership
   kubernetes.core.k8s_exec:
     namespace: "{{ ocp4_workload_splunk_namespace }}"
     pod: "{{ _splunk_pod_name }}"
     command: >-
-      sh -c "curl -sL {{ item.url }} -o /tmp/{{ item.filename }}
-      && tar -xzf /tmp/{{ item.filename }} -C {{ ocp4_workload_splunk_container_apps_path }}
+      sh -c "tar -xzf /tmp/{{ item.filename }}
+      -C {{ ocp4_workload_splunk_container_apps_path }}
       && chown -R splunk:splunk {{ ocp4_workload_splunk_container_apps_path }}
       && rm -f /tmp/{{ item.filename }}"
   loop: "{{ ocp4_workload_splunk_apps }}"
