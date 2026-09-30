@@ -98,8 +98,7 @@
                   - containerPort: "{{ ocp4_workload_lightspeed_mcp_server_port }}"
                     name: mcp
                 readinessProbe:
-                  httpGet:
-                    path: /mcp
+                  tcpSocket:
                     port: mcp
                   initialDelaySeconds: 10
                   periodSeconds: 5
