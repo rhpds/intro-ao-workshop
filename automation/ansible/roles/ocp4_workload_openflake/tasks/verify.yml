@@ -1,0 +1,60 @@
+---
+- name: Wait for PostgreSQL to report a ready replica
+  kubernetes.core.k8s_info:
+    kind: StatefulSet
+    namespace: "{{ ocp4_workload_openflake_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ ocp4_workload_openflake_release_name }}"
+      - "app.kubernetes.io/component=postgresql"
+  register: _ocp4_workload_openflake_pg_status
+  retries: "{{ ocp4_workload_openflake_verify_retries }}"
+  delay: "{{ ocp4_workload_openflake_verify_delay }}"
+  until: >-
+    (_ocp4_workload_openflake_pg_status.resources | default([]) | length) > 0
+    and ((_ocp4_workload_openflake_pg_status.resources[0].status.readyReplicas | default(0)) | int) >= 1
+
+- name: Wait for the backend and frontend to report available replicas
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    namespace: "{{ ocp4_workload_openflake_namespace }}"
+    label_selectors:
+      - "app.kubernetes.io/instance={{ ocp4_workload_openflake_release_name }}"
+      - "app.kubernetes.io/component={{ item }}"
+  register: _ocp4_workload_openflake_deploy_status
+  retries: "{{ ocp4_workload_openflake_verify_retries }}"
+  delay: "{{ ocp4_workload_openflake_verify_delay }}"
+  until: >-
+    (_ocp4_workload_openflake_deploy_status.resources | default([]) | length) > 0
+    and ((_ocp4_workload_openflake_deploy_status.resources[0].status.availableReplicas | default(0)) | int) >= 1
+  loop:
+    - backend
+    - frontend
+
+# Off by default: execution nodes frequently cannot resolve or reach the
+# cluster's wildcard apps domain, which would turn a healthy install into a
+# spurious failure.
+- name: Check the public URL answers
+  when:
+    - ocp4_workload_openflake_verify_public_url | bool
+    - ocp4_workload_openflake_public_url | default('') | length > 0
+  block:
+    - name: Request the readiness endpoint through the Route
+      ansible.builtin.uri:
+        url: "{{ ocp4_workload_openflake_public_url }}/health/ready"
+        method: GET
+        return_content: true
+        validate_certs: "{{ ocp4_workload_openflake_verify_public_url_certs | bool }}"
+        status_code: 200
+      register: _ocp4_workload_openflake_public_check
+      retries: "{{ ocp4_workload_openflake_verify_retries }}"
+      delay: "{{ ocp4_workload_openflake_verify_delay }}"
+      until: _ocp4_workload_openflake_public_check is succeeded
+
+    - name: Confirm the API reported itself ready
+      ansible.builtin.assert:
+        that:
+          - (_ocp4_workload_openflake_public_check.json | default({})).status | default('') == 'ready'
+        fail_msg: >-
+          {{ ocp4_workload_openflake_public_url }}/health/ready returned
+          {{ _ocp4_workload_openflake_public_check.content | default('no content') }}
+        quiet: true
