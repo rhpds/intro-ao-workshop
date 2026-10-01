@@ -1,0 +1,35 @@
+---
+# -------------------------------------------------------
+# Step 1: Build in-memory inventory for CNV nodes
+# Mirrors agnosticd-v2/ansible/roles/infra_add_bastion pattern.
+# -------------------------------------------------------
+- name: Add CNV nodes to in-memory inventory via bastion ProxyJump
+  ansible.builtin.include_role:
+    name: intro_ao_workshop.automation.infra_add_nodes
+  vars:
+    infra_add_nodes_hosts: "{{ ocp4_workload_cnv_satellite_repos_node_groups }}"
+
+# -------------------------------------------------------
+# Step 2: Register each node with Satellite.
+#
+# Option 1 pattern: run host_satellite_repositories tasks
+# delegated to each node from localhost context.
+#
+# Key design decisions:
+# - delegate_to: sends each task to the node over the bastion ProxyJump
+# - delegate_facts: true: facts gathered by setup run on the node are
+#   stored under the node's hostvars, not localhost's
+# - host_satellite_repositories_subscription_hostname: explicitly set
+#   to the node name to avoid inventory_hostname=='localhost' problem
+# -------------------------------------------------------
+- name: Register CNV nodes with Satellite
+  vars:
+    # Explicitly set the subscription hostname to the node name
+    # (avoids inventory_hostname='localhost' issue with delegate_to)
+    host_satellite_repositories_subscription_hostname: >-
+      {{ _node }}.{{ guid }}.internal
+  ansible.builtin.include_tasks: register_node.yml
+  loop: "{{ ocp4_workload_cnv_satellite_repos_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "Registering {{ _node }} with Satellite"

@@ -1,0 +1,43 @@
+---
+- name: Check required variables
+  ansible.builtin.assert:
+    that:
+      - bastion_ansible_host is defined
+      - bastion_ansible_user is defined
+      - bastion_ansible_ssh_pass is defined
+    quiet: true
+
+# Nested loop: for each group-entry, loop over its nodes.
+# with_subelements expands:
+#   [{groups:[A,B], nodes:[n1,n2]}, {groups:[C], nodes:[n3]}]
+# into:
+#   ([{groups:[A,B]}, n1], [{groups:[A,B]}, n2], [{groups:[C]}, n3])
+- name: Add nodes to in-memory inventory
+  ansible.builtin.add_host:
+    name: "{{ item.1 }}"
+    groups: "{{ item.0.groups }}"
+    # Internal CNV hostname — resolvable from bastion without external IP
+    ansible_host: "{{ item.1 }}"
+    ansible_user: "{{ item.0.user | default(infra_add_nodes_user) }}"
+    ansible_ssh_pass: "{{ item.0.password | default(infra_add_nodes_password) }}"
+    ansible_ssh_pipelining: true
+    ansible_ssh_common_args: >-
+      {{ '-o StrictHostKeyChecking=no -o ProxyJump='
+         ~ infra_add_nodes_user
+         ~ '@' ~ bastion_ansible_host
+         ~ ':' ~ (bastion_ansible_port | default(22))
+         if infra_add_nodes_use_bastion_proxy
+         else '-F /dev/null' }}
+  with_subelements:
+    - "{{ infra_add_nodes_hosts }}"
+    - nodes
+  loop_control:
+    label: "{{ item.1 }} → groups={{ item.0.groups }}"
+
+- name: Show nodes added to inventory
+  ansible.builtin.debug:
+    msg: "Added '{{ item.1 }}' to groups {{ item.0.groups }}"
+  with_subelements:
+    - "{{ infra_add_nodes_hosts }}"
+    - nodes
+  when: not silent | default(false)

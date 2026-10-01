@@ -1,0 +1,150 @@
+---
+# All tasks here are delegated to the CNV node (_node).
+# delegate_facts: true ensures facts gathered by setup are stored
+# under the node's hostvars entry, not localhost's.
+
+- name: "{{ _node }} — Gather minimum facts"
+  ansible.builtin.setup:
+    gather_subset: min
+  delegate_to: "{{ _node }}"
+  delegate_facts: true
+  become: true
+
+- name: "{{ _node }} — Remove rh-amazon-rhui-client (CNV/none provider skips)"
+  when: cloud_provider == 'aws'
+  ansible.builtin.package:
+    name: rh-amazon-rhui-client
+    state: absent
+    disablerepo: "*"
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Unregister from subscription-manager (cleanup)"
+  ansible.builtin.command: subscription-manager unregister
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+
+- name: "{{ _node }} — Clean subscription-manager"
+  ansible.builtin.command: subscription-manager clean
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+
+- name: "{{ _node }} — Install Satellite CA certificate"
+  ansible.builtin.get_url:
+    url: "https://{{ host_satellite_repositories_hostname }}/pub/katello-server-ca.crt"
+    dest: "/etc/pki/ca-trust/source/anchors/{{ host_satellite_repositories_hostname }}.ca.crt"
+    mode: u=rw,go=r
+    validate_certs: false
+  delegate_to: "{{ _node }}"
+  become: true
+  retries: 10
+  delay: 10
+
+- name: "{{ _node }} — Update CA trust bundle"
+  ansible.builtin.command: update-ca-trust
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Remove existing katello-ca-consumer package"
+  ansible.builtin.package:
+    name: katello-ca-consumer-*.noarch
+    state: absent
+    disablerepo: "*"
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+
+- name: "{{ _node }} — Find existing .repo files"
+  ansible.builtin.find:
+    paths: /etc/yum.repos.d
+    recurse: false
+    patterns: ['*.repo']
+  delegate_to: "{{ _node }}"
+  become: true
+  register: _r_find_repos
+
+- name: "{{ _node }} — Remove existing repo files"
+  ansible.builtin.file:
+    path: "{{ _file.path }}"
+    state: absent
+  delegate_to: "{{ _node }}"
+  become: true
+  loop: "{{ _r_find_repos.files }}"
+  loop_control:
+    loop_var: _file
+    label: "{{ _file.path }}"
+  ignore_errors: true
+
+- name: "{{ _node }} — Install Satellite CA consumer RPM"
+  ansible.builtin.yum:
+    name: "{{ host_satellite_repositories_ca_rpm_url }}"
+    state: present
+    disablerepo: "*"
+    disable_gpg_check: true
+  delegate_to: "{{ _node }}"
+  become: true
+  register: _r_install_ca_rpm
+  until: not _r_install_ca_rpm.failed
+  retries: 10
+  delay: 10
+
+- name: "{{ _node }} — Disable package profile reporting to Satellite"
+  community.general.ini_file:
+    path: /etc/rhsm/rhsm.conf
+    section: rhsm
+    option: report_package_profile
+    value: "0"
+    mode: ug=rw,o=r
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Set katello.facts with subscription hostname"
+  ansible.builtin.copy:
+    dest: /etc/rhsm/facts/katello.facts
+    content: "{{ {'network.fqdn': host_satellite_repositories_subscription_hostname} | to_json }}"
+    mode: ug=rw,o=r
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Register with Satellite activation key"
+  community.general.redhat_subscription:
+    state: present
+    consumer_name: "{{ host_satellite_repositories_subscription_hostname }}"
+    server_hostname: "{{ host_satellite_repositories_hostname }}"
+    org_id: "{{ host_satellite_repositories_org }}"
+    activationkey: "{{ host_satellite_repositories_activationkey }}"
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Enable RHSM to manage repositories"
+  ansible.builtin.command: subscription-manager config --rhsm.manage_repos=1
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Lock RHEL 9 release"
+  when:
+    - host_satellite_repositories_rhel9_lock_release | default('') | length > 0
+    - hostvars[_node]['ansible_distribution_major_version'] | default('') == "9"
+  ansible.builtin.command: >-
+    subscription-manager release --set={{ host_satellite_repositories_rhel9_lock_release }}
+  delegate_to: "{{ _node }}"
+  become: true
+  register: _r_lock
+  until: _r_lock is succeeded
+  retries: 15
+  delay: 10
+
+- name: "{{ _node }} — Enable all repos from content view"
+  when: host_satellite_repositories_use_content_view | bool
+  community.general.rhsm_repository:
+    name: "*"
+    state: enabled
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Clean yum cache"
+  ansible.builtin.command: yum clean all
+  delegate_to: "{{ _node }}"
+  become: true

@@ -1,0 +1,105 @@
+---
+# -------------------------------------------------------------------
+# infra_add_nodes — in-memory inventory builder for CNV lab nodes
+# -------------------------------------------------------------------
+# Mirrors agnosticd-v2/ansible/roles/infra_add_bastion pattern.
+# Adds CNV nodes to the Ansible in-memory inventory at runtime using
+# add_host, so subsequent plays can target them without a static
+# inventory file.
+#
+# USAGE
+# -----
+# Include this role in the first play (hosts: localhost), then target
+# the added groups in subsequent plays:
+#
+#   - name: Build in-memory inventory
+#     hosts: localhost
+#     roles:
+#       - intro_ao_workshop.automation.infra_add_nodes
+#
+#   - name: Run something on RHEL 9 nodes
+#     hosts: rhel9_nodes
+#     roles:
+#       - your_role
+#
+# -------------------------------------------------------------------
+# DATA STRUCTURE
+# -------------------------------------------------------------------
+# infra_add_nodes_hosts is a list of group entries.
+# Each entry has:
+#   groups:   (required) list of Ansible groups all nodes in this entry join
+#   nodes:    (required) list of CNV internal hostnames to add
+#   user:     (optional) SSH username — overrides infra_add_nodes_user
+#   password: (optional) SSH password — overrides infra_add_nodes_password
+#
+# EXAMPLE — basic, all nodes in one group:
+#
+#   infra_add_nodes_hosts:
+#     - groups:
+#         - rhel9_nodes
+#       nodes:
+#         - node1
+#         - node2
+#         - node3
+#
+# EXAMPLE — multiple groups with different nodes:
+#
+#   infra_add_nodes_hosts:
+#     - groups:
+#         - rhel9_nodes
+#         - showroom
+#       nodes:
+#         - node1
+#         - node2
+#         - node3
+#     - groups:
+#         - rhel8_nodes
+#         - bastions
+#       nodes:
+#         - node4
+#         - node5
+#         - node6
+#
+# EXAMPLE — per-entry credential override:
+#
+#   infra_add_nodes_hosts:
+#     - groups:
+#         - rhel9_nodes
+#       nodes:
+#         - node1
+#         - node2
+#       user: lab-user
+#       password: "{{ common_host_password }}"
+#     - groups:
+#         - monitoring
+#       nodes:
+#         - node3
+#       user: monitor-agent
+#       password: "{{ monitoring_password }}"
+#
+# -------------------------------------------------------------------
+# DEFAULT — all three lab nodes in rhel9_nodes
+# -------------------------------------------------------------------
+infra_add_nodes_hosts:
+  - groups:
+      - rhel9_nodes
+    nodes:
+      - node1
+      - node2
+      - node3
+
+# -------------------------------------------------------------------
+# SSH credentials (used when no per-entry override is set)
+# -------------------------------------------------------------------
+infra_add_nodes_user: "{{ bastion_ansible_user }}"
+infra_add_nodes_password: "{{ bastion_ansible_ssh_pass }}"
+
+# -------------------------------------------------------------------
+# Bastion proxy
+# -------------------------------------------------------------------
+# When true (default), all node SSH is routed through the bastion as a
+# ProxyJump. The internal CNV hostname (e.g. 'node1') is used as
+# ansible_host — it is resolvable from the bastion without external IPs.
+# Set to false only when running Ansible directly from a host that has
+# direct network access to the CNV nodes.
+infra_add_nodes_use_bastion_proxy: true

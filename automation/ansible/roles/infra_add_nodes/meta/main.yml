@@ -1,0 +1,12 @@
+---
+galaxy_info:
+  role_name: infra_add_nodes
+  author: Mitesh Sharma
+  description: >-
+    Adds CNV lab nodes to the in-memory Ansible inventory using add_host,
+    routing SSH through the bastion as a ProxyJump. Pattern mirrors
+    agnosticd-v2/ansible/roles/infra_add_bastion.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []

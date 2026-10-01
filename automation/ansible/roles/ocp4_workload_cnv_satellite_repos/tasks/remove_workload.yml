@@ -1,0 +1,26 @@
+---
+- name: Add CNV nodes to in-memory inventory
+  ansible.builtin.include_role:
+    name: intro_ao_workshop.automation.infra_add_nodes
+  vars:
+    infra_add_nodes_hosts: "{{ ocp4_workload_cnv_satellite_repos_node_groups }}"
+
+- name: Unregister CNV nodes from Satellite
+  ansible.builtin.command: subscription-manager unregister
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+  loop: "{{ ocp4_workload_cnv_satellite_repos_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "Unregistering {{ _node }}"
+
+- name: Clean subscription-manager on CNV nodes
+  ansible.builtin.command: subscription-manager clean
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+  loop: "{{ ocp4_workload_cnv_satellite_repos_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "Cleaning {{ _node }}"

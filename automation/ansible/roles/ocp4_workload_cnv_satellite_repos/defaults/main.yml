@@ -1,0 +1,43 @@
+---
+become_override: false
+silent: false
+
+# -------------------------------------------------------------------
+# Nodes to register — defaults to all rhel9_nodes added by infra_add_nodes
+# -------------------------------------------------------------------
+ocp4_workload_cnv_satellite_repos_nodes: "{{ groups['rhel9_nodes'] | default([]) }}"
+
+# infra_add_nodes configuration (passed through to the role)
+ocp4_workload_cnv_satellite_repos_node_groups:
+  - groups:
+      - rhel9_nodes
+    nodes:
+      - node1
+      - node2
+      - node3
+
+# -------------------------------------------------------------------
+# Satellite connection — required, supply via secrets include
+# -------------------------------------------------------------------
+# Satellite server hostname
+host_satellite_repositories_hostname: ""
+
+# Satellite org ID
+host_satellite_repositories_org: ""
+
+# Activation key for RHEL 9 nodes
+host_satellite_repositories_activationkey: ""
+
+# CA RPM URL — typically:
+# https://<satellite>/pub/katello-ca-consumer-latest.noarch.rpm
+host_satellite_repositories_ca_rpm_url: >-
+  https://{{ host_satellite_repositories_hostname }}/pub/katello-ca-consumer-latest.noarch.rpm
+
+# Set to true if the activation key is linked to a content view
+host_satellite_repositories_use_content_view: true
+
+# Optional: lock RHEL 9 to a specific minor release (e.g. "9.4")
+host_satellite_repositories_rhel9_lock_release: ""
+
+# cloud_provider context — set to 'none' for CNV nodes (no AWS/GCP/Azure specifics)
+cloud_provider: none
