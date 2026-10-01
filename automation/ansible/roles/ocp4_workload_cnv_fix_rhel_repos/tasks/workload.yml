@@ -1,0 +1,25 @@
+---
+# -------------------------------------------------------
+# Step 1: Build in-memory inventory for CNV nodes
+# -------------------------------------------------------
+- name: Add CNV nodes to in-memory inventory via bastion ProxyJump
+  ansible.builtin.include_role:
+    name: intro_ao_workshop.automation.infra_add_nodes
+  vars:
+    infra_add_nodes_hosts: "{{ ocp4_workload_cnv_fix_rhel_repos_node_groups }}"
+
+# -------------------------------------------------------
+# Step 2: Fix Satellite CA vs CDN SSL mismatch on each node.
+# Source: lb2961.ai_driven_aap/roles/fix_rhel_repos/tasks/main.yml
+#
+# Problem: set-repositories re-registers to CDN but keeps the satellite
+# katello CA cert which cannot validate CDN SSL. rhsm.service rewrites
+# redhat.repo after provisioning, undoing per-repo fixes. Global dnf.conf
+# settings persist regardless of redhat.repo rewrites.
+# -------------------------------------------------------
+- name: Fix repo SSL on each CNV node
+  ansible.builtin.include_tasks: fix_node.yml
+  loop: "{{ ocp4_workload_cnv_fix_rhel_repos_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "Fixing SSL repos on {{ _node }}"

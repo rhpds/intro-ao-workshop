@@ -1,0 +1,14 @@
+---
+become_override: false
+silent: false
+
+# Nodes to fix — defaults to all rhel9_nodes added by infra_add_nodes
+ocp4_workload_cnv_fix_rhel_repos_nodes: "{{ groups['rhel9_nodes'] | default([]) }}"
+
+ocp4_workload_cnv_fix_rhel_repos_node_groups:
+  - groups:
+      - rhel9_nodes
+    nodes:
+      - node1
+      - node2
+      - node3

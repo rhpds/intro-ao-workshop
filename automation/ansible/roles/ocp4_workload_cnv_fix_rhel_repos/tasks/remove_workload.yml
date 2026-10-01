@@ -1,0 +1,19 @@
+---
+# Revert SSL fix — restore sslverify=1 in dnf.conf
+- name: Add CNV nodes to in-memory inventory
+  ansible.builtin.include_role:
+    name: intro_ao_workshop.automation.infra_add_nodes
+  vars:
+    infra_add_nodes_hosts: "{{ ocp4_workload_cnv_fix_rhel_repos_node_groups }}"
+
+- name: "{{ _node }} — Restore sslverify=1 in dnf.conf"
+  ansible.builtin.lineinfile:
+    path: /etc/dnf/dnf.conf
+    line: "sslverify=1"
+    regexp: "^sslverify"
+    state: present
+  delegate_to: "{{ _node }}"
+  become: true
+  loop: "{{ ocp4_workload_cnv_fix_rhel_repos_nodes }}"
+  loop_control:
+    loop_var: _node

@@ -1,0 +1,33 @@
+---
+# All tasks delegated to the CNV node (_node).
+# Source: lb2961.ai_driven_aap/roles/fix_rhel_repos/tasks/main.yml
+
+- name: "{{ _node }} — Fix sslverify in redhat.repo (satellite CA vs CDN mismatch)"
+  ansible.builtin.command:
+    cmd: >-
+      bash -c 'sed -i
+      "s/sslverify = 1/sslverify = 0/g;
+       s/sslverifystatus = 1/sslverifystatus = 0/g"
+      /etc/yum.repos.d/redhat.repo'
+  delegate_to: "{{ _node }}"
+  become: true
+  changed_when: true
+  failed_when: false
+
+- name: "{{ _node }} — Set sslverify=0 globally in dnf.conf"
+  ansible.builtin.lineinfile:
+    path: /etc/dnf/dnf.conf
+    line: "sslverify=0"
+    regexp: "^sslverify"
+    state: present
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Set sslverifystatus=0 globally in dnf.conf"
+  ansible.builtin.lineinfile:
+    path: /etc/dnf/dnf.conf
+    line: "sslverifystatus=0"
+    regexp: "^sslverifystatus"
+    state: present
+  delegate_to: "{{ _node }}"
+  become: true
