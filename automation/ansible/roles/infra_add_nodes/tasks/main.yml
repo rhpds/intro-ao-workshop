@@ -7,32 +7,56 @@
       - bastion_ansible_ssh_pass is defined
     quiet: true
 
-# Nested loop: for each group-entry, loop over its nodes.
-# with_subelements expands:
-#   [{groups:[A,B], nodes:[n1,n2]}, {groups:[C], nodes:[n3]}]
-# into:
-#   ([{groups:[A,B]}, n1], [{groups:[A,B]}, n2], [{groups:[C]}, n3])
-- name: Add nodes to in-memory inventory
+# For each node:
+#   - If an external IP exists (LoadBalancer provisioned): connect directly
+#     to that IP on port 22 — no ProxyJump needed.
+#   - If no external IP (floating_ip: false, like node3): route through
+#     the bastion as ProxyJump. The bastion resolves the node by its
+#     internal CNV service name within OCP.
+- name: Add nodes with external IP to in-memory inventory (direct SSH)
   ansible.builtin.add_host:
     name: "{{ item.1 }}"
     groups: "{{ item.0.groups }}"
-    # Internal CNV hostname — resolvable from bastion without external IP
-    ansible_host: "{{ item.1 }}"
+    ansible_host: "{{ _external_ip }}"
+    ansible_port: 22
     ansible_user: "{{ item.0.user | default(infra_add_nodes_user) }}"
     ansible_ssh_pass: "{{ item.0.password | default(infra_add_nodes_password) }}"
     ansible_ssh_pipelining: true
-    ansible_ssh_common_args: >-
-      {{ '-o StrictHostKeyChecking=no -o ProxyJump='
-         ~ infra_add_nodes_user
-         ~ '@' ~ bastion_ansible_host
-         ~ ':' ~ (bastion_ansible_port | default(22))
-         if infra_add_nodes_use_bastion_proxy
-         else '-F /dev/null' }}
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+  vars:
+    _external_ip: >-
+      {{ lookup('agnosticd.core.agnosticd_user_data', item.1 ~ '_external_ip', default='') }}
+  when: _external_ip | length > 0
   with_subelements:
     - "{{ infra_add_nodes_hosts }}"
     - nodes
   loop_control:
-    label: "{{ item.1 }} → groups={{ item.0.groups }}"
+    label: "{{ item.1 }} → direct ({{ _external_ip | default('no IP') }})"
+
+- name: Add nodes without external IP to in-memory inventory (via bastion ProxyJump)
+  ansible.builtin.add_host:
+    name: "{{ item.1 }}"
+    groups: "{{ item.0.groups }}"
+    # Use the node name — resolvable from bastion inside OCP CNV namespace
+    ansible_host: "{{ item.1 }}"
+    ansible_port: 22
+    ansible_user: "{{ item.0.user | default(infra_add_nodes_user) }}"
+    ansible_ssh_pass: "{{ item.0.password | default(infra_add_nodes_password) }}"
+    ansible_ssh_pipelining: true
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking=no
+      -o ProxyJump="{{ infra_add_nodes_user }}@{{ bastion_ansible_host }}:{{ bastion_ansible_port | default(22) }}"
+  vars:
+    _external_ip: >-
+      {{ lookup('agnosticd.core.agnosticd_user_data', item.1 ~ '_external_ip', default='') }}
+  when:
+    - infra_add_nodes_use_bastion_proxy
+    - _external_ip | length == 0
+  with_subelements:
+    - "{{ infra_add_nodes_hosts }}"
+    - nodes
+  loop_control:
+    label: "{{ item.1 }} → via bastion proxy"
 
 - name: Show nodes added to inventory
   ansible.builtin.debug:
