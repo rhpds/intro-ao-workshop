@@ -1,0 +1,16 @@
+---
+- name: Add CNV nodes to in-memory inventory
+  ansible.builtin.include_role:
+    name: intro_ao_workshop.automation.infra_add_nodes
+  vars:
+    infra_add_nodes_hosts: "{{ ocp4_workload_cnv_insights_host_node_groups }}"
+
+- name: Disconnect CNV nodes from Red Hat Insights
+  ansible.builtin.command: rhc disconnect
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+  loop: "{{ ocp4_workload_cnv_insights_host_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "Disconnecting {{ _node }}"

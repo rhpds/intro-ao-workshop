@@ -1,0 +1,25 @@
+---
+# -------------------------------------------------------
+# Step 1: Build in-memory inventory for CNV nodes
+# -------------------------------------------------------
+- name: Add CNV nodes to in-memory inventory via bastion ProxyJump
+  ansible.builtin.include_role:
+    name: intro_ao_workshop.automation.infra_add_nodes
+  vars:
+    infra_add_nodes_hosts: "{{ ocp4_workload_cnv_insights_host_node_groups }}"
+
+# -------------------------------------------------------
+# Step 2: Register each node with Red Hat Insights.
+# Wraps rhpds.rhel_management.insights_host using delegate_to
+# so it runs within the openshift-workloads localhost context.
+# -------------------------------------------------------
+- name: Register CNV nodes with Red Hat Insights
+  vars:
+    # Override inventory_hostname so katello.facts gets the node name,
+    # not 'localhost' (which is what inventory_hostname equals during delegation)
+    _insights_fqdn: "{{ _node }}.{{ guid }}.internal"
+  ansible.builtin.include_tasks: register_node.yml
+  loop: "{{ ocp4_workload_cnv_insights_host_nodes }}"
+  loop_control:
+    loop_var: _node
+    label: "Registering {{ _node }} with Insights"

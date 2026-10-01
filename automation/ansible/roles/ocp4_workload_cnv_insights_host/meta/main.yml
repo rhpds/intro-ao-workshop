@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_cnv_insights_host
+  author: Mitesh Sharma
+  description: >-
+    OCP workload (runs on localhost) that registers CNV lab nodes with
+    Red Hat Insights using `rhc connect`, delegating tasks to each node
+    via bastion ProxyJump. Wraps rhpds.rhel_management.insights_host
+    using Option 1 (delegate_to inside an ocp4_workload).
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []

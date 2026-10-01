@@ -1,0 +1,86 @@
+---
+# All tasks delegated to the CNV node (_node).
+# Source: rhpds.rhel_management.insights_host tasks/main.yml
+# Ref: c984b381aacacbe234aee78b054b8ed3580e7794
+
+- name: "{{ _node }} — Unregister from subscription-manager (cleanup)"
+  ansible.builtin.shell: subscription-manager unregister
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+
+- name: "{{ _node }} — Remove katello-ca-consumer package"
+  ansible.builtin.dnf:
+    name: katello-ca-consumer*
+    state: absent
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Set network.fqdn in katello.facts"
+  ansible.builtin.copy:
+    dest: /etc/rhsm/facts/katello.facts
+    content: '{"network.fqdn": "{{ _insights_fqdn }}"}'
+    mode: ug=rw,o=r
+  delegate_to: "{{ _node }}"
+  become: true
+
+- name: "{{ _node }} — Register with Red Hat Insights via rhc connect"
+  ansible.builtin.command: >-
+    rhc connect
+    -o {{ insights_host_org }}
+    -a {{ insights_host_activation_key }}
+  delegate_to: "{{ _node }}"
+  become: true
+  register: _rhc_result
+  changed_when: "'Connected' in _rhc_result.stdout or _rhc_result.rc == 0"
+
+- name: "{{ _node }} — Run insights-client malware-detection collector"
+  ansible.builtin.command: insights-client --collector malware-detection
+  delegate_to: "{{ _node }}"
+  become: true
+  register: _insights_result
+  failed_when: _insights_result.rc != 0
+  ignore_errors: true
+
+- name: "{{ _node }} — Configure insights malware detection (disable test_scan)"
+  ansible.builtin.lineinfile:
+    line: "test_scan: false"
+    regexp: "^test_scan: true"
+    path: /etc/insights-client/malware-detection-config.yml
+  delegate_to: "{{ _node }}"
+  become: true
+  ignore_errors: true
+
+- name: "{{ _node }} — Set up PostgreSQL for demo environment"
+  when: ocp4_workload_cnv_insights_host_setup_postgresql | bool
+  block:
+    - name: "{{ _node }} — Initialize PostgreSQL database"
+      ansible.builtin.command: /usr/bin/postgresql-setup --initdb
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _pg_init
+      changed_when: _pg_init.rc == 0
+      failed_when: false
+
+    - name: "{{ _node }} — Remove existing data dir and retry if init failed"
+      when: _pg_init.rc != 0
+      block:
+        - name: "{{ _node }} — Remove existing PostgreSQL data directory"
+          ansible.builtin.file:
+            path: /var/lib/pgsql/data
+            state: absent
+          delegate_to: "{{ _node }}"
+          become: true
+
+        - name: "{{ _node }} — Retry PostgreSQL initialization"
+          ansible.builtin.command: /usr/bin/postgresql-setup --initdb
+          delegate_to: "{{ _node }}"
+          become: true
+
+    - name: "{{ _node }} — Enable and start postgresql"
+      ansible.builtin.service:
+        name: postgresql
+        enabled: true
+        state: started
+      delegate_to: "{{ _node }}"
+      become: true
