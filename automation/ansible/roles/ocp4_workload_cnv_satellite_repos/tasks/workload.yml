@@ -3,7 +3,7 @@
 # Step 1: Build in-memory inventory for CNV nodes
 # Mirrors agnosticd-v2/ansible/roles/infra_add_bastion pattern.
 # -------------------------------------------------------
-- name: Add CNV nodes to in-memory inventory
+- name: Add CNV nodes to in-memory inventory via bastion ProxyJump
   ansible.builtin.include_role:
     name: intro_ao_workshop.automation.infra_add_nodes
   vars:
@@ -16,7 +16,7 @@
 # delegated to each node from localhost context.
 #
 # Key design decisions:
-# - delegate_to: sends each task to the node over direct SSH
+# - delegate_to: sends each task to the node over the bastion ProxyJump
 # - delegate_facts: true: facts gathered by setup run on the node are
 #   stored under the node's hostvars, not localhost's
 # - host_satellite_repositories_subscription_hostname: explicitly set
