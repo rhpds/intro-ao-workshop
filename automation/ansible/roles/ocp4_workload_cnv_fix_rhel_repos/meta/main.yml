@@ -4,7 +4,7 @@ galaxy_info:
   author: Mitesh Sharma
   description: >-
     OCP workload (runs on localhost) that fixes the Satellite CA vs CDN SSL
-    mismatch on CNV lab nodes by delegating tasks via bastion ProxyJump.
+    mismatch on CNV lab nodes by delegating tasks over direct SSH.
     Wraps lb2961.ai_driven_aap.fix_rhel_repos using Option 1 (delegate_to
     inside an ocp4_workload).
   license: Apache-2.0

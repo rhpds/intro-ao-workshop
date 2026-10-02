@@ -2,40 +2,61 @@
 - name: Check required variables
   ansible.builtin.assert:
     that:
-      - bastion_ansible_host is defined
       - bastion_ansible_user is defined
       - bastion_ansible_ssh_pass is defined
     quiet: true
+
+- name: Fail when a node has no external IP
+  ansible.builtin.fail:
+    msg: >-
+      No external IP published for '{{ item.1 }}' (agnosticd_user_data key
+      '{{ item.1 }}_external_ip'). Confirm ocp4_workload_cnv_node_info ran
+      before this role and that the VM has a LoadBalancer address.
+  vars:
+    _external_ip: >-
+      {{ lookup('agnosticd.core.agnosticd_user_data', item.1 ~ '_external_ip', default='') | trim }}
+  when: _external_ip | length == 0
+  with_subelements:
+    - "{{ infra_add_nodes_hosts }}"
+    - nodes
+  loop_control:
+    label: "{{ item.1 }}"
+
+- name: Wait for node SSH to accept connections
+  ansible.builtin.wait_for:
+    host: "{{ _external_ip }}"
+    port: 22
+    timeout: "{{ infra_add_nodes_ssh_timeout }}"
+    search_regex: OpenSSH
+  vars:
+    _external_ip: >-
+      {{ lookup('agnosticd.core.agnosticd_user_data', item.1 ~ '_external_ip', default='') | trim }}
+  with_subelements:
+    - "{{ infra_add_nodes_hosts }}"
+    - nodes
+  loop_control:
+    label: "{{ item.1 }} ({{ _external_ip }})"
 
 - name: Add nodes to in-memory inventory
   ansible.builtin.add_host:
     name: "{{ item.1 }}"
     groups: "{{ item.0.groups }}"
-    ansible_host: "{{ item.1 }}"
+    ansible_host: "{{ _external_ip }}"
     ansible_port: 22
     ansible_user: "{{ item.0.user | default(infra_add_nodes_user) }}"
     ansible_ssh_pass: "{{ item.0.password | default(infra_add_nodes_password) }}"
     ansible_ssh_pipelining: true
-    # ProxyCommand uses sshpass so the bastion password is passed programmatically.
-    # ProxyJump cannot handle password auth for the proxy hop itself.
-    # Format: sshpass -p <bastion_pass> ssh -W %h:%p <user>@<host> -p <port>
     ansible_ssh_common_args: >-
       -o StrictHostKeyChecking=no
       -o UserKnownHostsFile=/dev/null
-      {{ '-o ProxyCommand="sshpass -p '
-         ~ bastion_ansible_ssh_pass
-         ~ ' ssh -W %h:%p'
-         ~ ' -o StrictHostKeyChecking=no'
-         ~ ' -o UserKnownHostsFile=/dev/null'
-         ~ ' -p ' ~ (bastion_ansible_port | int | default(22))
-         ~ ' ' ~ bastion_ansible_user
-         ~ '@' ~ bastion_ansible_host ~ '"'
-         if infra_add_nodes_use_bastion_proxy else '' }}
+  vars:
+    _external_ip: >-
+      {{ lookup('agnosticd.core.agnosticd_user_data', item.1 ~ '_external_ip', default='') | trim }}
   with_subelements:
     - "{{ infra_add_nodes_hosts }}"
     - nodes
   loop_control:
-    label: "{{ item.1 }} → groups={{ item.0.groups }}"
+    label: "{{ item.1 }} → {{ _external_ip }}"
 
 - name: Show nodes added to inventory
   ansible.builtin.debug:

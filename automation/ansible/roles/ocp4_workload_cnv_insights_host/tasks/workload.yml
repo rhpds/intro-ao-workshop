@@ -2,7 +2,7 @@
 # -------------------------------------------------------
 # Step 1: Build in-memory inventory for CNV nodes
 # -------------------------------------------------------
-- name: Add CNV nodes to in-memory inventory via bastion ProxyJump
+- name: Add CNV nodes to in-memory inventory
   ansible.builtin.include_role:
     name: intro_ao_workshop.automation.infra_add_nodes
   vars:

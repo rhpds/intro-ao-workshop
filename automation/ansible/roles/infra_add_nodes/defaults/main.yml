@@ -95,11 +95,9 @@ infra_add_nodes_user: "{{ bastion_ansible_user }}"
 infra_add_nodes_password: "{{ bastion_ansible_ssh_pass }}"
 
 # -------------------------------------------------------------------
-# Bastion proxy
+# SSH readiness
 # -------------------------------------------------------------------
-# When true (default), all node SSH is routed through the bastion as a
-# ProxyJump. The internal CNV hostname (e.g. 'node1') is used as
-# ansible_host — it is resolvable from the bastion without external IPs.
-# Set to false only when running Ansible directly from a host that has
-# direct network access to the CNV nodes.
-infra_add_nodes_use_bastion_proxy: true
+# Nodes are reached directly on their external IP, published as the
+# agnosticd_user_data key '<node>_external_ip' by ocp4_workload_cnv_node_info.
+# Seconds to wait for each node's sshd to start accepting connections.
+infra_add_nodes_ssh_timeout: 300
