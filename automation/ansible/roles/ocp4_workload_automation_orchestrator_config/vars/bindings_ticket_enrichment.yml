@@ -1,0 +1,89 @@
+---
+# Wiring for files/workflows/ticket-enrichment.json
+#
+# `credential` and `integration` are keys into the asset maps this
+# role builds at run time, not AO UUIDs. Only agentic and
+# aap_job_template nodes need wiring.
+#
+# The one workflow with a webhook_trigger
+# (POST /api/v1/webhooks/openflake-incident), so the only consumer of
+# the aap-webhooks service account.
+
+ao_workflow_bindings:
+  nodes:
+
+    # --- AI nodes -------------------------------------------------
+
+    # Picks a route from the incident. The prompt names both tools and
+    # allows one call per step, so they are pinned — a renamed tool
+    # should fail the provision, not confuse the agent at run time.
+    triage_agent:
+      type: agentic
+      credential: llm
+      integrations:
+        - openflake_mcp
+        - aap_mcp
+      tool_selection_strategy: SELECTED
+      tools:
+        openflake_mcp:
+          - perform_query
+        aap_mcp:
+          - job_templates_list
+
+    # inform_only branch. Read-only: returns text for a later node to
+    # write back, so OpenFlake alone.
+    enrich_and_assign_agent:
+      type: agentic
+      credential: llm
+      integrations:
+        - openflake_mcp
+      tool_selection_strategy: SELECTED
+      tools:
+        openflake_mcp:
+          - perform_query
+
+    # --- AAP job template nodes -----------------------------------
+
+    # Opaque activity_<uuid> IDs, so each is placed in the graph below.
+    # All four run the same template — the agents never write to
+    # OpenFlake themselves.
+
+    # After triage, before the route switch.
+    activity_87cdc884_e973_4338_b02e_1ac7b0a23329:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Incidents | Update Ticket
+
+    # After the auto-remediation branch (switch case_0).
+    activity_31aceb85_eefd_4f85_8fdc_115d2480a5aa:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Incidents | Update Ticket
+
+    # After the approved-remediation branch (approval gate -> approved).
+    activity_a73a42e2_e774_40ed_aeb1_6298ea13aedd:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Incidents | Update Ticket
+
+    # After the inform-only branch (switch case_2 -> enrich agent).
+    activity_ae4f8c24_07ea_41a8_b70d_8dd74a4b393c:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Incidents | Update Ticket
+
+    # Launch whichever template the triage agent named, so no static
+    # job_template_id — AO resolves it at execution time.
+    auto_remediation_job:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+
+    remediation_job_approved:
+      type: aap_job_template
+      credential: aap
+      integration: aap

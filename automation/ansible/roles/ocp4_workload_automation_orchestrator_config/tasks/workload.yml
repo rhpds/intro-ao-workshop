@@ -1,0 +1,44 @@
+---
+# Day-2 configuration of a running Automation Orchestrator.
+#
+# Order matters:
+#   - the AAP token must exist before the AAP MCP credential that
+#     carries it
+#   - credentials must exist before the integrations that reference
+#     them
+#   - integrations must be refreshed and polled before workflow
+#     wiring, which needs model and tool IDs
+#   - AAP job templates must already exist on the controller, which is
+#     why this role runs after infra.aap_configuration.dispatch
+
+- name: Wait for the Automation Orchestrator API and authenticate
+  ansible.builtin.include_tasks: ao_login.yml
+
+- name: Mint an AAP bearer token for the AAP MCP integration
+  ansible.builtin.include_tasks: aap_token.yml
+
+- name: Create the solutions project
+  ansible.builtin.include_tasks: setup_project.yml
+
+- name: Create the solutions credentials
+  ansible.builtin.include_tasks: setup_credentials.yml
+
+- name: Create, associate and refresh the solutions integrations
+  ansible.builtin.include_tasks: setup_integrations.yml
+
+- name: Import, wire, validate and publish the solutions workflows
+  ansible.builtin.include_tasks: setup_workflows.yml
+
+- name: Mint a service account and patch the AAP credential
+  when: ocp4_workload_automation_orchestrator_config_manage_service_account | bool
+  ansible.builtin.include_tasks: setup_service_account.yml
+
+- name: Show the configured Automation Orchestrator assets
+  when: not silent | bool
+  ansible.builtin.debug:
+    msg: >-
+      Project '{{ ocp4_workload_automation_orchestrator_config_solutions_project }}'
+      is configured with
+      {{ _ao_credential_ids | length }} credential(s),
+      {{ _ao_integration_ids | length }} integration(s) and
+      {{ _ao_enabled_workflows | length }} workflow(s).

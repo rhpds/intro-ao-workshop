@@ -1,0 +1,88 @@
+---
+# Wiring for files/workflows/rhel-cve-remediation.json
+#
+# Only agentic and aap_job_template nodes need wiring; the script,
+# switch and approval nodes are self-contained. `credential` and
+# `integration` are keys into the asset maps this role builds at run
+# time, not AO UUIDs.
+
+ao_workflow_bindings:
+  nodes:
+
+    # --- AI nodes -------------------------------------------------
+
+    # The prompt calls three tools by name, so they are pinned — a
+    # renamed tool should fail the provision, not the agent at run
+    # time.
+    triage_agent:
+      type: agentic
+      credential: llm
+      integrations:
+        - lightspeed_mcp
+        - aap_mcp
+      tool_selection_strategy: SELECTED
+      tools:
+        lightspeed_mcp:
+          - vulnerability__get_cve_systems
+        aap_mcp:
+          - hosts_list
+          - hosts_variable_data_retrieve
+
+    # The prompt asks for "all available info" without naming tools,
+    # so offer the whole surface of both servers.
+    investigate_agent:
+      type: agentic
+      credential: llm
+      integrations:
+        - lightspeed_mcp
+        - aap_mcp
+      tool_selection_strategy: SELECTED
+      tools_all:
+        - lightspeed_mcp
+        - aap_mcp
+
+    # --- AAP job template nodes -----------------------------------
+
+    fetch_and_commit:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Fetch and Commit
+
+    deploy_script:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Sync and Deploy Remediation
+
+    # Production branch — same two templates, reached through the
+    # approval gate instead of directly.
+    fetch_and_commit_prod:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Fetch and Commit
+
+    deploy_script_prod:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Sync and Deploy Remediation
+
+    notify_investigate:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Notify Mattermost Investigation
+
+    # Launch whichever template the deploy node named upstream
+    # (`${...artifacts.template_name}`), so no static job_template_id.
+    run_cve_remediation:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+
+    run_cve_remediation_prod:
+      type: aap_job_template
+      credential: aap
+      integration: aap

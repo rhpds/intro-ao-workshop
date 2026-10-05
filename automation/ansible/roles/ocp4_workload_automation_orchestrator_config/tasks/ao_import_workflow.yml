@@ -1,0 +1,125 @@
+---
+# Import one workflow, wire its nodes, confirm it validates, publish.
+# The wiring itself is in the ao_wire_definition filter, unit-tested
+# offline against these exact exports (tests/test_ao_workflow.py).
+
+- name: "Load the binding file for {{ _wf.name }}"
+  ansible.builtin.include_vars:
+    file: "bindings_{{ _wf.key }}.yml"
+
+- name: "Re-authenticate before importing {{ _wf.name }}"
+  # Refresh polling can run for minutes; start each import with a
+  # token that has the full 900 s ahead of it.
+  ansible.builtin.include_tasks: ao_login.yml
+
+- name: "Build the wired definition for {{ _wf.name }}"
+  ansible.builtin.set_fact:
+    _ao_workflow_definition: >-
+      {{ lookup('ansible.builtin.file', 'workflows/' ~ _wf.file)
+         | from_json
+         | ao_prepare_definition(_wf.name, _wf.description | default(''))
+         | ao_wire_definition(ao_workflow_bindings, {
+             'credentials': _ao_credential_ids,
+             'integrations': _ao_integration_ids,
+             'tools': _ao_integration_tools,
+             'job_templates': _ao_job_template_ids,
+             'llm_model_id': _ao_llm_model_id | default(''),
+             'organization': ocp4_workload_automation_orchestrator_config_aap_organization,
+           }) }}
+
+- name: "Create or update workflow: {{ _wf.name }}"
+  ansible.builtin.include_tasks: ao_find_or_create.yml
+  vars:
+    _fc_kind: workflows
+    _fc_name: "{{ _wf.name }}"
+    _fc_body:
+      name: "{{ _wf.name }}"
+      description: "{{ _wf.description | default('') }}"
+      project_id: "{{ _ao_project_id }}"
+      workflow_definition: "{{ _ao_workflow_definition }}"
+    # Re-push the definition on re-runs so a corrected binding file
+    # actually lands instead of being skipped as "already present".
+    _fc_patch:
+      workflow_definition: "{{ _ao_workflow_definition }}"
+
+- name: "Record the workflow id for {{ _wf.name }}"
+  ansible.builtin.set_fact:
+    _ao_workflow_id: "{{ _ao_object_id }}"
+
+- name: "Read back {{ _wf.name }}"
+  # A GET returns `validation_result: null` and reports the outcome as
+  # the boolean `has_validation_issues`, so gate on that. The GET is
+  # also where `current_version` comes from, which publish needs.
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/workflows/{{ _ao_workflow_id }}"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_wf_get
+  retries: "{{ ocp4_workload_automation_orchestrator_config_validation_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_config_validation_delay }}"
+  until:
+    - r_wf_get is succeeded
+    - r_wf_get.json.current_version is defined
+
+- name: "Record the validation outcome for {{ _wf.name }}"
+  ansible.builtin.set_fact:
+    # Prefer the rich object returned by the write; fall back to the
+    # boolean from the GET.
+    _ao_workflow_validation: "{{ _ao_object_validation | default({}, true) }}"
+    _ao_workflow_is_valid: >-
+      {{ (_ao_object_validation.is_valid | default(none)) if
+         (_ao_object_validation | default({}, true) | length > 0)
+         else (not (r_wf_get.json.has_validation_issues | default(true))) }}
+    _ao_workflow_version: "{{ r_wf_get.json.current_version }}"
+
+- name: "Report validation findings for {{ _wf.name }}"
+  when:
+    - not _ao_workflow_is_valid | bool
+    - _ao_workflow_validation | length > 0
+  ansible.builtin.debug:
+    msg: |
+      Workflow '{{ _wf.name }}' did not validate
+      ({{ _ao_workflow_validation.error_count | default('?') }} error(s),
+       {{ _ao_workflow_validation.warning_count | default('?') }} warning(s)):
+
+      {{ _ao_workflow_validation | ao_validation_summary }}
+
+      Each finding names the node_id and field_path to correct in
+      vars/bindings_{{ _wf.key }}.yml.
+
+- name: "Fail on an invalid workflow: {{ _wf.name }}"
+  when:
+    - not _ao_workflow_is_valid | bool
+    - ocp4_workload_automation_orchestrator_config_fail_on_invalid_workflow | bool
+  ansible.builtin.fail:
+    msg: >-
+      Workflow '{{ _wf.name }}' is invalid after wiring and cannot be
+      published. See the findings above.
+
+- name: "Publish workflow: {{ _wf.name }}"
+  # Version-scoped: /workflows/{id}/versions/{n}/publish with an empty
+  # body; /workflows/{id}/publish is a 404. 409 means either "does not
+  # validate" or "already published", so it is accepted here.
+  when:
+    - ocp4_workload_automation_orchestrator_config_publish_workflows | bool
+    - _ao_workflow_is_valid | bool
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/workflows/{{ _ao_workflow_id }}/versions/{{ _ao_workflow_version }}/publish"
+    method: POST
+    headers: "{{ _ao_headers }}"
+    body_format: json
+    body: {}
+    status_code: [200, 201, 202, 204, 409]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_wf_publish
+
+- name: "Show the result for {{ _wf.name }}"
+  when: not silent | bool
+  ansible.builtin.debug:
+    msg: >-
+      Workflow '{{ _wf.name }}' ({{ _ao_workflow_id }}) version
+      {{ _ao_workflow_version }} is
+      {{ 'valid' if _ao_workflow_is_valid | bool else 'INVALID' }} and
+      {{ 'published' if r_wf_publish is not skipped else 'not published' }}.

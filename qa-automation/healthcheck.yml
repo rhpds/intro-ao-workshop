@@ -4,12 +4,390 @@
 # Should complete in under 60 seconds.
 #
 # Exit 0 = healthy, non-zero = unhealthy.
+#
+# This checks what ocp4_workload_automation_orchestrator_config built:
+# the `solutions` project and everything a student needs in order to
+# open it and press Run.
+#
+# Why this file asserts so much about node wiring: AO's own workflow
+# validation is structural only. A workflow whose nodes carry no
+# credential_id, no llm_model_id, no integration_id and no
+# job_template_id still reports is_valid and still publishes. So
+# `is_valid` proves nothing about runnability, and the per-node
+# assertions below are the real test.
+#
+# Usage:
+#   ansible-playbook qa-automation/healthcheck.yml \
+#     -e ao_url=https://... -e ao_password=...
 
 - name: "Environment Health Check"
   hosts: localhost
   connection: local
   gather_facts: false
+
+  vars:
+    ao_url: "{{ lookup('env', 'AO_URL') }}"
+    ao_username: "{{ lookup('env', 'AO_USERNAME') | default('admin', true) }}"
+    ao_password: "{{ lookup('env', 'AO_PASSWORD') }}"
+    ao_validate_certs: false
+    ao_solutions_project: solutions
+    ao_service_account_name: aap-webhooks
+    ao_expected_credentials: 4
+    ao_expected_integrations: 5
+    ao_expected_workflows:
+      - RHEL CVE Remediation
+      - Disk Utilization Remediation
+      - Ticket Enrichment Demo
+    # Node types this role is responsible for wiring. script, switch
+    # and approval nodes are self-contained and carry no asset IDs.
+    ao_wired_node_types:
+      - agentic
+      - aap_job_template
+
   tasks:
-    - name: "TODO: Implement health checks"
+    - name: Fail early on missing connection details
+      ansible.builtin.assert:
+        that:
+          - ao_url | length > 0
+          - ao_password | length > 0
+        fail_msg: >-
+          Set ao_url and ao_password (or AO_URL / AO_PASSWORD in the
+          environment).
+
+    - name: Authenticate to Automation Orchestrator
+      ansible.builtin.uri:
+        url: "{{ ao_url | regex_replace('/$', '') }}/api/v1/auth/login"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ ao_username }}"
+          password: "{{ ao_password }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      register: r_login
+      no_log: true
+
+    - name: Build the API base and auth header
+      ansible.builtin.set_fact:
+        ao_api: "{{ ao_url | regex_replace('/$', '') }}/api/v1"
+        ao_headers:
+          Authorization: "Bearer {{ r_login.json.access_token }}"
+      no_log: true
+
+    # ---------------------------------------------------------------
+    # Project
+    # ---------------------------------------------------------------
+    - name: List projects
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/projects"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      register: r_projects
+
+    - name: Record the solutions project
+      ansible.builtin.set_fact:
+        # Collections come back as {next, prev, total, resources}.
+        solutions_project: >-
+          {{ (r_projects.json.resources
+              | selectattr('name', 'equalto', ao_solutions_project)
+              | list | first) | default({}, true) }}
+
+    - name: Assert the solutions project exists
+      ansible.builtin.assert:
+        that: solutions_project.id is defined
+        fail_msg: >-
+          No '{{ ao_solutions_project }}' project. Found:
+          {{ r_projects.json.resources | map(attribute='name') | join(', ') }}.
+        success_msg: "Project '{{ ao_solutions_project }}' exists."
+
+    - name: Assert the student project was left alone
+      # The student builds credentials and integrations by hand in
+      # module-02 and the workflow in module-03. Seeding `default`
+      # would hand them the answers.
+      ansible.builtin.assert:
+        that: >-
+          'default' in (r_projects.json.resources | map(attribute='name') | list)
+        fail_msg: "The student's 'default' project is missing."
+
+    # ---------------------------------------------------------------
+    # Credentials
+    # ---------------------------------------------------------------
+    - name: List credentials
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/credentials"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      register: r_credentials
+
+    - name: Assert the solutions credentials exist
+      vars:
+        _solutions_credentials: >-
+          {{ r_credentials.json.resources
+             | selectattr('project_id', 'equalto', solutions_project.id)
+             | list }}
+      ansible.builtin.assert:
+        that: _solutions_credentials | length >= ao_expected_credentials
+        fail_msg: >-
+          Expected at least {{ ao_expected_credentials }} credentials in
+          '{{ ao_solutions_project }}', found {{ _solutions_credentials | length }}:
+          {{ _solutions_credentials | map(attribute='name') | join(', ') }}.
+        success_msg: >-
+          {{ _solutions_credentials | length }} credential(s) in
+          '{{ ao_solutions_project }}'.
+
+    # ---------------------------------------------------------------
+    # Integrations — existence is not enough; they must have refreshed
+    # ---------------------------------------------------------------
+    - name: List integrations
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/integrations"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      register: r_integrations
+
+    - name: Assert the expected number of integrations
+      ansible.builtin.assert:
+        that: r_integrations.json.resources | length >= ao_expected_integrations
+        fail_msg: >-
+          Expected at least {{ ao_expected_integrations }} integrations, found
+          {{ r_integrations.json.resources | length }}:
+          {{ r_integrations.json.resources | map(attribute='name') | join(', ') }}.
+        success_msg: "{{ r_integrations.json.resources | length }} integration(s) present."
+
+    - name: Check each MCP integration exposes tools
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/integrations/{{ item.id }}/tools?limit=200"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        return_content: true
+        validate_certs: "{{ ao_validate_certs }}"
+      loop: >-
+        {{ r_integrations.json.resources
+           | selectattr('integration_type', 'equalto', 'mcp_server') | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      register: r_tools
+
+    - name: Assert every MCP integration exposes at least one tool
+      vars:
+        # Tool descriptions contain raw control characters, which are
+        # illegal in JSON strings — scrub before parsing.
+        _empty: >-
+          {{ r_tools.results
+             | selectattr('content', 'defined')
+             | selectattr('content', 'search', '"resources":\s*\[\s*\]')
+             | map(attribute='item.name') | list }}
+      ansible.builtin.assert:
+        that: _empty | length == 0
+        fail_msg: >-
+          MCP integration(s) {{ _empty | join(', ') }} expose no tools. The
+          refresh either failed or the MCP endpoint is unreachable from AO;
+          any agentic node selecting a tool from them cannot run.
+        success_msg: "Every MCP integration exposes tools."
+
+    - name: Check the LLM integration exposes models
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/integrations/{{ item.id }}/models"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      loop: >-
+        {{ r_integrations.json.resources
+           | selectattr('integration_type', 'equalto', 'llm_provider') | list }}
+      loop_control:
+        label: "{{ item.name }}"
+      register: r_models
+
+    - name: Assert the LLM integration exposes models
+      vars:
+        _empty: >-
+          {{ r_models.results
+             | selectattr('json.resources', 'defined')
+             | selectattr('json.resources', 'eq', [])
+             | map(attribute='item.name') | list }}
+      ansible.builtin.assert:
+        that: _empty | length == 0
+        fail_msg: >-
+          LLM integration(s) {{ _empty | join(', ') }} expose no models.
+          Check the LiteLLM endpoint and the virtual key.
+        success_msg: "The LLM integration exposes models."
+
+    # ---------------------------------------------------------------
+    # Workflows — the real test
+    # ---------------------------------------------------------------
+    - name: List workflows
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/workflows"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      register: r_workflows
+
+    - name: Record the solutions workflows
+      ansible.builtin.set_fact:
+        solutions_workflows: >-
+          {{ r_workflows.json.resources
+             | selectattr('project_id', 'defined')
+             | selectattr('project_id', 'equalto', solutions_project.id)
+             | list }}
+
+    - name: Assert both solutions workflows are present
+      vars:
+        _found: "{{ solutions_workflows | map(attribute='name') | list }}"
+      ansible.builtin.assert:
+        that: ao_expected_workflows | difference(_found) | length == 0
+        fail_msg: >-
+          Missing workflow(s):
+          {{ ao_expected_workflows | difference(_found) | join(', ') }}.
+          Found: {{ _found | join(', ') }}.
+        success_msg: "Both solutions workflows are present."
+
+    - name: Fetch each workflow definition
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/workflows/{{ item.id }}"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      loop: "{{ solutions_workflows }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: r_workflow_detail
+
+    - name: Assert no workflow reports validation issues
+      vars:
+        _bad: >-
+          {{ r_workflow_detail.results
+             | selectattr('json.has_validation_issues', 'defined')
+             | selectattr('json.has_validation_issues')
+             | map(attribute='json.name') | list }}
+      ansible.builtin.assert:
+        that: _bad | length == 0
+        fail_msg: "Workflow(s) with validation issues: {{ _bad | join(', ') }}."
+        success_msg: "No workflow reports validation issues."
+
+    - name: Assert every wired node carries real asset IDs
+      # The assertion AO's own validation does not make. A node whose
+      # credential_id or job_template_id is missing — or still carries
+      # the exported placeholder — fails the moment a student runs it.
+      vars:
+        _unwired: >-
+          {{ r_workflow_detail.results
+             | map(attribute='json')
+             | map(attribute='workflow_definition')
+             | map(attribute='nodes') | flatten
+             | selectattr('type', 'in', ao_wired_node_types)
+             | rejectattr('parameters.credential_id', 'defined')
+             | map(attribute='id') | list }}
+        _placeholders: >-
+          {{ r_workflow_detail.results
+             | map(attribute='json')
+             | map(attribute='workflow_definition')
+             | map(attribute='nodes') | flatten
+             | selectattr('parameters.credential_id', 'defined')
+             | selectattr('parameters.credential_id', 'search', '^(YOUR_|REPLACE_)')
+             | map(attribute='id') | list }}
+      ansible.builtin.assert:
+        that:
+          - _unwired | length == 0
+          - _placeholders | length == 0
+        fail_msg: >-
+          Node(s) with no credential_id: {{ _unwired | join(', ') | default('none', true) }}.
+          Node(s) still carrying an export placeholder:
+          {{ _placeholders | join(', ') | default('none', true) }}.
+          These validate but cannot run.
+        success_msg: "Every wired node carries a real credential_id."
+
+    - name: Assert every agentic node has a model and a non-empty tool list
+      vars:
+        _agentic: >-
+          {{ r_workflow_detail.results
+             | map(attribute='json')
+             | map(attribute='workflow_definition')
+             | map(attribute='nodes') | flatten
+             | selectattr('type', 'equalto', 'agentic') | list }}
+        _no_model: >-
+          {{ _agentic | rejectattr('parameters.llm_model_id', 'defined')
+             | map(attribute='id') | list }}
+        _no_tools: >-
+          {{ _agentic
+             | selectattr('parameters.tool_selection_strategy', 'defined')
+             | selectattr('parameters.tool_selection_strategy', 'equalto', 'SELECTED')
+             | rejectattr('parameters.tool_selections', 'truthy')
+             | map(attribute='id') | list }}
+      ansible.builtin.assert:
+        that:
+          - _no_model | length == 0
+          - _no_tools | length == 0
+        fail_msg: >-
+          Agentic node(s) with no llm_model_id: {{ _no_model | join(', ') }}.
+          Agentic node(s) selecting no tools: {{ _no_tools | join(', ') }}.
+        success_msg: "Every agentic node has a model and a tool selection."
+
+    - name: Assert every static AAP node resolved a job_template_id
+      # Nodes whose job_template_name is a ${...} runtime expression
+      # are resolved at execution time and legitimately have no ID.
+      vars:
+        _static_unresolved: >-
+          {{ r_workflow_detail.results
+             | map(attribute='json')
+             | map(attribute='workflow_definition')
+             | map(attribute='nodes') | flatten
+             | selectattr('type', 'equalto', 'aap_job_template')
+             | selectattr('parameters.job_template_name', 'defined')
+             | rejectattr('parameters.job_template_name', 'search', '\\$\\{')
+             | rejectattr('parameters.job_template_id', 'defined')
+             | map(attribute='id') | list }}
+      ansible.builtin.assert:
+        that: _static_unresolved | length == 0
+        fail_msg: >-
+          AAP node(s) with an unresolved job_template_id:
+          {{ _static_unresolved | join(', ') }}. The named job template does
+          not exist on the controller.
+        success_msg: "Every static AAP node resolved a job_template_id."
+
+    # ---------------------------------------------------------------
+    # Service account
+    # ---------------------------------------------------------------
+    - name: List service accounts
+      ansible.builtin.uri:
+        url: "{{ ao_api }}/service_accounts"
+        method: GET
+        headers: "{{ ao_headers }}"
+        status_code: [200]
+        validate_certs: "{{ ao_validate_certs }}"
+      register: r_service_accounts
+
+    - name: Assert the AAP webhook service account exists and is active
+      vars:
+        _sa: >-
+          {{ (r_service_accounts.json.resources
+              | selectattr('name', 'equalto', ao_service_account_name)
+              | list | first) | default({}, true) }}
+      ansible.builtin.assert:
+        that:
+          - _sa.id is defined
+          - _sa.status | default('') == 'active'
+        fail_msg: >-
+          Service account '{{ ao_service_account_name }}' is missing or not
+          active. AAP cannot trigger AO workflows over
+          POST /api/v1/webhooks/{path}.
+        success_msg: "Service account '{{ ao_service_account_name }}' is active."
+
+    - name: Health check summary
       ansible.builtin.debug:
-        msg: "Replace this task with checks that verify the environment is ready"
+        msg: >-
+          HEALTHY — project '{{ ao_solutions_project }}' has
+          {{ solutions_workflows | length }} runnable workflow(s),
+          {{ r_integrations.json.resources | length }} integration(s), and a
+          service account for AAP callbacks. The student's 'default'
+          project is untouched.

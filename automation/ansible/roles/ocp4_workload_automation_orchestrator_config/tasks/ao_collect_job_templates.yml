@@ -1,0 +1,22 @@
+---
+# Accumulate the AAP job template names one workflow needs into
+# `_ao_required_job_templates`.
+#
+# Nodes whose job_template_name is a runtime expression such as
+# ${deploy_script.artifacts.template_name} are skipped by the filter —
+# AO resolves those during execution from an upstream node's
+# artifacts, so there is nothing to look up on the controller.
+
+- name: "Load the binding file for {{ _wf.name }}"
+  ansible.builtin.include_vars:
+    file: "bindings_{{ _wf.key }}.yml"
+
+- name: "Collect job template names for {{ _wf.name }}"
+  ansible.builtin.set_fact:
+    _ao_required_job_templates: >-
+      {{ (_ao_required_job_templates +
+          (lookup('ansible.builtin.file', 'workflows/' ~ _wf.file)
+           | from_json
+           | ao_prepare_definition(_wf.name, _wf.description | default(''))
+           | ao_required_job_templates(ao_workflow_bindings)))
+         | unique }}

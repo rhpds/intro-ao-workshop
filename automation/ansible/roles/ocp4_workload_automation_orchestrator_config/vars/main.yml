@@ -1,0 +1,30 @@
+---
+# Payload shapes here were confirmed against a live AO instance.
+# See the README for the full set.
+
+# No trailing slash: /api/v1/workflows/ 307s, and a 307 does not
+# reliably carry method, body and Authorization through `uri`.
+_ao_api: >-
+  {{ ocp4_workload_automation_orchestrator_config_ao_url | regex_replace('/$', '') }}/api/v1
+
+_aap_api: >-
+  {{ ocp4_workload_automation_orchestrator_config_aap_url | regex_replace('/$', '') }}
+
+# Resolved to per-instance UUIDs at run time off /credential_types.
+# Required `inputs`: HTTP Bearer Token -> token; LLM Provider ->
+# api_key only; AAP -> username+password OR oauth_token, never both.
+# base_url/host/verify_ssl are integration config, not inputs.
+_ao_credential_type_http_bearer: HTTP Bearer Token
+_ao_credential_type_aap: Ansible Automation Platform
+_ao_credential_type_llm: LLM Provider
+
+# The configuration union's discriminator. Required in BOTH the top
+# level of the body and inside `configuration`; omitting the nested
+# copy fails with "Unable to extract tag using discriminator".
+_ao_integration_type_llm: llm_provider
+_ao_integration_type_aap: ansible_automation_platform
+_ao_integration_type_mcp: mcp_server
+
+# One of red_hat_ai|openai|anthropic|gemini|custom. LiteLLM is
+# OpenAI-compatible, whatever models sit behind it.
+_ao_llm_provider_hint: openai

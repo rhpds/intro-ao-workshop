@@ -1,0 +1,85 @@
+---
+# Wiring for files/workflows/disk-utilization-remediation.json
+#
+# Node IDs are opaque `activity_<uuid>` strings, so each entry carries
+# its display name. All nine nodes are aap_job_template — no agentic
+# nodes, so no LLM or MCP wiring.
+#
+# The raw export ships `credential_id: YOUR_AAP_CREDENTIAL_ID` on
+# every node. That placeholder is stripped before import (a non-UUID
+# there returns HTTP 500, not a clean 422) and replaced here.
+
+ao_workflow_bindings:
+  nodes:
+
+    # "Launch AAP job template" — entry point, measures disk usage and
+    # publishes disk_use_percent as an artifact for the switch.
+    activity_61ac9127_f147_4fa8_9c04_189097e753e9:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Disk Utilization Check
+
+    # --- <80% branch ----------------------------------------------
+
+    # "Remediate - Continue"
+    activity_ee976dab_737f_4a8f_a6ba_e774897e84e8:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Linux - Remediate - Continue
+
+    # "OK - Notify Chatroom - Do nothing"
+    activity_5a271a41_50fc_4b58_a670_64fd613f0356:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Notify Chatroom
+
+    # --- 80-95% branch --------------------------------------------
+
+    # "Remediate  - Clean Disk"
+    activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Linux - Remediate - Disk Cleanup
+
+    # "Warn - Notify Chatroom - Clean Disk"
+    activity_b1aa86c0_001a_4240_b7fb_99f2d0b4ba2d:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Notify Chatroom
+
+    # --- >95% branch ----------------------------------------------
+
+    # "Remediate - Expand Disk"
+    activity_e18d67ef_1f99_4553_9807_81710484a424:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Linux - Remediate - Disk Expand
+
+    # "Critical - Notify Chatroom - Expand Disk"
+    activity_e31726ba_d2bc_41c2_96e0_3d00c4a175cf:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Notify Chatroom
+
+    # --- default branch -------------------------------------------
+
+    # "Fallback - Catch All"
+    activity_595ded69_fca6_4ffd_95f4_bb345237efa6:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Disk Utilization - Fallback
+
+    # "Fallback - Notify Chatroom"
+    activity_162ebe75_5846_4640_a309_61d516aac9eb:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: Notify Chatroom

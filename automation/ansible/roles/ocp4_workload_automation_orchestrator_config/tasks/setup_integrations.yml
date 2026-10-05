@@ -1,0 +1,77 @@
+---
+# Create the five solutions integrations.
+#
+# `scope` is exactly `global` | `project`. `project_id` is NOT
+# accepted on create and `project_ids` is read-only, so association is
+# a separate POST /integrations/{id}/projects/{project_id}.
+#
+# Every `configuration` repeats `integration_type` — see vars/main.yml.
+#
+# AO refuses a base_url resolving to a private, reserved or
+# cloud-metadata address (SSRF guard), so these are the public Routes,
+# not in-cluster `.svc` names.
+
+- name: Initialise the integration id map
+  ansible.builtin.set_fact:
+    _ao_integration_ids: {}
+    _ao_integration_tools: {}
+
+- name: Create the LLM integration
+  ansible.builtin.include_tasks: ao_create_integration.yml
+  vars:
+    _int_key: llm
+    _int_name: "{{ ocp4_workload_automation_orchestrator_config_llm_integration_name }}"
+    _int_type: "{{ _ao_integration_type_llm }}"
+    _int_credential: llm
+    _int_configuration:
+      integration_type: "{{ _ao_integration_type_llm }}"
+      base_url: "{{ ocp4_workload_automation_orchestrator_config_llm_base_url }}"
+      provider_hint: "{{ _ao_llm_provider_hint }}"
+
+- name: Create the AAP integration
+  ansible.builtin.include_tasks: ao_create_integration.yml
+  vars:
+    _int_key: aap
+    _int_name: "{{ ocp4_workload_automation_orchestrator_config_aap_integration_name }}"
+    _int_type: "{{ _ao_integration_type_aap }}"
+    _int_credential: aap
+    _int_configuration:
+      integration_type: "{{ _ao_integration_type_aap }}"
+      base_url: "{{ _aap_api }}"
+
+- name: Create the AAP MCP integration
+  ansible.builtin.include_tasks: ao_create_integration.yml
+  vars:
+    _int_key: aap_mcp
+    _int_name: "{{ ocp4_workload_automation_orchestrator_config_aap_mcp_integration_name }}"
+    _int_type: "{{ _ao_integration_type_mcp }}"
+    _int_credential: aap_mcp
+    _int_configuration:
+      integration_type: "{{ _ao_integration_type_mcp }}"
+      base_url: "https://{{ ocp4_workload_automation_orchestrator_config_aap_mcp_host }}/mcp"
+
+- name: Create the OpenFlake MCP integration
+  ansible.builtin.include_tasks: ao_create_integration.yml
+  vars:
+    _int_key: openflake_mcp
+    _int_name: "{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_integration_name }}"
+    _int_type: "{{ _ao_integration_type_mcp }}"
+    _int_credential: openflake_mcp
+    _int_configuration:
+      integration_type: "{{ _ao_integration_type_mcp }}"
+      base_url: "https://{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_host }}/mcp"
+
+- name: Create the Lightspeed MCP integration
+  # No credential: an MCP initialize POST returns 200 both with and
+  # without a bearer — the server ignores the header. Its
+  # LIGHTSPEED_CLIENT_ID/SECRET are outbound credentials for
+  # console.redhat.com. Confirmed live that an mcp_server integration
+  # with no management_credential_id is accepted (201).
+  ansible.builtin.include_tasks: ao_create_integration.yml
+  vars:
+    _int_key: lightspeed_mcp
+    _int_name: "{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name }}"
+    _int_type: "{{ _ao_integration_type_mcp }}"
+    _int_configuration:
+      integration_type: "{{ _ao_integration_type_mcp }}"
+      base_url: "https://{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_host }}/mcp"

@@ -1,0 +1,41 @@
+---
+# Poll an LLM integration until /models is populated, then resolve the
+# chosen model name to its ID.
+#
+# Refresh is asynchronous. The upstream reference script sleeps a few
+# seconds and then hard-fails if models are absent, which turns a slow
+# provider into a provisioning failure — poll instead.
+
+- name: "Poll for models: {{ _int_name }}"
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/models"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_int_models
+  retries: "{{ ocp4_workload_automation_orchestrator_config_refresh_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_config_refresh_delay }}"
+  until:
+    - r_int_models is succeeded
+    - r_int_models.json | ao_collection | length > 0
+
+- name: "Build the model map for {{ _int_name }}"
+  ansible.builtin.set_fact:
+    _ao_llm_models: "{{ r_int_models.json | ao_collection }}"
+
+- name: Resolve the selected model to an id
+  ansible.builtin.set_fact:
+    _ao_llm_model_id: >-
+      {{ (_ao_llm_models
+          | selectattr('name', 'equalto', _ao_llm_model_name)
+          | map(attribute='id') | list | first) | default('', true) }}
+
+- name: Fail when the selected model is not exposed by the integration
+  when: _ao_llm_model_id | length == 0
+  ansible.builtin.fail:
+    msg: >-
+      Model '{{ _ao_llm_model_name }}' is not exposed by the LLM
+      integration. Available:
+      {{ _ao_llm_models | map(attribute='name') | join(', ') }}.
+      litellm_available_models and the LiteLLM endpoint disagree.

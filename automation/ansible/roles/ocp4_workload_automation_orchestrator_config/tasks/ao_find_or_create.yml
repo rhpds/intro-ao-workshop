@@ -1,0 +1,81 @@
+---
+# Reconcile one AO asset by name. Sets `_ao_object_id` and, for
+# workflows, `_ao_object_validation`.
+#
+# Inputs:
+#   _fc_kind  — collection path segment (projects|credentials|integrations|workflows)
+#   _fc_name  — unique name within its scope
+#   _fc_body  — full create payload (must include `name`)
+#   _fc_patch — optional; body to PATCH onto an existing object.
+#               Omit to leave an existing object untouched.
+#   _fc_secret — optional; true when _fc_body carries secret material.
+#               `uri` echoes its request body into the task result, so
+#               a failure or -vvv would print it. Default false keeps
+#               non-secret assets debuggable.
+#
+# Matching is on NAME ONLY. The reference implementation deletes and
+# recreates any integration whose validation_status is not
+# "available" — but this lab's MCP integrations routinely report a
+# failed validation while the protocol works, so that rule reissues
+# UUIDs every run and breaks the nodes pointing at the old ones.
+
+- name: "Look up existing object: {{ _fc_kind ~ '/' ~ _fc_name }}"
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/{{ _fc_kind }}"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_fc_list
+
+- name: "Select object matching name: {{ _fc_kind ~ '/' ~ _fc_name }}"
+  ansible.builtin.set_fact:
+    # ao_collection accepts both a bare list and an envelope. Doing
+    # that unwrap in Jinja does not work: `json.items` resolves to the
+    # dict's built-in items() method rather than a missing key.
+    _fc_existing: >-
+      {{ r_fc_list.json | ao_collection
+         | selectattr('name', 'equalto', _fc_name)
+         | list }}
+
+- name: "Create object: {{ _fc_kind ~ '/' ~ _fc_name }}"
+  when: _fc_existing | length == 0
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/{{ _fc_kind }}"
+    method: POST
+    headers: "{{ _ao_headers }}"
+    body_format: json
+    body: "{{ _fc_body }}"
+    status_code: [200, 201]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_fc_create
+  no_log: "{{ _fc_secret | default(false) | bool }}"
+
+- name: "Reconcile existing object: {{ _fc_kind ~ '/' ~ _fc_name }}"
+  when:
+    - _fc_existing | length > 0
+    - _fc_patch is defined
+    - _fc_patch | length > 0
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/{{ _fc_kind }}/{{ _fc_existing[0].id }}"
+    method: PATCH
+    headers: "{{ _ao_headers }}"
+    body_format: json
+    body: "{{ _fc_patch }}"
+    status_code: [200, 202]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_fc_patch
+  no_log: "{{ _fc_secret | default(false) | bool }}"
+
+- name: "Record object id: {{ _fc_kind ~ '/' ~ _fc_name }}"
+  ansible.builtin.set_fact:
+    _ao_object_id: >-
+      {{ _fc_existing[0].id if _fc_existing | length > 0
+         else r_fc_create.json.id }}
+    # Writes to /workflows return a populated `validation_result`.
+    # A later GET does not — it returns null — so capture it here or
+    # lose the findings. Empty for every other asset kind.
+    _ao_object_validation: >-
+      {{ ((r_fc_patch.json | default({}, true)) if r_fc_patch is not skipped
+          else (r_fc_create.json | default({}, true)))
+         .validation_result | default({}, true) }}

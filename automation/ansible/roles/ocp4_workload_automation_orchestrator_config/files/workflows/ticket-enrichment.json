@@ -1,0 +1,336 @@
+{
+    "name": "Ticket Enrichment Demo",
+    "edges": [
+      {
+        "to": "auto_remediation_job",
+        "from": "route_switch",
+        "from_port": "case_0"
+      },
+      {
+        "to": "remediation_job_approved",
+        "from": "approval_gate",
+        "from_port": "approved"
+      },
+      {
+        "to": "enrich_and_assign_agent",
+        "from": "route_switch",
+        "from_port": "case_2"
+      },
+      {
+        "to": "triage_agent",
+        "from": "activity_e34a948c_7ecc_4414_85fe_8ad26beb2370"
+      },
+      {
+        "to": "activity_87cdc884_e973_4338_b02e_1ac7b0a23329",
+        "from": "triage_agent"
+      },
+      {
+        "to": "route_switch",
+        "from": "activity_87cdc884_e973_4338_b02e_1ac7b0a23329"
+      },
+      {
+        "to": "activity_31aceb85_eefd_4f85_8fdc_115d2480a5aa",
+        "from": "auto_remediation_job"
+      },
+      {
+        "to": "activity_a73a42e2_e774_40ed_aeb1_6298ea13aedd",
+        "from": "remediation_job_approved"
+      },
+      {
+        "to": "approval_gate",
+        "from": "route_switch",
+        "from_port": "case_1"
+      },
+      {
+        "to": "activity_ae4f8c24_07ea_41a8_b70d_8dd74a4b393c",
+        "from": "enrich_and_assign_agent"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "approval_gate",
+        "name": "Approve Remediation Change",
+        "type": "approval",
+        "position": {
+          "x": 1404.567865347284,
+          "y": 215.69527207478808
+        },
+        "parameters": {}
+      },
+      {
+        "id": "auto_remediation_job",
+        "name": "Run Auto Remediation",
+        "type": "aap_job_template",
+        "position": {
+          "x": 1372.7390314345491,
+          "y": -150.07495824423026
+        },
+        "parameters": {
+          "limit": "${triage_agent.result.content.affected_system}",
+          "diff_mode": false,
+          "extra_vars": {
+            "category": "${triage_agent.result.content.category}",
+            "affected_system": "${triage_agent.result.content.affected_system}",
+            "incident_number": "${trigger.incident_number}",
+            "recommended_action": "${triage_agent.result.content.recommended_action}"
+          },
+          "job_template_name": "${triage_agent.result.content.job_template_name}",
+          "organization_name": "Default"
+        }
+      },
+      {
+        "id": "activity_31aceb85_eefd_4f85_8fdc_115d2480a5aa",
+        "name": "Update OpenFlake Ticket",
+        "type": "aap_job_template",
+        "position": {
+          "x": 1723.9345057345472,
+          "y": -148.41552073190576
+        },
+        "parameters": {
+          "diff_mode": false,
+          "extra_vars": {
+            "ticket_id": "${trigger.incident_number}",
+            "notification_body": "${triage_agent.result.content.notification_body}",
+            "remediation_close": "${auto_remediation_job.artifacts.remediation_close}",
+            "remediation_title": "${auto_remediation_job.artifacts.remediation_title}",
+            "openflake_ticket_state": "6",
+            "notification_title": "${triage_agent.result.content.notification_title}",
+            "remediation_summary": "${auto_remediation_job.artifacts.remediation_summary}"
+          },
+          "job_template_name": "Incidents | Update Ticket",
+          "organization_name": "Default"
+        }
+      },
+      {
+        "id": "enrich_and_assign_agent",
+        "name": "Enrich and Assign",
+        "type": "agentic",
+        "position": {
+          "x": 912.6913558793628,
+          "y": 713.6005851447286
+        },
+        "parameters": {
+          "prompt": "  Incident ${trigger.incident_number} has been classified as inform only (Priority: ${triage_agent.result.content.priority_label}, Category:\n  ${triage_agent.result.content.category}). Automated remediation is not appropriate.\n\n  Your job is to ANALYZE and produce text. You do NOT write to the ticket — a later workflow step does that.\n\n  A triage summary has ALREADY been posted to this ticket as a work note. It states what the incident is, that no automation template matched, and that the route is\n  inform_only. DO NOT repeat any of that. Your work note must add information the triage note does not contain.\n\n  Triage context, for your reference only — do not restate it: affected system ${triage_agent.result.content.affected_system}; recommended action\n  ${triage_agent.result.content.recommended_action}; reasoning ${triage_agent.result.content.reasoning}.\n\n  IMPORTANT: Make exactly one tool call, then stop. Do not retry. Do not search for other incidents. If the call returns no results, proceed with what you have.\n\n  Step 1 — Fetch the full record for this one incident (one call only): Use the Openflake MCP tool 'perform_query' with: table: 'incident' query:\n  'number=${trigger.incident_number}' fields: ['number', 'short_description', 'description', 'priority', 'urgency', 'impact', 'category', 'subcategory', 'state',\n  'cmdb_ci', 'assignment_group', 'caller_id', 'opened_at', 'sys_id'] limit: 1\n\n  Step 2 — Output JSON immediately. No further tool calls.\n\n  Output ONLY valid JSON: { \"notification_title\": \"\", \"notification_body\": \"\", \"customer_comment\": \"\" }\n\n  notification_title: a short headline naming the handoff, e.g. 'Investigation Handoff: Security Team'.\n\n  notification_body: an investigation handoff note for the engineer who picks this ticket up. Do NOT summarize the incident and do NOT restate the routing decision —\n  both are already on the ticket. Write instead:\n  - Record detail from Step 1 that the triage note does not contain: the configuration item, the assignment group, when the incident was opened, and any specifics\n  buried in the full description.\n  - A numbered list of 3 to 5 concrete investigation steps for this specific incident type, naming the log sources, commands, or records to check.\n  - What evidence would confirm or rule out the suspected cause.\n  Engineers read this. Be specific to this incident, not generic.\n\n  customer_comment: a brief professional customer-facing message. Acknowledge the incident, state that it has been analyzed and assigned to the appropriate team, and\n  that an update will follow within the SLA window. The caller reads this. It must NOT repeat the internal work note text.",
+          "response_schema": {
+            "type": "object",
+            "required": [
+              "notification_title",
+              "notification_body",
+              "customer_comment"
+            ],
+            "properties": {
+              "customer_comment": {
+                "type": "string"
+              },
+              "notification_body": {
+                "type": "string"
+              },
+              "notification_title": {
+                "type": "string"
+              }
+            }
+          },
+          "tool_selections": [],
+          "integration_connections": [],
+          "tool_selection_strategy": "SELECTED"
+        }
+      },
+      {
+        "id": "activity_ae4f8c24_07ea_41a8_b70d_8dd74a4b393c",
+        "name": "Update OpenFlake Ticket",
+        "type": "aap_job_template",
+        "position": {
+          "x": 1323.6913355811325,
+          "y": 753.9910532576724
+        },
+        "settings": {},
+        "parameters": {
+          "diff_mode": false,
+          "extra_vars": {
+            "ticket_id": "${trigger.incident_number}",
+            "notification_body": "${enrich_and_assign_agent.result.content.notification_body}",
+            "openflake_comment_body": "${enrich_and_assign_agent.result.content.customer_comment}",
+            "openflake_ticket_state": "2",
+            "notification_title": "${enrich_and_assign_agent.result.content.notification_title}"
+          },
+          "job_template_name": "Incidents | Update Ticket",
+          "organization_name": "Default"
+        }
+      },
+      {
+        "id": "remediation_job_approved",
+        "name": "Run Approved Remediation",
+        "type": "aap_job_template",
+        "position": {
+          "x": 1810.1173770157943,
+          "y": 209.32801968524882
+        },
+        "parameters": {
+          "limit": "${triage_agent.result.content.affected_system}",
+          "diff_mode": false,
+          "extra_vars": {
+            "category": "${triage_agent.result.content.category}",
+            "affected_system": "${triage_agent.result.content.affected_system}",
+            "incident_number": "${trigger.incident_number}",
+            "recommended_action": "${triage_agent.result.content.recommended_action}"
+          },
+          "job_template_name": "${triage_agent.result.content.job_template_name}",
+          "organization_name": "Default"
+        }
+      },
+      {
+        "id": "activity_a73a42e2_e774_40ed_aeb1_6298ea13aedd",
+        "name": "Update OpenFlake Ticket",
+        "type": "aap_job_template",
+        "position": {
+          "x": 2136.3287512552647,
+          "y": 196.30554836053312
+        },
+        "parameters": {
+          "diff_mode": false,
+          "extra_vars": {
+            "ticket_id": "${trigger.incident_number}",
+            "notification_body": "${triage_agent.result.content.notification_body}",
+            "remediation_close": "${remediation_job_approved.artifacts.remediation_close}",
+            "remediation_title": "${remediation_job_approved.artifacts.remediation_title}",
+            "openflake_ticket_state": "6",
+            "notification_title": "${triage_agent.result.content.notification_title}",
+            "remediation_summary": "${remediation_job_approved.artifacts.remediation_summary}"
+          },
+          "job_template_name": "Incidents | Update Ticket",
+          "organization_name": "Default"
+        }
+      },
+      {
+        "id": "triage_agent",
+        "name": "AI Triage Agent",
+        "type": "agentic",
+        "position": {
+          "x": 229.60613095340574,
+          "y": 133.09492176876606
+        },
+        "parameters": {
+          "prompt": "You are an IT operations AI triage coordinator. Assess a Openflake incident and determine the correct response path.\n\nIncident number: ${trigger.incident_number}\n\nIMPORTANT: Make exactly one tool call per step. Do not retry any step. If a step returns no results, proceed immediately to the next step with what you have.\n\nStep 1 — Fetch the incident from Openflake (one call only): Use the Openflake MCP tool 'perform_query' with: table: 'incident' query: 'number=${trigger.incident_number}' fields: ['number', 'short_description', 'description', 'priority', 'category', 'subcategory', 'state', 'cmdb_ci', 'assignment_group', 'sys_id'] limit: 1\n\nStep 2 — Find a matching AAP job template (one call only): Use the AAP MCP tool 'job_templates_list' with no search filter — retrieve the complete list. This is an Ansible Automation Platform tool — NOT an Openflake tool. Do NOT use perform_query for this step. Skip this step only if priority is 4 or 5. \n\nFrom the returned list, consider only templates that perform remediation on an affected system. Ignore install, setup, simulation, demo, and ticket-update templates. \n\nSelect the one whose purpose matches this incident's problem. If no template genuinely remediates this incident, set job_template_name to an empty string. When you do find a match, set job_template_name to the template's EXACT name, copied character-for-character from the tool output, including all spaces, pipes, and punctuation. Do not shorten, reformat, or paraphrase it.\n\nStep 3 — Output JSON classification immediately. No further tool calls after this step.\n\nRoute logic:\n\n  GATE — apply this first: If job_template_name is empty, the route is 'inform_only'. This is absolute. It applies regardless of priority, category, or severity, including security incidents. Do not override it based on your own assessment of how serious the incident is. Stop and output.\n\nIf a matching template WAS confirmed in Step 2, apply these rules:\n\n  'auto_remediate': Priority 1-2, low-risk automated fix (service restart, disk cleanup, log rotation, config reset), matching AAP template confirmed in Step 2. No\n  risk flags in description.\n \n 'needs_approval': ANY of these conditions:\n\n  - Priority 1-2, risky fix (package upgrade, firewall change, network reconfig, process termination), matching AAP template confirmed in Step 2\n  - Priority 3, description contains risk language such as \"human review recommended\", \"may interrupt\", \"potential data loss\", \"requires verification\", or similar caution flags, AND matching AAP template confirmed in Step 2 'inform_only': Priority 4-5, or no matching AAP template found, or no safe/risky automated action available\n\nNote: 'inform_only' does not mean the incident is ignored. It means no automation exists for it, so the ticket is annotated and left for a human to handle. Choosing 'inform_only' for a severe incident is the correct outcome when no template matches.\n\nOutput ONLY valid JSON: { \"route\": \"\", \"priority_label\": \"\", \"affected_system\": \"\", \"category\": \"\", \"short_description\": \"\", \"recommended_action\": \"\", \"reasoning\":\"\", \"incident_sys_id\": \"\", \"job_template_name\": \"\", \"notification_title\": \"\", \"notification_body\": \"\" }\n\nFor notification_body, write a concise summary of the triage result: what was found, what route was chosen, and why. If the route is 'needs_approval', also explain why human approval is required, what the potential impact is, and that the workflow is awaiting approval before proceeding. This will be posted as a work note to the Openflake ticket by the next workflow step.",
+          "response_schema": {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "reasoning": {
+                "type": "string"
+              },
+              "priority_label": {
+                "type": "string"
+              },
+              "affected_system": {
+                "type": "string"
+              },
+              "incident_sys_id": {
+                "type": "string"
+              },
+              "job_template_name": {
+                "type": "string"
+              },
+              "notification_body": {
+                "type": "string"
+              },
+              "short_description": {
+                "type": "string"
+              },
+              "notification_title": {
+                "type": "string"
+              },
+              "recommended_action": {
+                "type": "string"
+              }
+            }
+          },
+          "tool_selections": [],
+          "integration_connections": [],
+          "tool_selection_strategy": "SELECTED"
+        }
+      },
+      {
+        "id": "activity_87cdc884_e973_4338_b02e_1ac7b0a23329",
+        "name": "Update OpenFlake Ticket",
+        "type": "aap_job_template",
+        "position": {
+          "x": 659.1100493332375,
+          "y": 168.26058120488835
+        },
+        "parameters": {
+          "diff_mode": false,
+          "extra_vars": {
+            "ticket_id": "${trigger.incident_number}",
+            "notification_body": "${triage_agent.result.content.notification_body}",
+            "openflake_ticket_state": "2",
+            "notification_title": "${triage_agent.result.content.notification_title}"
+          },
+          "job_template_name": "Incidents | Update Ticket",
+          "organization_name": "Default"
+        }
+      },
+      {
+        "id": "route_switch",
+        "name": "Route Decision",
+        "type": "switch",
+        "position": {
+          "x": 976.0077726666068,
+          "y": 161.5710527221718
+        },
+        "parameters": {
+          "cases": [
+            {
+              "port": "case_0",
+              "label": "Auto Remediate",
+              "condition": "${triage_agent.result.content.route} == 'auto_remediate'"
+            },
+            {
+              "port": "case_1",
+              "label": "Needs Approval",
+              "condition": "${triage_agent.result.content.route} == 'needs_approval'"
+            },
+            {
+              "port": "case_2",
+              "label": "Inform Only",
+              "condition": "${triage_agent.result.content.route} == 'inform_only'"
+            }
+          ],
+          "default_port": "default"
+        }
+      }
+    ],
+    "triggers": [
+      {
+        "id": "activity_e34a948c_7ecc_4414_85fe_8ad26beb2370",
+        "name": "OpenFlake Trigger",
+        "type": "webhook_trigger",
+        "position": {
+          "x": -87.54334965094043,
+          "y": 196.2447217357657
+        },
+        "parameters": {
+          "input_schema": {
+            "type": "object",
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "required": [
+              "incident_number"
+            ],
+            "properties": {
+              "incident_number": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          },
+          "webhook_path": "openflake-incident"
+        }
+      }
+    ],
+    "description": "Ticket Enrichment Demo",
+    "schema_version": "2.0.0"
+  }
