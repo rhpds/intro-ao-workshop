@@ -8,6 +8,13 @@
 #   _fc_body  — full create payload (must include `name`)
 #   _fc_patch — optional; body to PATCH onto an existing object.
 #               Omit to leave an existing object untouched.
+#   _fc_secret — optional; set true when _fc_body carries secret
+#               material. Credential `inputs` hold the LiteLLM virtual
+#               key, the AAP admin password and the MCP bearer tokens,
+#               and `uri` echoes its request body into the task result
+#               — which a failure, or -vvv, prints to the provision
+#               log. Defaults to false so that projects, integrations
+#               and workflows stay debuggable.
 #
 # Matching is on NAME ONLY, deliberately.
 #
@@ -49,6 +56,7 @@
     status_code: [200, 201]
     validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
   register: r_fc_create
+  no_log: "{{ _fc_secret | default(false) | bool }}"
 
 - name: "Reconcile existing object: {{ _fc_kind ~ '/' ~ _fc_name }}"
   when:
@@ -64,6 +72,7 @@
     status_code: [200, 202]
     validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
   register: r_fc_patch
+  no_log: "{{ _fc_secret | default(false) | bool }}"
 
 - name: "Record object id: {{ _fc_kind ~ '/' ~ _fc_name }}"
   ansible.builtin.set_fact:
