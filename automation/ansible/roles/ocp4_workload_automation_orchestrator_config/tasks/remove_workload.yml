@@ -28,7 +28,7 @@
   # service account project is configurable, and may be `default`,
   # which this role must never delete.
   loop: >-
-    {{ (r_remove_service_accounts.json | default({}, true) | ao_collection)
+    {{ (r_remove_service_accounts.json | default({}, true) | intro_ao_workshop.automation.ao_collection)
        | selectattr('name', 'equalto',
                     ocp4_workload_automation_orchestrator_config_service_account_name)
        | list }}
@@ -60,7 +60,7 @@
       - "{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_integration_name }}"
       - "{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name }}"
   loop: >-
-    {{ (r_remove_integrations.json | default({}, true) | ao_collection)
+    {{ (r_remove_integrations.json | default({}, true) | intro_ao_workshop.automation.ao_collection)
        | selectattr('name', 'in', _ao_solutions_integration_names)
        | list }}
   loop_control:
@@ -85,7 +85,7 @@
 - name: Select the solutions project
   ansible.builtin.set_fact:
     _ao_remove_project: >-
-      {{ r_remove_projects.json | ao_collection
+      {{ r_remove_projects.json | intro_ao_workshop.automation.ao_collection
          | selectattr('name', 'equalto',
                       ocp4_workload_automation_orchestrator_config_solutions_project)
          | list }}

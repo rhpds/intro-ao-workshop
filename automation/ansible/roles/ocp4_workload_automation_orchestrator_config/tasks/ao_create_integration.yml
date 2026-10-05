@@ -59,7 +59,7 @@
   # never find the association and re-POST on every run.
   when: >-
     _ao_project_id not in
-    (r_int_projects.json | ao_collection | map(attribute='project_id') | list)
+    (r_int_projects.json | intro_ao_workshop.automation.ao_collection | map(attribute='project_id') | list)
   ansible.builtin.uri:
     url: "{{ _ao_api }}/integrations/{{ _int_id }}/projects/{{ _ao_project_id }}"
     method: POST

@@ -17,8 +17,8 @@
     _ao_workflow_definition: >-
       {{ lookup('ansible.builtin.file', 'workflows/' ~ _wf.file)
          | from_json
-         | ao_prepare_definition(_wf.name, _wf.description | default(''))
-         | ao_wire_definition(ao_workflow_bindings, {
+         | intro_ao_workshop.automation.ao_prepare_definition(_wf.name, _wf.description | default(''))
+         | intro_ao_workshop.automation.ao_wire_definition(ao_workflow_bindings, {
              'credentials': _ao_credential_ids,
              'integrations': _ao_integration_ids,
              'tools': _ao_integration_tools,
@@ -84,7 +84,7 @@
       ({{ _ao_workflow_validation.error_count | default('?') }} error(s),
        {{ _ao_workflow_validation.warning_count | default('?') }} warning(s)):
 
-      {{ _ao_workflow_validation | ao_validation_summary }}
+      {{ _ao_workflow_validation | intro_ao_workshop.automation.ao_validation_summary }}
 
       Each finding names the node_id and field_path to correct in
       vars/bindings_{{ _wf.key }}.yml.

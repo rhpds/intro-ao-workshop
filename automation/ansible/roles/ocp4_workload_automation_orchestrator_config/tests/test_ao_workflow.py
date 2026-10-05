@@ -14,7 +14,11 @@ import sys
 import unittest
 
 ROLE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROLE_DIR, "filter_plugins"))
+# The filters live at the COLLECTION level, not in the role: a role's
+# own filter_plugins/ is never loaded once the role ships inside a
+# collection.
+COLLECTION_DIR = os.path.dirname(os.path.dirname(ROLE_DIR))
+sys.path.insert(0, os.path.join(COLLECTION_DIR, "plugins", "filter"))
 
 import yaml  # noqa: E402
 

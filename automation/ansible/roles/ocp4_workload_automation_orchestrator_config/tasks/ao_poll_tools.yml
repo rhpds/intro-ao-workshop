@@ -28,7 +28,7 @@
   until:
     - r_int_tools is succeeded
     - r_int_tools.content | regex_replace('[\x00-\x1f]', ' ')
-      | from_json | ao_collection | length > 0
+      | from_json | intro_ao_workshop.automation.ao_collection | length > 0
   vars:
     _ao_tools_page_size: 200
 
@@ -41,7 +41,7 @@
   ansible.builtin.set_fact:
     _ao_integration_tools: >-
       {{ _ao_integration_tools
-         | combine({_int_key: _int_tools_payload | ao_name_id_map}) }}
+         | combine({_int_key: _int_tools_payload | intro_ao_workshop.automation.ao_name_id_map}) }}
 
 - name: "Warn on a tool list truncated by pagination: {{ _int_name }}"
   when: _int_tools_payload.next_cursor | default('') | length > 0

@@ -1,3 +1,8 @@
 # Antora build output
 www/
 .cache/
+
+# Python bytecode (running the role's filter tests generates it inside
+# the collection, where it would otherwise ship in the build)
+__pycache__/
+*.pyc
