@@ -34,7 +34,7 @@
     # that unwrap in Jinja does not work: `json.items` resolves to the
     # dict's built-in items() method rather than a missing key.
     _fc_existing: >-
-      {{ r_fc_list.json | ao_collection
+      {{ r_fc_list.json | intro_ao_workshop.automation.ao_collection
          | selectattr('name', 'equalto', _fc_name)
          | list }}
 

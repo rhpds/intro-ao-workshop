@@ -18,11 +18,11 @@
   delay: "{{ ocp4_workload_automation_orchestrator_config_refresh_delay }}"
   until:
     - r_int_models is succeeded
-    - r_int_models.json | ao_collection | length > 0
+    - r_int_models.json | intro_ao_workshop.automation.ao_collection | length > 0
 
 - name: "Build the model map for {{ _int_name }}"
   ansible.builtin.set_fact:
-    _ao_llm_models: "{{ r_int_models.json | ao_collection }}"
+    _ao_llm_models: "{{ r_int_models.json | intro_ao_workshop.automation.ao_collection }}"
 
 - name: Resolve the selected model to an id
   ansible.builtin.set_fact:

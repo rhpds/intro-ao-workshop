@@ -51,10 +51,18 @@ The mapping is declarative, one file per workflow, keyed by node ID:
 
 - `vars/bindings_rhel_cve_remediation.yml`
 - `vars/bindings_disk_utilization.yml`
+- `vars/bindings_ticket_enrichment.yml`
 
 A binding names the credential, integration, tools and job template a node needs
-using role-local keys (`llm`, `aap`, `lightspeed_mcp`, …), never AO UUIDs. The
-transform lives in `filter_plugins/ao_workflow.py`.
+using role-local keys (`llm`, `aap`, `lightspeed_mcp`, …), never AO UUIDs.
+
+The transform lives at the **collection** level, in
+`automation/ansible/plugins/filter/ao_workflow.py`, and the task files reference
+it by FQCN (`intro_ao_workshop.automation.ao_wire_definition`). It cannot live in
+the role's own `filter_plugins/`: that directory is only loaded for a standalone
+role, and is silently ignored once the role ships inside a collection — the
+symptom is `No filter named 'ao_collection'` at the first `set_fact` that uses
+one.
 
 Two ways to select tools for an agentic node:
 

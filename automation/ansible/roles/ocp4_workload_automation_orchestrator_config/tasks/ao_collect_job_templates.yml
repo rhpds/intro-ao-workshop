@@ -17,6 +17,6 @@
       {{ (_ao_required_job_templates +
           (lookup('ansible.builtin.file', 'workflows/' ~ _wf.file)
            | from_json
-           | ao_prepare_definition(_wf.name, _wf.description | default(''))
-           | ao_required_job_templates(ao_workflow_bindings)))
+           | intro_ao_workshop.automation.ao_prepare_definition(_wf.name, _wf.description | default(''))
+           | intro_ao_workshop.automation.ao_required_job_templates(ao_workflow_bindings)))
          | unique }}
