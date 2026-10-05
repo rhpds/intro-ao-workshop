@@ -1,33 +1,22 @@
 ---
 # Wiring for files/workflows/ticket-enrichment.json
 #
-# Only `agentic` and `aap_job_template` nodes appear here. The
-# workflow's `switch` (route_switch) and `approval` (approval_gate)
-# nodes are self-contained and need no IDs patched into them.
+# `credential` and `integration` are keys into the asset maps this
+# role builds at run time, not AO UUIDs. Only agentic and
+# aap_job_template nodes need wiring.
 #
-# `credential` and `integration` values are keys into the asset maps
-# this role builds at run time, not AO UUIDs.
-#
-# This is the one workflow with a `webhook_trigger` rather than a
-# manual trigger — POST /api/v1/webhooks/openflake-incident, which
-# requires the `aap-webhooks` service account's bearer token. It is
-# the only consumer of the service account this role mints.
-#
-# Its four "Update OpenFlake Ticket" nodes carry opaque
-# `activity_<uuid>` IDs, so each is commented with where it sits in
-# the graph.
+# The one workflow with a webhook_trigger
+# (POST /api/v1/webhooks/openflake-incident), so the only consumer of
+# the aap-webhooks service account.
 
 ao_workflow_bindings:
   nodes:
 
     # --- AI nodes -------------------------------------------------
 
-    # Triage: fetches the incident from OpenFlake, lists AAP job
-    # templates, and picks a route (auto_remediate / needs_approval /
-    # inform_only). Its prompt names both tools explicitly and insists
-    # on exactly one call per step, so they are pinned rather than
-    # offering the whole surface — a renamed tool should fail the
-    # provision, not leave the agent guessing at run time.
+    # Picks a route from the incident. The prompt names both tools and
+    # allows one call per step, so they are pinned — a renamed tool
+    # should fail the provision, not confuse the agent at run time.
     triage_agent:
       type: agentic
       credential: llm
@@ -41,9 +30,8 @@ ao_workflow_bindings:
         aap_mcp:
           - job_templates_list
 
-    # Enrich and assign: the inform_only branch. Read-only — it fetches
-    # the full incident record and returns text for a later node to
-    # write back, so it needs OpenFlake only, and only one tool.
+    # inform_only branch. Read-only: returns text for a later node to
+    # write back, so OpenFlake alone.
     enrich_and_assign_agent:
       type: agentic
       credential: llm
@@ -56,10 +44,11 @@ ao_workflow_bindings:
 
     # --- AAP job template nodes -----------------------------------
 
-    # All four ticket updates run the same template. The agents never
-    # write to OpenFlake themselves; every write goes through here.
+    # Opaque activity_<uuid> IDs, so each is placed in the graph below.
+    # All four run the same template — the agents never write to
+    # OpenFlake themselves.
 
-    # After triage, before the route switch — posts the triage summary.
+    # After triage, before the route switch.
     activity_87cdc884_e973_4338_b02e_1ac7b0a23329:
       type: aap_job_template
       credential: aap
@@ -87,10 +76,8 @@ ao_workflow_bindings:
       integration: aap
       job_template: Incidents | Update Ticket
 
-    # These two launch whichever template the triage agent named
-    # (`${triage_agent.result.content.job_template_name}`). There is no
-    # static template to resolve, so no job_template_id is set and AO
-    # resolves the name at execution time.
+    # Launch whichever template the triage agent named, so no static
+    # job_template_id — AO resolves it at execution time.
     auto_remediation_job:
       type: aap_job_template
       credential: aap

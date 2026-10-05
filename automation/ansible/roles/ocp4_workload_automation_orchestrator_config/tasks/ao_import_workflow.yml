@@ -1,17 +1,15 @@
 ---
 # Import one workflow, wire its nodes, confirm it validates, publish.
-#
-# The wiring itself happens in the ao_wire_definition filter, which is
-# unit-tested offline against these exact JSON exports — see
-# tests/test_ao_workflow.py. What is left here is the API round trip.
+# The wiring itself is in the ao_wire_definition filter, unit-tested
+# offline against these exact exports (tests/test_ao_workflow.py).
 
 - name: "Load the binding file for {{ _wf.name }}"
   ansible.builtin.include_vars:
     file: "bindings_{{ _wf.key }}.yml"
 
 - name: "Re-authenticate before importing {{ _wf.name }}"
-  # Integration refresh polling can run for minutes; start each import
-  # with a token that has the full 900 s ahead of it.
+  # Refresh polling can run for minutes; start each import with a
+  # token that has the full 900 s ahead of it.
   ansible.builtin.include_tasks: ao_login.yml
 
 - name: "Build the wired definition for {{ _wf.name }}"
@@ -49,14 +47,9 @@
     _ao_workflow_id: "{{ _ao_object_id }}"
 
 - name: "Read back {{ _wf.name }}"
-  # The create/update response carries a full `validation_result`
-  # object, but a subsequent GET returns `validation_result: null` and
-  # reports the outcome as the boolean `has_validation_issues`. Gate
-  # on that; waiting for `validation_result` to appear here would just
-  # burn every retry and then proceed anyway.
-  #
-  # The GET is also where `current_version` comes from, which publish
-  # needs.
+  # A GET returns `validation_result: null` and reports the outcome as
+  # the boolean `has_validation_issues`, so gate on that. The GET is
+  # also where `current_version` comes from, which publish needs.
   ansible.builtin.uri:
     url: "{{ _ao_api }}/workflows/{{ _ao_workflow_id }}"
     method: GET
@@ -106,12 +99,9 @@
       published. See the findings above.
 
 - name: "Publish workflow: {{ _wf.name }}"
-  # Publish is version-scoped: /workflows/{id}/versions/{n}/publish
-  # with an empty body. POSTing to /workflows/{id}/publish is a 404.
-  #
-  # AO returns 409 for a workflow that does not validate, which makes
-  # this a second, server-side gate — and 409 again once it is already
-  # published, which is why 409 is an accepted status here.
+  # Version-scoped: /workflows/{id}/versions/{n}/publish with an empty
+  # body; /workflows/{id}/publish is a 404. 409 means either "does not
+  # validate" or "already published", so it is accepted here.
   when:
     - ocp4_workload_automation_orchestrator_config_publish_workflows | bool
     - _ao_workflow_is_valid | bool

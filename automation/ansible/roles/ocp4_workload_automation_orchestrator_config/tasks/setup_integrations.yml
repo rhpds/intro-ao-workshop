@@ -1,21 +1,15 @@
 ---
 # Create the five solutions integrations.
 #
-# `scope` is exactly `global` | `project` — anything else 422s.
-# `project_id` is NOT accepted on create and `project_ids` is
-# read-only on the response, so association is a separate call:
-# POST /api/v1/integrations/{id}/projects/{project_id}.
+# `scope` is exactly `global` | `project`. `project_id` is NOT
+# accepted on create and `project_ids` is read-only, so association is
+# a separate POST /integrations/{id}/projects/{project_id}.
 #
-# Scoping them to `solutions` keeps them out of the students' sight in
-# `default`, which is the point: building these by hand is module-02.
+# Every `configuration` repeats `integration_type` — see vars/main.yml.
 #
-# Every `configuration` below repeats `integration_type` because AO
-# uses it as the discriminator for the configuration union — see
-# vars/main.yml. The endpoint field is `base_url` for all three types.
-#
-# AO refuses a `base_url` that resolves to a private, reserved or
-# cloud-metadata address (SSRF guard), so these must be the public
-# Routes, not in-cluster `.svc` names.
+# AO refuses a base_url resolving to a private, reserved or
+# cloud-metadata address (SSRF guard), so these are the public Routes,
+# not in-cluster `.svc` names.
 
 - name: Initialise the integration id map
   ansible.builtin.set_fact:
@@ -68,16 +62,11 @@
       base_url: "https://{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_host }}/mcp"
 
 - name: Create the Lightspeed MCP integration
-  # No credential. An MCP `initialize` POST to this Route returns 200
-  # with no Authorization header and 200 with a bogus bearer — the
-  # server ignores the header entirely. Its LIGHTSPEED_CLIENT_ID and
-  # LIGHTSPEED_CLIENT_SECRET are outbound credentials for
-  # console.redhat.com, and the deployment runs a single container
-  # with no oauth-proxy or nginx sidecar in front of it. Attaching an
-  # AO credential would send a header the server discards.
-  #
-  # Confirmed live: an mcp_server integration with no
-  # management_credential_id is accepted (201).
+  # No credential: an MCP initialize POST returns 200 both with and
+  # without a bearer — the server ignores the header. Its
+  # LIGHTSPEED_CLIENT_ID/SECRET are outbound credentials for
+  # console.redhat.com. Confirmed live that an mcp_server integration
+  # with no management_credential_id is accepted (201).
   ansible.builtin.include_tasks: ao_create_integration.yml
   vars:
     _int_key: lightspeed_mcp

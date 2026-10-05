@@ -1,24 +1,19 @@
 ---
 # Wiring for files/workflows/rhel-cve-remediation.json
 #
-# Only `agentic` and `aap_job_template` nodes appear here. The
-# workflow's `script` (parse_investigation), `switch` (route_switch)
-# and `approval` (approval_prod) nodes are self-contained and need no
-# IDs patched into them.
-#
-# `credential` and `integration` values are keys into the asset maps
-# this role builds at run time, not AO UUIDs.
+# Only agentic and aap_job_template nodes need wiring; the script,
+# switch and approval nodes are self-contained. `credential` and
+# `integration` are keys into the asset maps this role builds at run
+# time, not AO UUIDs.
 
 ao_workflow_bindings:
   nodes:
 
     # --- AI nodes -------------------------------------------------
 
-    # Triage: reads CVE advisory state from Lightspeed and the host's
-    # `env` variable from AAP inventory, then picks a route. Its prompt
-    # calls three tools by name, so they are pinned explicitly — if an
-    # MCP server renames one, this should fail the provision rather
-    # than hand the agent a tool it cannot call.
+    # The prompt calls three tools by name, so they are pinned — a
+    # renamed tool should fail the provision, not the agent at run
+    # time.
     triage_agent:
       type: agentic
       credential: llm
@@ -33,10 +28,8 @@ ao_workflow_bindings:
           - hosts_list
           - hosts_variable_data_retrieve
 
-    # Investigation: the prompt asks for "all available info" from
-    # Lightspeed and a package check via the AAP MCP without naming
-    # tools, so the whole surface of both servers is offered rather
-    # than a guessed subset.
+    # The prompt asks for "all available info" without naming tools,
+    # so offer the whole surface of both servers.
     investigate_agent:
       type: agentic
       credential: llm
@@ -82,10 +75,8 @@ ao_workflow_bindings:
       integration: aap
       job_template: CVE - Notify Mattermost Investigation
 
-    # These two launch a job template whose *name* is produced upstream
-    # by the deploy node (`${...artifacts.template_name}`). There is no
-    # static template to resolve, so no job_template_id is set and AO
-    # resolves the name at execution time.
+    # Launch whichever template the deploy node named upstream
+    # (`${...artifacts.template_name}`), so no static job_template_id.
     run_cve_remediation:
       type: aap_job_template
       credential: aap

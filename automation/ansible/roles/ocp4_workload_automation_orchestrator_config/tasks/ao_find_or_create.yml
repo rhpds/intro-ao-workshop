@@ -8,23 +8,16 @@
 #   _fc_body  — full create payload (must include `name`)
 #   _fc_patch — optional; body to PATCH onto an existing object.
 #               Omit to leave an existing object untouched.
-#   _fc_secret — optional; set true when _fc_body carries secret
-#               material. Credential `inputs` hold the LiteLLM virtual
-#               key, the AAP admin password and the MCP bearer tokens,
-#               and `uri` echoes its request body into the task result
-#               — which a failure, or -vvv, prints to the provision
-#               log. Defaults to false so that projects, integrations
-#               and workflows stay debuggable.
+#   _fc_secret — optional; true when _fc_body carries secret material.
+#               `uri` echoes its request body into the task result, so
+#               a failure or -vvv would print it. Default false keeps
+#               non-secret assets debuggable.
 #
-# Matching is on NAME ONLY, deliberately.
-#
-# The reference implementation this role replaces deletes and
-# recreates any integration whose `validation_status` is not
-# "available". MCP integrations in this lab routinely report a failed
-# validation while the MCP protocol itself works — so that rule
-# re-creates them on every run, issuing fresh UUIDs and silently
-# breaking the workflow nodes that still point at the old ones.
-# Reconciling with PATCH keeps IDs stable across re-runs.
+# Matching is on NAME ONLY. The reference implementation deletes and
+# recreates any integration whose validation_status is not
+# "available" — but this lab's MCP integrations routinely report a
+# failed validation while the protocol works, so that rule reissues
+# UUIDs every run and breaks the nodes pointing at the old ones.
 
 - name: "Look up existing object: {{ _fc_kind ~ '/' ~ _fc_name }}"
   ansible.builtin.uri:

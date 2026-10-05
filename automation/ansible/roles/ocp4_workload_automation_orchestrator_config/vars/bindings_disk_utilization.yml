@@ -1,20 +1,13 @@
 ---
 # Wiring for files/workflows/disk-utilization-remediation.json
 #
-# This export comes from the AO workshop rather than from this repo's
-# AAP configuration, so its node IDs are opaque `activity_<uuid>`
-# strings. Each entry is commented with the node's display name to
-# keep the mapping readable.
+# Node IDs are opaque `activity_<uuid>` strings, so each entry carries
+# its display name. All nine nodes are aap_job_template — no agentic
+# nodes, so no LLM or MCP wiring.
 #
-# Every node here is an `aap_job_template` except the switch, which is
-# self-contained. There are no `agentic` nodes, so this workflow needs
-# no LLM or MCP wiring at all — just the AAP credential, the AAP
-# integration, and a resolved job_template_id.
-#
-# All nine AAP nodes ship `credential_id: YOUR_AAP_CREDENTIAL_ID` in
-# the raw export. That placeholder is stripped before import (a
-# non-UUID there returns HTTP 500, not a clean 422) and replaced with
-# the real credential UUID here.
+# The raw export ships `credential_id: YOUR_AAP_CREDENTIAL_ID` on
+# every node. That placeholder is stripped before import (a non-UUID
+# there returns HTTP 500, not a clean 422) and replaced here.
 
 ao_workflow_bindings:
   nodes:
