@@ -1,0 +1,33 @@
+---
+# Import, wire, validate and publish every enabled workflow.
+#
+# Job template resolution is a single preflight across ALL workflows
+# before any of them is imported, so a missing template is reported
+# once, by name, rather than part-way through the second import with
+# the first already half-configured.
+
+- name: Select the enabled workflows
+  ansible.builtin.set_fact:
+    _ao_enabled_workflows: >-
+      {{ ocp4_workload_automation_orchestrator_config_workflows
+         | selectattr('enabled', 'defined')
+         | selectattr('enabled')
+         | list }}
+    _ao_required_job_templates: []
+
+- name: Collect the AAP job templates every workflow needs
+  ansible.builtin.include_tasks: ao_collect_job_templates.yml
+  loop: "{{ _ao_enabled_workflows }}"
+  loop_control:
+    loop_var: _wf
+    label: "{{ _wf.name }}"
+
+- name: Resolve AAP job template names to ids
+  ansible.builtin.include_tasks: resolve_job_templates.yml
+
+- name: Import and wire each workflow
+  ansible.builtin.include_tasks: ao_import_workflow.yml
+  loop: "{{ _ao_enabled_workflows }}"
+  loop_control:
+    loop_var: _wf
+    label: "{{ _wf.name }}"

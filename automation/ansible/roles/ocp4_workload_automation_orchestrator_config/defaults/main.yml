@@ -1,0 +1,268 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+# =======================================================
+# Automation Orchestrator day-2 configuration
+#
+# This role configures assets *inside* a running Automation
+# Orchestrator (AO) over its REST API. Installing AO itself is the
+# job of the sibling role `ocp4_workload_automation_orchestrator`.
+#
+# ORDERING: this role must run AFTER `infra.aap_configuration.dispatch`.
+# It resolves `job_template_id` for every `aap_job_template` workflow
+# node against the live AAP controller, so the job templates have to
+# exist first.
+# =======================================================
+
+# -------------------------------------------------------
+# AO connection
+#
+# Published into AgnosticD user_data by the install role. Override
+# only when pointing this role at an AO instance it did not install
+# (for example, a scratch instance used for development).
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_ao_url: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'ao_url') }}
+ocp4_workload_automation_orchestrator_config_ao_admin_user: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'ao_admin_user') }}
+ocp4_workload_automation_orchestrator_config_ao_admin_password: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'ao_admin_password') }}
+
+# AO serves a self-signed certificate on its Route in most lab builds.
+ocp4_workload_automation_orchestrator_config_validate_certs: false
+
+# AO access tokens expire after 900 s. Every phase of this role
+# re-authenticates on entry, and any poll loop is bounded well under
+# that ceiling so a token cannot expire mid-loop.
+ocp4_workload_automation_orchestrator_config_token_ttl_seconds: 900
+
+# -------------------------------------------------------
+# AAP connection
+#
+# `aap_controller_web_url` is published by the AAP workload role.
+# The admin password is the lab-wide common admin password.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_aap_url: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'aap_controller_web_url') }}
+ocp4_workload_automation_orchestrator_config_aap_admin_user: admin
+ocp4_workload_automation_orchestrator_config_aap_admin_password: >-
+  {{ common_admin_password | default(bastion_ansible_ssh_pass) }}
+# Governs this role's own calls to AAP (minting a token, listing job
+# templates). It is NOT passed to AO: TLS verification for AO's own
+# connection to AAP is not exposed on the integration configuration.
+ocp4_workload_automation_orchestrator_config_aap_validate_certs: false
+
+# AAP organization that owns the lab's job templates. Both imported
+# workflows ship `organization_name: Default` on every AAP node.
+ocp4_workload_automation_orchestrator_config_aap_organization: Default
+
+# The AAP MCP integration authenticates with a bearer token that does
+# not exist in AgnosticV — it is minted here at provision time via
+# POST /api/gateway/v1/tokens.
+ocp4_workload_automation_orchestrator_config_aap_token_description: >-
+  Automation Orchestrator MCP integration (created by AgnosticD)
+
+# -------------------------------------------------------
+# LiteLLM / MaaS
+#
+# Published by the `rhpds.litellm_virtual_keys` collection (>= 1.3.2).
+# `litellm_api_base_url` already carries the trailing `/v1`.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_llm_base_url: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'litellm_api_base_url') }}
+ocp4_workload_automation_orchestrator_config_llm_api_key: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'litellm_virtual_key') }}
+ocp4_workload_automation_orchestrator_config_llm_available_models: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'litellm_available_models') }}
+
+# Which model the agentic nodes use. Empty means "first entry of
+# litellm_available_models", which is the catalog-chosen model. Set
+# this only to pin a specific model that you know is in that list —
+# a name that is not available fails the run rather than silently
+# falling back.
+ocp4_workload_automation_orchestrator_config_llm_model: ""
+
+# -------------------------------------------------------
+# MCP endpoints
+#
+# These are plain OpenShift Routes (NOT behind a bastion httpd proxy).
+# Hostnames mirror `..._additional_allowed_hosts` in AgnosticV.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_ingress_domain: >-
+  {{ openshift_cluster_ingress_domain }}
+
+ocp4_workload_automation_orchestrator_config_aap_mcp_host: >-
+  aap-mcp-aap.{{ ocp4_workload_automation_orchestrator_config_ingress_domain }}
+ocp4_workload_automation_orchestrator_config_openflake_mcp_host: >-
+  openflake-mcp-openflake-mcp.{{ ocp4_workload_automation_orchestrator_config_ingress_domain }}
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_host: >-
+  lightspeed-mcp-lightspeed-mcp.{{ ocp4_workload_automation_orchestrator_config_ingress_domain }}
+
+# OpenFlake's MCP server requires a bearer token; it is provisioned
+# alongside the server itself.
+ocp4_workload_automation_orchestrator_config_openflake_mcp_token: >-
+  {{ lookup('agnosticd.core.agnosticd_user_data', 'openflake_mcp_bearer_token') }}
+
+# The Lightspeed MCP server accepts unauthenticated requests — measured,
+# not assumed (an MCP `initialize` POST returns 200 both with and
+# without a bearer). Its LIGHTSPEED_CLIENT_ID/SECRET are *outbound*
+# credentials for console.redhat.com, and the deployment has no
+# oauth-proxy or nginx sidecar in front of it. Attaching an AO
+# credential here would send a header the server discards, so the
+# Lightspeed integration is created without one.
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_authenticated: false
+
+# -------------------------------------------------------
+# Project layout
+#
+# `solutions` is the reference implementation: fully seeded, every
+# workflow published and runnable the moment the lab comes up.
+#
+# `default` is the student workspace and is deliberately NOT seeded —
+# module-02 ("Set Up Integrations and Credentials") and module-03
+# ("Build the Workflow") are exactly the work students do by hand.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_solutions_project: solutions
+ocp4_workload_automation_orchestrator_config_solutions_project_description: >-
+  Reference implementation. Every credential, integration and workflow
+  the lab builds, already wired and published.
+
+# -------------------------------------------------------
+# Asset names
+#
+# Credentials are hard project-scoped in AO and the API enforces it at
+# workflow-create time, so each of these lives inside `solutions`.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_llm_credential_name: LLM Provider
+ocp4_workload_automation_orchestrator_config_aap_credential_name: Ansible Automation Platform
+ocp4_workload_automation_orchestrator_config_aap_mcp_credential_name: AAP MCP Bearer Token
+ocp4_workload_automation_orchestrator_config_openflake_mcp_credential_name: OpenFlake MCP Bearer Token
+
+ocp4_workload_automation_orchestrator_config_llm_integration_name: LLM
+ocp4_workload_automation_orchestrator_config_aap_integration_name: AAP
+ocp4_workload_automation_orchestrator_config_aap_mcp_integration_name: AAP MCP
+ocp4_workload_automation_orchestrator_config_openflake_mcp_integration_name: OpenFlake MCP
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name: Lightspeed MCP
+
+# -------------------------------------------------------
+# Workflows to import
+#
+# Each entry drives one import+wire+publish cycle:
+#   key      — short id, selects vars/bindings_<key>.yml
+#   name     — workflow name as it appears in AO
+#   file     — filename under files/workflows/
+#   enabled  — set false to skip without deleting the binding file
+#
+# `disk_utilization` needs more scrubbing than the CVE export: it has
+# no name/description/schema_version of its own, and all nine of its
+# AAP nodes ship a literal "YOUR_AAP_CREDENTIAL_ID" placeholder. That
+# non-UUID string crashes the AO server with a 500 instead of a clean
+# 422, so it is stripped before the workflow is posted.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_workflows:
+  - key: rhel_cve_remediation
+    name: RHEL CVE Remediation
+    file: rhel-cve-remediation.json
+    description: >-
+      Triage a CVE alert against Red Hat Lightspeed and AAP inventory,
+      then auto-patch dev hosts and route production through an
+      approval gate.
+    enabled: true
+  - key: disk_utilization
+    name: Disk Utilization Remediation
+    file: disk-utilization-remediation.json
+    description: >-
+      Check disk utilization on a target host and branch to cleanup,
+      expansion, or notification based on the percentage used.
+    enabled: true
+  - key: ticket_enrichment
+    name: Ticket Enrichment Demo
+    file: ticket-enrichment.json
+    description: >-
+      Triage an OpenFlake incident with an AI agent, then auto-remediate,
+      route through an approval gate, or enrich the ticket for manual
+      handling. Triggered by webhook, not manually.
+    enabled: true
+
+# Publish each workflow once it validates. AO returns 409 when asked to
+# publish a workflow that does not validate, which makes publishing a
+# useful built-in gate — leave this on.
+#
+# That gate is weaker than it looks: AO's validation is structural, and
+# a workflow with no credential, model, integration or job template IDs
+# on any node still validates and publishes. Treat the qa-automation
+# assertions, not is_valid, as the proof the workflows are runnable.
+ocp4_workload_automation_orchestrator_config_publish_workflows: true
+
+# Fail the run when a workflow still has validation errors after wiring.
+# Turning this off downgrades the failure to a warning, which is useful
+# while iterating on a binding file against a scratch AO instance.
+ocp4_workload_automation_orchestrator_config_fail_on_invalid_workflow: true
+
+# -------------------------------------------------------
+# Service account — closing the REPLACE_ME bug
+#
+# AgnosticV's `controller_credentials` creates an AAP credential named
+# "Automation Orchestrator" (credential type "AO webhooks") carrying
+# literal REPLACE_ME values, annotated "set manually". It is not
+# manual: AO mints a service-account client_id/client_secret pair that
+# can be patched straight onto it.
+#
+# The consumer is the Ticket Enrichment Demo workflow, which is the
+# one workflow here triggered by webhook rather than manually: AAP
+# calls POST /api/v1/webhooks/openflake-incident, and that endpoint
+# requires a service account bearer token. Turning this off leaves
+# that workflow reachable only from the AO UI.
+# -------------------------------------------------------
+ocp4_workload_automation_orchestrator_config_manage_service_account: true
+
+ocp4_workload_automation_orchestrator_config_service_account_name: aap-webhooks
+ocp4_workload_automation_orchestrator_config_service_account_description: >-
+  Lets Ansible Automation Platform trigger Automation Orchestrator
+  workflows over POST /api/v1/webhooks/{path}. Created by
+  ocp4_workload_automation_orchestrator_config.
+
+# A service account belongs to exactly one project and can only reach
+# that project's workflows — measured: a service account token scoped
+# to one project lists zero projects and 403s on /integrations.
+#
+# It is created in the solutions project because that is the project
+# this role owns. If the lab ever wants AAP to trigger a workflow the
+# student built, this must point at the student's project instead:
+#   ..._service_account_project: default
+ocp4_workload_automation_orchestrator_config_service_account_project: >-
+  {{ ocp4_workload_automation_orchestrator_config_solutions_project }}
+
+# The AAP side. `AO webhooks` is a custom credential type defined in
+# AgnosticV, so these names come from that definition rather than from
+# any AAP or AO API — they are the one unverified thing left in this
+# role. Correct them here if the PATCH 400s on an unknown field.
+ocp4_workload_automation_orchestrator_config_aap_ao_credential_name: Automation Orchestrator
+ocp4_workload_automation_orchestrator_config_aap_ao_client_id_field: client_id
+ocp4_workload_automation_orchestrator_config_aap_ao_client_secret_field: client_secret
+
+# -------------------------------------------------------
+# Wait / retry tuning
+#
+# Every bound below is deliberately shorter than the 900 s AO token
+# lifetime so that no single loop can outlive its own access token.
+# -------------------------------------------------------
+
+# AO API readiness (the Route can answer before the API is serving).
+ocp4_workload_automation_orchestrator_config_api_retries: 30
+ocp4_workload_automation_orchestrator_config_api_delay: 10
+
+# An integration must be refreshed before /models or /tools return
+# addressable IDs, and the refresh is asynchronous. Poll until the
+# collection is non-empty rather than sleeping a fixed interval and
+# hoping — 60 x 5 s = 300 s ceiling per integration.
+ocp4_workload_automation_orchestrator_config_refresh_retries: 60
+ocp4_workload_automation_orchestrator_config_refresh_delay: 5
+
+# Re-read the workflow after wiring, for its current_version and
+# has_validation_issues. Validation is computed server-side on write,
+# so this settles quickly or not at all.
+ocp4_workload_automation_orchestrator_config_validation_retries: 12
+ocp4_workload_automation_orchestrator_config_validation_delay: 5

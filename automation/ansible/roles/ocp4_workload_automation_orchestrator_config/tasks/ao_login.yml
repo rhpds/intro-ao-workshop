@@ -1,0 +1,36 @@
+---
+# Authenticate to the AO API and refresh `_ao_headers`.
+#
+# AO access tokens live 900 s. Rather than wrapping every call in a
+# 401-retry, each phase of this role re-authenticates on entry and
+# every poll loop is bounded below that ceiling — so a token cannot
+# expire part-way through a phase. Login is a single cheap call.
+#
+# NOTE: every path in this role is written WITHOUT a trailing slash.
+# `/api/v1/workflows/` 307-redirects to `/api/v1/workflows`, and a 307
+# does not reliably carry the method, body and Authorization header
+# through Ansible's redirect handling.
+
+- name: Authenticate to the Automation Orchestrator API
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/auth/login"
+    method: POST
+    body_format: json
+    body:
+      username: "{{ ocp4_workload_automation_orchestrator_config_ao_admin_user }}"
+      password: "{{ ocp4_workload_automation_orchestrator_config_ao_admin_password }}"
+    status_code: [200, 201]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_ao_login
+  retries: "{{ ocp4_workload_automation_orchestrator_config_api_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_config_api_delay }}"
+  until: r_ao_login is succeeded
+  no_log: true
+
+- name: Set Automation Orchestrator API auth headers
+  ansible.builtin.set_fact:
+    _ao_headers:
+      Authorization: "Bearer {{ r_ao_login.json.access_token }}"
+      Content-Type: application/json
+      Accept: application/json
+  no_log: true

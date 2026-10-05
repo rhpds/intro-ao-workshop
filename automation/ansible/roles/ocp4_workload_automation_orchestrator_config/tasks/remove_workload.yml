@@ -1,0 +1,109 @@
+---
+# Remove what this role created.
+#
+# Integrations are NOT project-owned — they are top-level objects
+# associated with projects many-to-many — so deleting the project does
+# not take them with it. They are deleted by name first, then the
+# project, which does own its credentials and workflows. DELETE
+# returns 204 on every resource type.
+#
+# The `default` and `built-in` projects are never touched. `built-in`
+# is read-only and rejects writes; `default` belongs to the student.
+
+- name: Authenticate to the Automation Orchestrator API
+  ansible.builtin.include_tasks: ao_login.yml
+
+- name: List service accounts
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/service_accounts"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_remove_service_accounts
+  failed_when: false
+
+- name: Delete the service account
+  # Deleted by name rather than left to the project cascade: the
+  # service account project is configurable, and may be `default`,
+  # which this role must never delete.
+  loop: >-
+    {{ (r_remove_service_accounts.json | default({}, true) | ao_collection)
+       | selectattr('name', 'equalto',
+                    ocp4_workload_automation_orchestrator_config_service_account_name)
+       | list }}
+  loop_control:
+    label: "{{ item.name }}"
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/service_accounts/{{ item.id }}"
+    method: DELETE
+    headers: "{{ _ao_headers }}"
+    status_code: [200, 202, 204, 404]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+
+- name: List integrations
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_remove_integrations
+  failed_when: false
+
+- name: Delete the solutions integrations
+  vars:
+    _ao_solutions_integration_names:
+      - "{{ ocp4_workload_automation_orchestrator_config_llm_integration_name }}"
+      - "{{ ocp4_workload_automation_orchestrator_config_aap_integration_name }}"
+      - "{{ ocp4_workload_automation_orchestrator_config_aap_mcp_integration_name }}"
+      - "{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_integration_name }}"
+      - "{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name }}"
+  loop: >-
+    {{ (r_remove_integrations.json | default({}, true) | ao_collection)
+       | selectattr('name', 'in', _ao_solutions_integration_names)
+       | list }}
+  loop_control:
+    label: "{{ item.name }}"
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ item.id }}"
+    method: DELETE
+    headers: "{{ _ao_headers }}"
+    status_code: [200, 202, 204, 404]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+
+- name: Look up the solutions project
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/projects"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_remove_projects
+  failed_when: false
+
+- name: Select the solutions project
+  ansible.builtin.set_fact:
+    _ao_remove_project: >-
+      {{ r_remove_projects.json | ao_collection
+         | selectattr('name', 'equalto',
+                      ocp4_workload_automation_orchestrator_config_solutions_project)
+         | list }}
+  when: r_remove_projects.json is defined
+
+- name: Delete the solutions project, its credentials and its workflows
+  when: _ao_remove_project | default([]) | length > 0
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/projects/{{ _ao_remove_project[0].id }}"
+    method: DELETE
+    headers: "{{ _ao_headers }}"
+    status_code: [200, 202, 204, 404]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+
+- name: Report the removal
+  when: not silent | bool
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Deleted' if _ao_remove_project | default([]) | length > 0
+         else 'No such' }} Automation Orchestrator project
+      '{{ ocp4_workload_automation_orchestrator_config_solutions_project }}'.

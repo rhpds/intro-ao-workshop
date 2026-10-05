@@ -1,0 +1,260 @@
+# ocp4_workload_automation_orchestrator_config
+
+Day-2 configuration of a running Automation Orchestrator (AO), over its REST API.
+
+The sibling role `ocp4_workload_automation_orchestrator` installs AO and stops at
+"AO is up". This role fills it: project, credentials, integrations, and imported
+workflows. Install and configuration are kept separate on purpose.
+
+## What it builds
+
+Everything lands in a single project, `solutions` — the reference implementation,
+so the lab is runnable the moment it finishes provisioning.
+
+| Asset | Type | Credential |
+|---|---|---|
+| `solutions` | project | — |
+| LLM | integration | LLM Provider, from LiteLLM user_data |
+| AAP | integration | Ansible Automation Platform |
+| AAP MCP | integration | HTTP Bearer Token, **minted at provision time** |
+| OpenFlake MCP | integration | HTTP Bearer Token, from `openflake_mcp_bearer_token` |
+| Lightspeed MCP | integration | **none — measured unauthenticated** |
+| RHEL CVE Remediation | workflow | imported, wired, validated, published |
+| Disk Utilization Remediation | workflow | imported, wired, validated, published |
+| Ticket Enrichment Demo | workflow | imported, wired, validated, published |
+| `aap-webhooks` | service account | client_id/secret patched onto AAP |
+
+Three MCP servers, two MCP credentials. An MCP `initialize` POST to the
+Lightspeed Route returns 200 with no `Authorization` header and 200 with a bogus
+bearer — the server ignores the header. Its `LIGHTSPEED_CLIENT_ID` /
+`LIGHTSPEED_CLIENT_SECRET` are outbound credentials for console.redhat.com.
+Attaching an AO credential would send a header the server discards.
+
+The `default` project is deliberately **not** seeded. Module 02 is "Set Up
+Integrations and Credentials" and module 03 is "Build the Workflow" — pre-seeding
+`default` would hand students the answers.
+
+## Ordering
+
+This role must run **after** `infra.aap_configuration.dispatch`. Every
+`aap_job_template` node needs a `job_template_id` resolved against the live AAP
+controller, and dispatch is what creates those job templates. They are not
+defined anywhere in this repo.
+
+## How workflow wiring works
+
+An imported workflow is inert until its nodes carry IDs that only exist after the
+surrounding assets are created. Only two node types need it — `agentic` and
+`aap_job_template`. `script`, `switch` and `approval` are self-contained.
+
+The mapping is declarative, one file per workflow, keyed by node ID:
+
+- `vars/bindings_rhel_cve_remediation.yml`
+- `vars/bindings_disk_utilization.yml`
+
+A binding names the credential, integration, tools and job template a node needs
+using role-local keys (`llm`, `aap`, `lightspeed_mcp`, …), never AO UUIDs. The
+transform lives in `filter_plugins/ao_workflow.py`.
+
+Two ways to select tools for an agentic node:
+
+- `tools:` names them explicitly. Use this when the node's prompt calls specific
+  tools by name — a renamed tool then fails the provision instead of silently
+  handing the agent something it cannot call.
+- `tools_all:` takes an integration's whole surface. Use this when the prompt
+  just says "use the Lightspeed MCP" and a pinned list would be guesswork.
+
+`tool_selections` must be non-empty when the strategy is `SELECTED`; AO rejects
+`[]` with "should be non-empty".
+
+### Testing the wiring without an AO instance
+
+```bash
+python3 tests/test_ao_workflow.py
+```
+
+34 tests, no network. They run the real exported JSON through the real binding
+files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
+expression handling, and each failure mode. Requires PyYAML.
+
+## The three workflow exports differ
+
+`rhel-cve-remediation.json` is a clean export: it carries its own
+`schema_version`, `name` and `description`, and 12 nodes / 12 edges / 1 manual
+trigger round-trip intact.
+
+`ticket-enrichment.json` is also clean, and is the only one with a
+`webhook_trigger` (path `openflake-incident`) instead of a manual trigger — so it
+is the only workflow that needs the service account. Both its agentic nodes ship
+`tool_selections: []`, which AO rejects outright when the strategy is `SELECTED`,
+so they are not optional to wire. Its four "Update OpenFlake Ticket" nodes carry
+opaque `activity_<uuid>` IDs and all resolve to the same job template; its two
+remediation nodes launch whatever template the triage agent names at run time.
+Neither agent writes to OpenFlake — every write goes through an AAP job template.
+
+`disk-utilization-remediation.json` came from the AO workshop rather than this
+repo, and needs more work before it can be posted:
+
+- No `name`, `description` or `schema_version` — all synthesised at import.
+- All nine of its `aap_job_template` nodes ship
+  `"credential_id": "YOUR_AAP_CREDENTIAL_ID"`. A non-UUID string there crashes
+  the AO server with an HTTP 500 rather than returning a clean 422, so the
+  placeholder is stripped before the POST and a real UUID wired in afterwards.
+  (The 500 is arguably an AO bug worth reporting upstream — a malformed
+  `credential_id` should be a 422.)
+- Its node IDs are opaque `activity_<uuid>` strings, so every binding entry is
+  commented with the node's display name.
+
+It has no `agentic` nodes at all, so it needs no LLM or MCP wiring — just the AAP
+credential, the AAP integration, and resolved job template IDs.
+
+## Payload shapes
+
+Every shape this role sends was confirmed by creating the real object against a
+live AO instance and reading the response back. The ones that are not guessable
+from the exports, and that a reader would otherwise get wrong:
+
+- **Collections are enveloped** as `{next, prev, total, resources}` — not a bare
+  list. Always go through the `ao_collection` filter. (In Jinja, `json.items`
+  resolves to the dict's built-in `items()` *method*, so a `default()` chain
+  never falls through. That trap is why the filter exists.)
+- **`integration_type`** is `llm_provider` / `ansible_automation_platform` /
+  `mcp_server`, and must appear **both** at the top level and inside
+  `configuration` — it is the discriminator for the configuration union.
+  Omitting the nested copy fails with *"Unable to extract tag using
+  discriminator"*.
+- **The endpoint field is `base_url`** for all three integration types.
+  `llm_provider` additionally requires `provider_hint`
+  (`red_hat_ai|openai|anthropic|gemini|custom`).
+- **Credential `inputs`** — `HTTP Bearer Token` takes `token`; `LLM Provider`
+  takes `api_key` *only*; `Ansible Automation Platform` takes
+  `username`+`password` **or** `oauth_token`, never both. `base_url`/`host` and
+  `verify_ssl` are integration configuration, not credential inputs.
+- **`tool_selections` is a list of bare tool-name strings** (`["hosts_list"]`).
+  Every object shape returns a 500.
+- **Project association** is `POST /integrations/{id}/projects/{project_id}`,
+  and the matching `GET` returns `project_id`/`project_name` — not `id`/`name`
+  like every other collection.
+- **Publish is version-scoped**: `POST /workflows/{id}/versions/{n}/publish`
+  with an empty body. `/workflows/{id}/publish` is a 404. Take `n` from the
+  workflow's `current_version`.
+- **`validation_result` is only on write responses.** A later `GET` returns
+  `null` and reports the outcome as the boolean `has_validation_issues`, so the
+  findings must be captured from the POST/PATCH or they are lost.
+
+Two further things worth knowing:
+
+**AO's base_url has an SSRF guard.** It rejects any URL resolving to a private,
+reserved or cloud-metadata address, so integrations must point at public Routes
+— an in-cluster `.svc` name will not work.
+
+**Workflow validation is lenient.** A workflow with no `credential_id`, no
+`llm_model_id`, no `integration_id` and no `job_template_id` on any node still
+validates and publishes; the only thing validation flagged in testing was a
+malformed `tool_selections`. `is_valid` therefore means "structurally parseable",
+not "runnable" — it is not a substitute for the qa-automation assertions.
+
+## Re-run behaviour
+
+Assets are matched on **name only** and reconciled with PATCH.
+
+The reference implementation this role replaces deletes and recreates any
+integration whose `validation_status` is not `available`. MCP integrations in
+this lab routinely report a failed validation while the MCP protocol itself works
+fine — so that rule re-creates them on every run, issuing fresh UUIDs and
+silently breaking the workflow nodes still pointing at the old ones. Matching on
+name keeps IDs stable.
+
+Secret material (`inputs`) and workflow definitions are re-pushed on every run,
+so a rotated key or a corrected binding file actually lands.
+
+`ACTION=destroy` deletes the `solutions` project, which cascades. `default` and
+`built-in` are never touched.
+
+## Conventions worth keeping
+
+- **No trailing slashes.** `/api/v1/workflows/` 307-redirects to
+  `/api/v1/workflows`, and a 307 does not reliably carry method, body and
+  `Authorization` through Ansible's redirect handling.
+- **Tokens expire in 900 s.** Each phase re-authenticates on entry and every poll
+  loop is bounded below that, so a token cannot expire mid-phase.
+- **Poll, never sleep.** `POST /api/v1/integrations/{id}/refresh` is mandatory
+  before `/models` or `/tools` return addressable IDs, and it is asynchronous.
+- **`/tools` needs defensive parsing.** It is cursor-paginated and tool
+  descriptions contain raw control characters, which are illegal inside JSON
+  strings — the response is read as text, scrubbed, then parsed.
+- **Model choice comes from `litellm_available_models`.** A hardcoded preference
+  chain silently falls through to "first available" on this lab's qwen/minimax
+  models, which makes a misconfiguration look like a success.
+
+## The service account, and the `REPLACE_ME` bug
+
+AgnosticV's `controller_credentials` creates an AAP credential named "Automation
+Orchestrator" (type `AO webhooks`) with literal `client_id: REPLACE_ME` /
+`client_secret: REPLACE_ME`, annotated "set manually". This role closes that: it
+mints an AO service account and patches the pair onto the AAP credential.
+
+Two API facts shape how:
+
+- **`client_secret` is returned exactly once**, by the call that mints it. A
+  later `GET` of the same credential omits the field. An existing service
+  account's secret cannot be read back.
+- **`rotate` is therefore the re-run path.** It keeps the credential record and
+  its `identifier` stable, returns a fresh one-time secret, and leaves the
+  previous one valid for `grace_period_seconds` (1 h). Create on the first run,
+  rotate on every run after — minting a new credential each time would
+  accumulate live credentials forever.
+
+`identifier` is the client_id; it looks like `nx_sa_<16 hex>`. The token exchange
+is `POST /api/v1/auth/token`, **form-encoded**, `grant_type=client_credentials`.
+
+A service account is scoped to one project and is sharply limited: a token for an
+account scoped to project X lists zero projects and 403s on `/integrations`. The
+account is created in `solutions`; point
+`..._service_account_project` at `default` if the lab ever needs AAP to trigger a
+workflow the student built.
+
+Its consumer is **Ticket Enrichment Demo**, the one workflow here with a
+`webhook_trigger` rather than a manual trigger. AAP calls
+`POST /api/v1/webhooks/openflake-incident`, which the API documents as
+"Requires a service account Bearer token". Set
+`..._manage_service_account: false` and that workflow is reachable only from the
+AO UI.
+
+The AAP-side field names (`client_id`, `client_secret`) come from the AgnosticV
+credential-type definition, not from any API, and are the one thing in this role
+not verified against a live system — no AAP instance was available. They are
+variables; correct them in `defaults/main.yml` if the PATCH 400s.
+
+## Testing
+
+Offline, no infrastructure — the wiring transform, against the real exports:
+
+```bash
+python3 tests/test_ao_workflow.py     # 34 tests
+```
+
+Against a live lab, after provisioning:
+
+```bash
+ansible-playbook qa-automation/healthcheck.yml \
+  -e ao_url=https://<ao-route> -e ao_password=<admin-password>
+```
+
+The health check asserts what AO's own validation does not. Because validation is
+structural, it asserts per-node that every `agentic` and `aap_job_template` node
+carries a real `credential_id` (and no surviving `YOUR_*`/`REPLACE_*`
+placeholder), that every agentic node has an `llm_model_id` and a non-empty tool
+selection, and that every static AAP node resolved a `job_template_id` — skipping
+nodes whose `job_template_name` is a `${...}` runtime expression. It also checks
+that each MCP integration actually exposes tools and the LLM integration exposes
+models, since a failed refresh leaves an integration that exists but is useless.
+
+It asserts the student's `default` project still exists and is untouched.
+
+## Not yet implemented
+
+- **Seeding the `default` project**, which is intentionally a separate decision.
+- **`qa-automation/e2e.yml`** — still the scaffold stub. Executing a workflow
+  (`POST /api/v1/executions`) and polling it to completion would be the real
+  end-to-end proof; the health check stops at "runnable".

@@ -1,0 +1,63 @@
+---
+# Resolve every AAP job template name the workflows reference into an
+# ID, in one preflight pass.
+#
+# The job templates themselves are created by AgnosticV's
+# `infra.aap_configuration.dispatch`, not by this repo — which is why
+# they are looked up by name on the live controller instead of being
+# derived from anything local, and why this role must run after
+# dispatch.
+#
+# Doing this as a preflight means a missing template is reported by
+# name, with all of them listed at once, rather than surfacing later
+# as a null job_template_id inside an opaque schema violation.
+
+- name: Initialise the job template id map
+  ansible.builtin.set_fact:
+    _ao_job_template_ids: {}
+    _ao_missing_job_templates: []
+
+- name: Look up each required AAP job template
+  ansible.builtin.uri:
+    url: "{{ _aap_api }}/api/controller/v2/job_templates/?name={{ item | urlencode }}"
+    method: GET
+    user: "{{ ocp4_workload_automation_orchestrator_config_aap_admin_user }}"
+    password: "{{ ocp4_workload_automation_orchestrator_config_aap_admin_password }}"
+    force_basic_auth: true
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_aap_validate_certs }}"
+  register: r_job_templates
+  loop: "{{ _ao_required_job_templates }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Build the job template id map
+  ansible.builtin.set_fact:
+    _ao_job_template_ids: >-
+      {{ _ao_job_template_ids
+         | combine({item.item: item.json.results[0].id}) }}
+  loop: "{{ r_job_templates.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.json.count | default(0) > 0
+
+- name: Collect job templates that did not resolve
+  ansible.builtin.set_fact:
+    _ao_missing_job_templates: "{{ _ao_missing_job_templates + [item.item] }}"
+  loop: "{{ r_job_templates.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.json.count | default(0) == 0
+
+- name: Fail when a referenced AAP job template does not exist
+  when: _ao_missing_job_templates | length > 0
+  ansible.builtin.fail:
+    msg: |
+      These AAP job templates are referenced by an AO workflow but do
+      not exist on the controller:
+
+        {{ _ao_missing_job_templates | join('\n  ') }}
+
+      They are created by AgnosticV's aap_configuration dispatch, so
+      either this role ran before dispatch, or the template names in
+      vars/bindings_*.yml have drifted from the ones dispatch creates.

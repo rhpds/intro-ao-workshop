@@ -1,0 +1,86 @@
+---
+# Create one integration, associate it with the solutions project,
+# refresh it, and poll until it exposes models or tools.
+#
+# Inputs:
+#   _int_key           — key into _ao_integration_ids
+#   _int_name          — display name
+#   _int_type          — llm_provider | ansible_automation_platform
+#                        | mcp_server
+#   _int_configuration — type-specific configuration dict, which must
+#                        itself repeat integration_type
+
+#   _int_credential    — optional key into _ao_credential_ids
+
+- name: "Create integration: {{ _int_name }}"
+  ansible.builtin.include_tasks: ao_find_or_create.yml
+  vars:
+    _fc_kind: integrations
+    _fc_name: "{{ _int_name }}"
+    _fc_body: >-
+      {{
+        {
+          'name': _int_name,
+          'integration_type': _int_type,
+          'scope': 'project',
+          'configuration': _int_configuration,
+        }
+        | combine(
+            {'management_credential_id': _ao_credential_ids[_int_credential]}
+            if _int_credential is defined else {}
+          )
+      }}
+    _fc_patch: >-
+      {{
+        {'configuration': _int_configuration}
+        | combine(
+            {'management_credential_id': _ao_credential_ids[_int_credential]}
+            if _int_credential is defined else {}
+          )
+      }}
+
+- name: "Record integration id: {{ _int_name }}"
+  ansible.builtin.set_fact:
+    _ao_integration_ids: "{{ _ao_integration_ids | combine({_int_key: _ao_object_id}) }}"
+    _int_id: "{{ _ao_object_id }}"
+
+- name: "List projects already associated with {{ _int_name }}"
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/projects"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_int_projects
+
+- name: "Associate with the solutions project: {{ _int_name }}"
+  # This endpoint returns `project_id`/`project_name`, not `id`/`name`
+  # like every other collection — matching on `id` would silently
+  # never find the association and re-POST on every run.
+  when: >-
+    _ao_project_id not in
+    (r_int_projects.json | ao_collection | map(attribute='project_id') | list)
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/projects/{{ _ao_project_id }}"
+    method: POST
+    headers: "{{ _ao_headers }}"
+    status_code: [200, 201, 204]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+
+- name: "Refresh integration: {{ _int_name }}"
+  # Mandatory. Before a refresh, /models and /tools do not return
+  # addressable IDs, so any wiring built from them would be empty.
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/refresh"
+    method: POST
+    headers: "{{ _ao_headers }}"
+    status_code: [200, 201, 202, 204]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+
+- name: "Wait for the integration to expose models: {{ _int_name }}"
+  when: _int_type == _ao_integration_type_llm
+  ansible.builtin.include_tasks: ao_poll_models.yml
+
+- name: "Wait for the integration to expose tools: {{ _int_name }}"
+  when: _int_type == _ao_integration_type_mcp
+  ansible.builtin.include_tasks: ao_poll_tools.yml

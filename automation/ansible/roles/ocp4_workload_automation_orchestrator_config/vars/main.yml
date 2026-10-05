@@ -1,0 +1,57 @@
+---
+# Base URL for every AO call in this role. No trailing slash, ever.
+_ao_api: >-
+  {{ ocp4_workload_automation_orchestrator_config_ao_url | regex_replace('/$', '') }}/api/v1
+
+_aap_api: >-
+  {{ ocp4_workload_automation_orchestrator_config_aap_url | regex_replace('/$', '') }}
+
+# =======================================================
+# Payload shapes
+#
+# Every shape in this file was confirmed by creating the real object
+# against a live AO instance and reading the response back. The
+# probe artifacts were named zz-probe-* and deleted afterwards.
+#
+# Required top-level fields:
+#   projects      -> name
+#   credentials   -> name, credential_type_id, project_id, inputs
+#   integrations  -> name, integration_type, configuration
+#   workflows     -> name, project_id, workflow_definition
+#
+# List endpoints return an envelope, NOT a bare list:
+#   {"next": ..., "prev": ..., "total": N, "resources": [...]}
+# Always pipe a list response through the `ao_collection` filter.
+# =======================================================
+
+# Credential type names, resolved to per-instance UUIDs at run time off
+# GET /api/v1/credential_types.
+#
+# Required `inputs` per type, confirmed by 422 probing:
+#   HTTP Bearer Token          -> token
+#   LLM Provider               -> api_key            (base_url is NOT
+#                                 a credential input; it lives on the
+#                                 integration's configuration)
+#   Ansible Automation Platform-> username + password, OR oauth_token.
+#                                 The two are mutually exclusive;
+#                                 sending both is a 422. `host` and
+#                                 `verify_ssl` are NOT credential
+#                                 inputs — they belong to the
+#                                 integration configuration.
+_ao_credential_type_http_bearer: HTTP Bearer Token
+_ao_credential_type_aap: Ansible Automation Platform
+_ao_credential_type_llm: LLM Provider
+
+# Integration type enum values. These are the discriminator, and AO
+# requires them in BOTH places: at the top level of the request body
+# *and* inside `configuration`. Omitting the nested copy fails with
+# "Unable to extract tag using discriminator 'integration_type'".
+_ao_integration_type_llm: llm_provider
+_ao_integration_type_aap: ansible_automation_platform
+_ao_integration_type_mcp: mcp_server
+
+# `llm_provider` configuration requires `provider_hint`, one of:
+#   red_hat_ai | openai | anthropic | gemini | custom
+# LiteLLM presents an OpenAI-compatible API, so `openai` is correct
+# here even though the models behind it are not OpenAI's.
+_ao_llm_provider_hint: openai

@@ -1,0 +1,61 @@
+---
+# Poll an MCP integration until /tools is populated, then record a
+# tool name -> tool id map under `_int_key`.
+#
+# Two quirks drive the shape of this file:
+#
+# 1. Tool descriptions contain raw control characters, which are
+#    illegal inside JSON strings. A strict parser rejects the whole
+#    document, so the response is read as text, scrubbed, and parsed
+#    here rather than relying on the uri module's own parse.
+#
+# 2. /tools is cursor-paginated. A generous page size avoids an
+#    unbounded cursor-following loop in Ansible; the assertion below
+#    catches the day an MCP server outgrows it instead of silently
+#    wiring a truncated tool list.
+
+- name: "Poll for tools: {{ _int_name }}"
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/tools?limit={{ _ao_tools_page_size }}"
+    method: GET
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    return_content: true
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_int_tools
+  retries: "{{ ocp4_workload_automation_orchestrator_config_refresh_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_config_refresh_delay }}"
+  until:
+    - r_int_tools is succeeded
+    - r_int_tools.content | regex_replace('[\x00-\x1f]', ' ')
+      | from_json | ao_collection | length > 0
+  vars:
+    _ao_tools_page_size: 200
+
+- name: "Parse the tool list for {{ _int_name }}"
+  ansible.builtin.set_fact:
+    _int_tools_payload: >-
+      {{ r_int_tools.content | regex_replace('[\x00-\x1f]', ' ') | from_json }}
+
+- name: "Record the tool map for {{ _int_name }}"
+  ansible.builtin.set_fact:
+    _ao_integration_tools: >-
+      {{ _ao_integration_tools
+         | combine({_int_key: _int_tools_payload | ao_name_id_map}) }}
+
+- name: "Warn on a tool list truncated by pagination: {{ _int_name }}"
+  when: _int_tools_payload.next_cursor | default('') | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ _int_name }} returned a pagination cursor, so its tool
+      list is truncated at {{ _ao_integration_tools[_int_key] | length }}
+      entries. Any agentic node selecting a tool beyond that page will
+      fail to wire. Raise the page size in ao_poll_tools.yml.
+
+- name: "Show the tools exposed by {{ _int_name }}"
+  when: not silent | bool
+  ansible.builtin.debug:
+    msg: >-
+      {{ _int_name }} exposes
+      {{ _ao_integration_tools[_int_key] | length }} tool(s):
+      {{ _ao_integration_tools[_int_key].keys() | list | sort | join(', ') }}

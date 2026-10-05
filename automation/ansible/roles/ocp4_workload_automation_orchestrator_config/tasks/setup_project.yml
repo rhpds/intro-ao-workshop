@@ -1,0 +1,30 @@
+---
+# Create the `solutions` project.
+#
+# `solutions` is the reference implementation — everything wired and
+# published so the lab is runnable the moment it finishes provisioning.
+# The `default` project is left alone on purpose: modules 02 and 03 are
+# "Set Up Integrations and Credentials" and "Build the Workflow", so
+# pre-seeding `default` would hand students the answers.
+
+- name: Create the solutions project
+  ansible.builtin.include_tasks: ao_find_or_create.yml
+  vars:
+    _fc_kind: projects
+    _fc_name: "{{ ocp4_workload_automation_orchestrator_config_solutions_project }}"
+    _fc_body:
+      name: "{{ ocp4_workload_automation_orchestrator_config_solutions_project }}"
+      description: >-
+        {{ ocp4_workload_automation_orchestrator_config_solutions_project_description }}
+
+- name: Record the solutions project id
+  ansible.builtin.set_fact:
+    _ao_project_id: "{{ _ao_object_id }}"
+
+- name: Show the solutions project id
+  when: not silent | bool
+  ansible.builtin.debug:
+    msg: >-
+      Automation Orchestrator project
+      '{{ ocp4_workload_automation_orchestrator_config_solutions_project }}'
+      is {{ _ao_project_id }}

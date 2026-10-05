@@ -1,0 +1,42 @@
+---
+# Mint the AAP bearer token used by the AAP MCP integration.
+#
+# Unlike the OpenFlake MCP token, this one is not published into
+# AgnosticV by any workload role — the AAP MCP server authenticates
+# against AAP itself, so the token has to be issued here at provision
+# time.
+#
+# Measured, not assumed: an MCP `initialize` POST to the aap-mcp Route
+# returns 401 both with no Authorization header and with a bogus
+# bearer, so this integration genuinely needs a working token.
+
+- name: Create an AAP OAuth token for the AO MCP integration
+  ansible.builtin.uri:
+    url: "{{ _aap_api }}/api/gateway/v1/tokens/"
+    method: POST
+    user: "{{ ocp4_workload_automation_orchestrator_config_aap_admin_user }}"
+    password: "{{ ocp4_workload_automation_orchestrator_config_aap_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      description: "{{ ocp4_workload_automation_orchestrator_config_aap_token_description }}"
+      scope: write
+    status_code: [200, 201]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_aap_validate_certs }}"
+  register: r_aap_token
+  retries: "{{ ocp4_workload_automation_orchestrator_config_api_retries }}"
+  delay: "{{ ocp4_workload_automation_orchestrator_config_api_delay }}"
+  until: r_aap_token is succeeded
+  no_log: true
+
+- name: Record the AAP bearer token
+  ansible.builtin.set_fact:
+    _ao_aap_bearer_token: "{{ r_aap_token.json.token }}"
+  no_log: true
+
+- name: Fail when AAP returned no token value
+  when: _ao_aap_bearer_token | length == 0
+  ansible.builtin.fail:
+    msg: >-
+      AAP accepted the token request but returned no token value. The
+      AAP MCP integration cannot be configured without it.
