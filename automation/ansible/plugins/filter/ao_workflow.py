@@ -158,11 +158,32 @@ def _wire_agentic(node, binding, resolved):
     if cred_key:
         params["credential_id"] = _lookup(resolved, "credentials", cred_key, node_id)
 
+    # Each connection needs a credential as well as an integration: AO
+    # rejects a bare {integration_id} with "'credential_id' is a
+    # required property" at field_path
+    # parameters.integration_connections.<n>. The credential is a
+    # property of the integration, so it comes from the role's
+    # integration -> credential map rather than being restated per node;
+    # a binding may still override it.
     integration_keys = binding.get("integrations", [])
-    params["integration_connections"] = [
-        {"integration_id": _lookup(resolved, "integrations", key, node_id)}
-        for key in integration_keys
-    ]
+    connection_credentials = resolved.get("integration_credentials") or {}
+    overrides = binding.get("integration_credentials") or {}
+    connections = []
+    for key in integration_keys:
+        cred_key = overrides.get(key) or connection_credentials.get(key)
+        if not cred_key:
+            raise AOWiringError(
+                "agentic node '%s' connects to integration '%s', but no "
+                "credential is mapped to it; AO requires one per connection"
+                % (node_id, key)
+            )
+        connections.append(
+            {
+                "integration_id": _lookup(resolved, "integrations", key, node_id),
+                "credential_id": _lookup(resolved, "credentials", cred_key, node_id),
+            }
+        )
+    params["integration_connections"] = connections
 
     # tool_selections must be non-empty when the strategy is SELECTED —
     # AO rejects `[]` with "should be non-empty".
@@ -277,6 +298,7 @@ def ao_wire_definition(definition, bindings, resolved):
     run time:
 
         {credentials: {key: id}, integrations: {key: id},
+         integration_credentials: {integration_key: credential_key},
          tools: {integration_key: {tool_name: tool_id}},
          job_templates: {name: id}, llm_model_id: id, organization: str}
 

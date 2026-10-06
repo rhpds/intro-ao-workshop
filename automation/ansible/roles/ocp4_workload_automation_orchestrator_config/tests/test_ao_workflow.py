@@ -54,6 +54,7 @@ def fake_resolved(job_template_names, tools=None):
             "aap": UUID % 2,
             "aap_mcp": UUID % 3,
             "openflake_mcp": UUID % 4,
+            "lightspeed_mcp": UUID % 5,
         },
         "integrations": {
             "llm": UUID % 10,
@@ -61,6 +62,13 @@ def fake_resolved(job_template_names, tools=None):
             "aap_mcp": UUID % 12,
             "openflake_mcp": UUID % 13,
             "lightspeed_mcp": UUID % 14,
+        },
+        "integration_credentials": {
+            "llm": "llm",
+            "aap": "aap",
+            "aap_mcp": "aap_mcp",
+            "openflake_mcp": "openflake_mcp",
+            "lightspeed_mcp": "lightspeed_mcp",
         },
         "tools": tools or {},
         "job_templates": {
@@ -203,6 +211,26 @@ class TestWireCVE(unittest.TestCase):
              "vulnerability__get_cve_systems"],
         )
         self.assertTrue(triage["tool_selections"], "must be non-empty for SELECTED")
+
+    def test_every_connection_carries_both_ids(self):
+        # AO rejects a bare {integration_id} with "'credential_id' is a
+        # required property". Lightspeed MCP is the interesting case: it
+        # has no management credential and still needs one here.
+        triage = self.nodes["triage_agent"]["parameters"]
+        self.assertEqual(
+            triage["integration_connections"],
+            [
+                {"integration_id": UUID % 14, "credential_id": UUID % 5},
+                {"integration_id": UUID % 12, "credential_id": UUID % 3},
+            ],
+        )
+
+    def test_unmapped_integration_credential_raises(self):
+        resolved = dict(self.resolved)
+        resolved["integration_credentials"] = {"aap_mcp": "aap_mcp"}
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, self.bindings, resolved)
+        self.assertIn("lightspeed_mcp", str(caught.exception))
 
     def test_tool_selections_are_bare_strings(self):
         # AO 500s on every object shape; only a list of names is

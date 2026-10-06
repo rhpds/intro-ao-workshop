@@ -1,24 +1,27 @@
 ---
-# Poll an MCP integration until /tools is populated, then record a
-# tool name -> tool id map under `_int_key`.
+# Poll an MCP integration until /tools is populated, page through the
+# whole listing, then record a tool name -> tool id map under
+# `_int_key`.
 #
-# Two quirks drive the shape of this file:
+# Three quirks drive the shape of this file:
 #
 # 1. Tool descriptions contain raw control characters, which are
 #    illegal inside JSON strings. A strict parser rejects the whole
 #    document, so the response is read as text, scrubbed, and parsed
 #    here rather than relying on the uri module's own parse.
 #
-# 2. /tools is cursor-paginated and `limit` is capped at 100 — 101 or
-#    more is a hard 422, not a clamp. Taking the maximum page avoids an
-#    unbounded cursor-following loop in Ansible; the warning below
-#    catches the day an MCP server outgrows it instead of silently
-#    wiring a truncated tool list.
+# 2. `limit` is capped at 100 — 101 or more is a hard 422, not a
+#    clamp — and AAP MCP exposes more tools than that. A single page
+#    silently truncates: a measured run returned exactly 100 tools with
+#    `job_templates_list` missing while `job_templates_retrieve` was
+#    present. The binding files name tools that live past the first
+#    page, so the rest are fetched below off `total`.
 #
-# 422 is accepted so that a rejected request leaves the retry loop on
-# the first attempt. Polling exists to wait out an asynchronous
-# refresh, and AO marks validation errors `retryable: false` — without
-# this, a malformed request burns all 60 attempts before failing.
+# 3. 422 is accepted so that a rejected request leaves the retry loop
+#    on the first attempt. Polling exists to wait out an asynchronous
+#    refresh, and AO marks validation errors `retryable: false` —
+#    without this, a malformed request burns all 60 attempts before
+#    failing.
 
 - name: "Poll for tools: {{ _int_name }}"
   ansible.builtin.uri:
@@ -36,8 +39,6 @@
     - r_int_tools.status != 200 or
       (r_int_tools.content | regex_replace('[\x00-\x1f]', ' ')
        | from_json | intro_ao_workshop.automation.ao_collection | length > 0)
-  vars:
-    _ao_tools_page_size: 100
 
 - name: "Fail on a tools request AO rejected: {{ _int_name }}"
   when: r_int_tools.status != 200
@@ -47,31 +48,60 @@
       {{ r_int_tools.status }}:
       {{ (r_int_tools.content | from_json).detail | default(r_int_tools.content) }}
 
-- name: "Parse the tool list for {{ _int_name }}"
+- name: "Parse the first tool page for {{ _int_name }}"
   ansible.builtin.set_fact:
     _int_tools_payload: >-
       {{ r_int_tools.content | regex_replace('[\x00-\x1f]', ' ') | from_json }}
 
-- name: "Record the tool map for {{ _int_name }}"
+- name: "Start the tool map for {{ _int_name }}"
   ansible.builtin.set_fact:
-    _ao_integration_tools: >-
-      {{ _ao_integration_tools
-         | combine({_int_key: _int_tools_payload | intro_ao_workshop.automation.ao_name_id_map}) }}
+    _int_tools_map: "{{ _int_tools_payload | intro_ao_workshop.automation.ao_name_id_map }}"
+    _int_tools_total: "{{ _int_tools_payload.total | default(0) | int }}"
 
-- name: "Warn on a tool list truncated by pagination: {{ _int_name }}"
-  when: _int_tools_payload.next_cursor | default('') | length > 0
+- name: "Show the pagination envelope for {{ _int_name }}"
+  # Everything except `resources`. The documented envelope is
+  # {next, prev, total, resources}, but `total` is what the paging
+  # below depends on — print it so a changed envelope is visible in
+  # the log instead of silently truncating the list again.
+  when: not silent | bool
   ansible.builtin.debug:
     msg: >-
-      WARNING: {{ _int_name }} returned a pagination cursor, so its tool
-      list is truncated at {{ _ao_integration_tools[_int_key] | length }}
-      entries. Any agentic node selecting a tool beyond that page will
-      fail to wire. 100 is AO's maximum page size, so fixing this means
-      following next_cursor in ao_poll_tools.yml.
+      {{ _int_name }} /tools envelope:
+      {{ _int_tools_payload | dict2items
+         | rejectattr('key', 'equalto', 'resources')
+         | items2dict }}
+
+- name: "Fetch the remaining tool pages for {{ _int_name }}"
+  when: _int_tools_total | int > _ao_tools_page_size | int
+  ansible.builtin.include_tasks: ao_fetch_tools_page.yml
+  loop: >-
+    {{ range(_ao_tools_page_size | int,
+             _int_tools_total | int,
+             _ao_tools_page_size | int) | list }}
+  loop_control:
+    loop_var: _tools_offset
+    label: "{{ _int_name }} offset {{ _tools_offset }}"
+
+- name: "Record the tool map for {{ _int_name }}"
+  ansible.builtin.set_fact:
+    _ao_integration_tools: "{{ _ao_integration_tools | combine({_int_key: _int_tools_map}) }}"
+
+- name: "Warn on a tool list that did not page to completion: {{ _int_name }}"
+  # Either `total` was absent from the envelope, or `offset` did not
+  # advance the window. Either way the list is short and any binding
+  # naming a tool past the first page will fail to wire.
+  when: _int_tools_map | length < _int_tools_total | int
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ _int_name }} reports {{ _int_tools_total }} tools but
+      only {{ _int_tools_map | length }} were collected. Paging did not
+      complete — check the envelope above and correct the paging in
+      ao_poll_tools.yml.
 
 - name: "Show the tools exposed by {{ _int_name }}"
   when: not silent | bool
   ansible.builtin.debug:
     msg: >-
-      {{ _int_name }} exposes
-      {{ _ao_integration_tools[_int_key] | length }} tool(s):
-      {{ _ao_integration_tools[_int_key].keys() | list | sort | join(', ') }}
+      {{ _int_name }} exposes {{ _int_tools_map | length }} tool(s)
+      of {{ _int_tools_total }} reported:
+      {{ _int_tools_map.keys() | list | sort | join(', ') }}

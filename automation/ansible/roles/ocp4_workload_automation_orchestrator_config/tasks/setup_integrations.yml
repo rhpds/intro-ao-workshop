@@ -15,6 +15,17 @@
   ansible.builtin.set_fact:
     _ao_integration_ids: {}
     _ao_integration_tools: {}
+    # Which credential an agentic node must cite when it connects to a
+    # given integration — AO requires a credential_id on every
+    # integration_connections entry, not just an integration_id. It is
+    # the same credential the integration itself manages with, but the
+    # two are separate fields in the API, so the mapping is explicit.
+    _ao_integration_credentials:
+      llm: llm
+      aap: aap
+      aap_mcp: aap_mcp
+      openflake_mcp: openflake_mcp
+      lightspeed_mcp: lightspeed_mcp
 
 - name: Create the LLM integration
   ansible.builtin.include_tasks: ao_create_integration.yml
@@ -62,16 +73,17 @@
       base_url: "https://{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_host }}/mcp"
 
 - name: Create the Lightspeed MCP integration
-  # No credential: an MCP initialize POST returns 200 both with and
-  # without a bearer — the server ignores the header. Its
-  # LIGHTSPEED_CLIENT_ID/SECRET are outbound credentials for
-  # console.redhat.com. Confirmed live that an mcp_server integration
-  # with no management_credential_id is accepted (201).
+  # An MCP initialize POST returns 200 with no bearer and 200 with a
+  # bogus one, and /tools listed 46 tools unauthenticated — so the
+  # handshake and discovery are open. Tool *calls* are not: they reach
+  # console.redhat.com on the service account's behalf. The credential
+  # carries that service account secret.
   ansible.builtin.include_tasks: ao_create_integration.yml
   vars:
     _int_key: lightspeed_mcp
     _int_name: "{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name }}"
     _int_type: "{{ _ao_integration_type_mcp }}"
+    _int_credential: lightspeed_mcp
     _int_configuration:
       integration_type: "{{ _ao_integration_type_mcp }}"
       base_url: "https://{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_host }}/mcp"

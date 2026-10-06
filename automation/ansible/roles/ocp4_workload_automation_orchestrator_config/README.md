@@ -18,17 +18,22 @@ so the lab is runnable the moment it finishes provisioning.
 | AAP | integration | Ansible Automation Platform |
 | AAP MCP | integration | HTTP Bearer Token, **minted at provision time** |
 | OpenFlake MCP | integration | HTTP Bearer Token, from `openflake_mcp_bearer_token` |
-| Lightspeed MCP | integration | **none — measured unauthenticated** |
+| Lightspeed MCP | integration | HTTP Bearer Token, **read off the cluster** |
 | RHEL CVE Remediation | workflow | imported, wired, validated, published |
 | Disk Utilization Remediation | workflow | imported, wired, validated, published |
 | Ticket Enrichment Demo | workflow | imported, wired, validated, published |
 | `aap-webhooks` | service account | client_id/secret patched onto AAP |
 
-Three MCP servers, two MCP credentials. An MCP `initialize` POST to the
-Lightspeed Route returns 200 with no `Authorization` header and 200 with a bogus
-bearer — the server ignores the header. Its `LIGHTSPEED_CLIENT_ID` /
-`LIGHTSPEED_CLIENT_SECRET` are outbound credentials for console.redhat.com.
-Attaching an AO credential would send a header the server discards.
+Lightspeed MCP's handshake and discovery are open — an `initialize` POST
+returns 200 with no `Authorization` header and 200 with a bogus bearer, and
+`/tools` listed 46 tools unauthenticated. Its tool *calls* are not: they reach
+console.redhat.com on a service account's behalf.
+
+That service account secret is the one the MCP server itself was deployed with,
+so rather than make the catalog supply it twice this role reads it back out of
+the cluster — `LIGHTSPEED_CLIENT_SECRET` in the `lightspeed-mcp-credentials`
+Secret, created by the sibling `ocp4_workload_lightspeed_mcp_server` role. Set
+`..._lightspeed_mcp_token` to override, and the Secret is not read at all.
 
 The `default` project is deliberately **not** seeded. Module 02 is "Set Up
 Integrations and Credentials" and module 03 is "Build the Workflow" — pre-seeding
@@ -40,6 +45,10 @@ This role must run **after** `infra.aap_configuration.dispatch`. Every
 `aap_job_template` node needs a `job_template_id` resolved against the live AAP
 controller, and dispatch is what creates those job templates. They are not
 defined anywhere in this repo.
+
+It must also run after the three MCP server workloads — it reads their Routes,
+and for Lightspeed it reads the Secret `ocp4_workload_lightspeed_mcp_server`
+creates. In the catalog it is the last workload in the list, so this holds.
 
 ## How workflow wiring works
 
@@ -81,7 +90,7 @@ Two ways to select tools for an agentic node:
 python3 tests/test_ao_workflow.py
 ```
 
-34 tests, no network. They run the real exported JSON through the real binding
+36 tests, no network. They run the real exported JSON through the real binding
 files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
 expression handling, and each failure mode. Requires PyYAML.
 
@@ -138,6 +147,12 @@ from the exports, and that a reader would otherwise get wrong:
   takes `api_key` *only*; `Ansible Automation Platform` takes
   `username`+`password` **or** `oauth_token`, never both. `base_url`/`host` and
   `verify_ssl` are integration configuration, not credential inputs.
+- **`integration_connections` entries need `credential_id` as well as
+  `integration_id`.** A bare `{integration_id}` fails validation with
+  *"'credential_id' is a required property"* at
+  `parameters.integration_connections.<n>`. Which credential belongs to which
+  integration is the `_ao_integration_credentials` map in
+  `tasks/setup_integrations.yml`, not something each binding restates.
 - **`tool_selections` is a list of bare tool-name strings** (`["hosts_list"]`).
   Every object shape returns a 500.
 - **Project association** is `POST /integrations/{id}/projects/{project_id}`,
@@ -156,11 +171,13 @@ Two further things worth knowing:
 reserved or cloud-metadata address, so integrations must point at public Routes
 — an in-cluster `.svc` name will not work.
 
-**Workflow validation is lenient.** A workflow with no `credential_id`, no
-`llm_model_id`, no `integration_id` and no `job_template_id` on any node still
-validates and publishes; the only thing validation flagged in testing was a
-malformed `tool_selections`. `is_valid` therefore means "structurally parseable",
-not "runnable" — it is not a substitute for the qa-automation assertions.
+**Workflow validation is shallow but not absent.** A workflow with no
+`credential_id`, no `llm_model_id`, no `integration_id` and no `job_template_id`
+on any node still validates and publishes. What it does enforce is the JSON
+schema of each node's parameters — a malformed `tool_selections`, or an
+`integration_connections` entry missing `credential_id`, is rejected. `is_valid`
+therefore means "structurally parseable", not "runnable" — it is not a
+substitute for the qa-automation assertions.
 
 ## Re-run behaviour
 
@@ -188,9 +205,16 @@ so a rotated key or a corrected binding file actually lands.
   loop is bounded below that, so a token cannot expire mid-phase.
 - **Poll, never sleep.** `POST /api/v1/integrations/{id}/refresh` is mandatory
   before `/models` or `/tools` return addressable IDs, and it is asynchronous.
-- **`/tools` needs defensive parsing.** It is cursor-paginated and tool
-  descriptions contain raw control characters, which are illegal inside JSON
-  strings — the response is read as text, scrubbed, then parsed.
+- **`/tools` needs defensive parsing.** Tool descriptions contain raw control
+  characters, which are illegal inside JSON strings — the response is read as
+  text, scrubbed, then parsed.
+- **`/tools` must be paged.** `limit` is capped at 100 (101 is a hard 422, not a
+  clamp) and AAP MCP exposes more than that. A measured run returned exactly 100
+  tools with `job_templates_list` missing while `job_templates_retrieve` was
+  present — a truncated list that wires cleanly and leaves the agent unable to
+  call the tool its prompt names. `ao_poll_tools.yml` reads `total` from the
+  envelope and fetches the rest by `offset`, and warns if the collected count
+  still falls short.
 - **Model choice comes from `litellm_available_models`.** A hardcoded preference
   chain silently falls through to "first available" on this lab's qwen/minimax
   models, which makes a misconfiguration look like a success.
@@ -239,7 +263,7 @@ variables; correct them in `defaults/main.yml` if the PATCH 400s.
 Offline, no infrastructure — the wiring transform, against the real exports:
 
 ```bash
-python3 tests/test_ao_workflow.py     # 34 tests
+python3 tests/test_ao_workflow.py     # 36 tests
 ```
 
 Against a live lab, after provisioning:

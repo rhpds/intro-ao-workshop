@@ -28,3 +28,7 @@ _ao_integration_type_mcp: mcp_server
 # One of red_hat_ai|openai|anthropic|gemini|custom. LiteLLM is
 # OpenAI-compatible, whatever models sit behind it.
 _ao_llm_provider_hint: openai
+
+# AO's hard maximum for /tools. 101 or more is a 422, not a clamp.
+# AAP MCP has more tools than this, so the listing must be paged.
+_ao_tools_page_size: 100

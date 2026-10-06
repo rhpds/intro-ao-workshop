@@ -21,6 +21,7 @@
          | intro_ao_workshop.automation.ao_wire_definition(ao_workflow_bindings, {
              'credentials': _ao_credential_ids,
              'integrations': _ao_integration_ids,
+             'integration_credentials': _ao_integration_credentials,
              'tools': _ao_integration_tools,
              'job_templates': _ao_job_template_ids,
              'llm_model_id': _ao_llm_model_id | default(''),

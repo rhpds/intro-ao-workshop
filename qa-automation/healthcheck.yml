@@ -333,6 +333,33 @@
           Agentic node(s) selecting no tools: {{ _no_tools | join(', ') }}.
         success_msg: "Every agentic node has a model and a tool selection."
 
+    - name: Assert every integration connection names both an integration and a credential
+      # AO's node schema requires credential_id on each connection, so a
+      # missing one would already have failed validation at import —
+      # unless someone edited the workflow by hand in the UI afterwards.
+      vars:
+        _connections: >-
+          {{ r_workflow_detail.results
+             | map(attribute='json')
+             | map(attribute='workflow_definition')
+             | map(attribute='nodes') | flatten
+             | selectattr('type', 'equalto', 'agentic')
+             | map(attribute='parameters.integration_connections')
+             | flatten }}
+        _incomplete: >-
+          {{ _connections
+             | rejectattr('integration_id', 'truthy') | list
+             + (_connections | rejectattr('credential_id', 'truthy') | list) }}
+      ansible.builtin.assert:
+        that:
+          - _connections | length > 0
+          - _incomplete | length == 0
+        fail_msg: >-
+          {{ _incomplete | length }} integration connection(s) are missing an
+          integration_id or a credential_id.
+        success_msg: >-
+          All {{ _connections | length }} integration connections carry both ids.
+
     - name: Assert every static AAP node resolved a job_template_id
       # Nodes whose job_template_name is a ${...} runtime expression
       # are resolved at execution time and legitimately have no ID.
