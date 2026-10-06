@@ -6,3 +6,5 @@ www/
 # the collection, where it would otherwise ship in the build)
 __pycache__/
 *.pyc
+__pycache__/
+*.pyc
