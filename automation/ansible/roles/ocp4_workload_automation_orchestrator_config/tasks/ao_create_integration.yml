@@ -68,8 +68,14 @@
     validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
 
 - name: "Refresh integration: {{ _int_name }}"
-  # Mandatory. Before a refresh, /models and /tools do not return
-  # addressable IDs, so any wiring built from them would be empty.
+  # Mandatory for the two types that enumerate a resource: before a
+  # refresh, /models and /tools do not return addressable IDs, so any
+  # wiring built from them would be empty.
+  #
+  # ansible_automation_platform enumerates nothing, and AO rejects the
+  # call outright — 422 INTEGRATION_REFRESH_NOT_SUPPORTED, retryable
+  # false. Same type guard as the two polls below.
+  when: _int_type in [_ao_integration_type_llm, _ao_integration_type_mcp]
   ansible.builtin.uri:
     url: "{{ _ao_api }}/integrations/{{ _int_id }}/refresh"
     method: POST
