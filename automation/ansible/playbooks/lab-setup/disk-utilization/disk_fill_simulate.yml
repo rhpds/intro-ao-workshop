@@ -230,7 +230,9 @@
     #
     # Both inject AO_BASE_URL with the same value, so whichever wins
     # is correct and either credential works on its own.
-    ao_base_url: "{{ lookup('env', 'AO_BASE_URL') }}"
+    # Trailing slashes stripped: every URL below appends `/api/v1/...`,
+    # and a doubled slash is a 404 from AO rather than a redirect.
+    ao_base_url: "{{ lookup('env', 'AO_BASE_URL') | regex_replace('/+$', '') }}"
     ao_sa_client_id: >-
       {{ lookup('env', 'AO_SOLUTIONS_CLIENT_ID') if _target == 'solutions'
          else lookup('env', 'AO_STUDENT_CLIENT_ID') }}
