@@ -30,5 +30,37 @@ _ao_integration_type_mcp: mcp_server
 _ao_llm_provider_hint: openai
 
 # AO's hard maximum for /tools. 101 or more is a 422, not a clamp.
-# AAP MCP has more tools than this, so the listing must be paged.
+# AAP MCP exposes 140 tools, so the listing must be paged.
 _ao_tools_page_size: 100
+
+# AO's default page size is 20 when `limit` is omitted — measured, by
+# asking an integration with 140 tools for its listing without one.
+# Every collection GET in this role matches assets BY NAME, so a
+# listing that silently stops at 20 does not fail: it reports the
+# asset as absent and creates a duplicate. The lab's own assets are
+# well under 20, but students create credentials and integrations by
+# hand in module 02 in the same AO, so the margin is not guaranteed on
+# a re-run. Ask for the maximum instead.
+#
+# These collections are not paged beyond the first request. 100 is
+# five times the asset count this role creates, and unlike /tools
+# there is no known collection here that approaches it.
+_ao_collection_page_size: 100
+
+# /tools is keyset-paginated, not offset-paginated: the envelope is
+# {next, prev, total, resources} with `total` always null, and `next`
+# holding a base64 cursor that decodes to
+# {created_at, direction, id, sort_field: created_at, sort_direction}.
+#
+# The envelope names the cursor but not the query parameter that
+# takes it back. Measured against a live AO: `cursor` is the one that
+# advances, and every other spelling tried (next, next_cursor,
+# page_token, after, starting_after, token, page_cursor, from) is a
+# 422 "Unknown query parameter(s)". AO validates the query string
+# strictly, so this cannot be hedged by sending several names at once
+# — one unrecognised parameter rejects the whole request.
+_ao_tools_cursor_param: cursor
+
+# Bound on the page loop. 20 pages is 2000 tools; AAP MCP, the largest
+# surface here, measured 140 — two pages.
+_ao_tools_max_pages: 20

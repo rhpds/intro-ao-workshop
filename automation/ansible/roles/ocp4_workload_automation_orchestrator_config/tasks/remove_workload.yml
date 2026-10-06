@@ -15,7 +15,7 @@
 
 - name: List service accounts
   ansible.builtin.uri:
-    url: "{{ _ao_api }}/service_accounts"
+    url: "{{ _ao_api }}/service_accounts?limit={{ _ao_collection_page_size }}"
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]
@@ -43,7 +43,7 @@
 
 - name: List integrations
   ansible.builtin.uri:
-    url: "{{ _ao_api }}/integrations"
+    url: "{{ _ao_api }}/integrations?limit={{ _ao_collection_page_size }}"
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]
@@ -74,7 +74,7 @@
 
 - name: Look up the solutions project
   ansible.builtin.uri:
-    url: "{{ _ao_api }}/projects"
+    url: "{{ _ao_api }}/projects?limit={{ _ao_collection_page_size }}"
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]

@@ -8,7 +8,7 @@
 
 - name: "Poll for models: {{ _int_name }}"
   ansible.builtin.uri:
-    url: "{{ _ao_api }}/integrations/{{ _int_id }}/models"
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/models?limit={{ _ao_collection_page_size }}"
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]

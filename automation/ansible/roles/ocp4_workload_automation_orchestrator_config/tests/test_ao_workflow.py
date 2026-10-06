@@ -8,6 +8,7 @@ or AAP instance required:
     python3 tests/test_ao_workflow.py
 """
 
+import copy
 import json
 import os
 import sys
@@ -79,14 +80,28 @@ def fake_resolved(job_template_names, tools=None):
     }
 
 
+# Every tool the CVE bindings pin, plus one spare per integration so
+# that "pinned a tool the server does not expose" stays distinguishable
+# from "the fixture is short".
 CVE_TOOLS = {
     "lightspeed_mcp": {
+        "advisor__get_hosts_hitting_a_rule": UUID % 20,
+        "advisor__get_recommendations_stats": UUID % 21,
+        "advisor__get_rule_details": UUID % 22,
+        "content-sources__list_repositories": UUID % 23,
+        "inventory__get_host_details": UUID % 24,
+        "inventory__get_host_system_profile": UUID % 25,
+        "inventory__get_host_tags": UUID % 26,
+        "inventory__list_hosts": UUID % 27,
         "vulnerability__get_cve_systems": UUID % 30,
         "vulnerability__get_cve_details": UUID % 31,
     },
     "aap_mcp": {
         "hosts_list": UUID % 32,
         "hosts_variable_data_retrieve": UUID % 33,
+        "groups_list": UUID % 34,
+        "inventories_list": UUID % 35,
+        "jobs_list": UUID % 36,
     },
 }
 
@@ -207,8 +222,20 @@ class TestWireCVE(unittest.TestCase):
 
         self.assertEqual(
             sorted(triage["tool_selections"]),
-            ["hosts_list", "hosts_variable_data_retrieve",
-             "vulnerability__get_cve_systems"],
+            [
+                "advisor__get_hosts_hitting_a_rule",
+                "advisor__get_recommendations_stats",
+                "advisor__get_rule_details",
+                "content-sources__list_repositories",
+                "groups_list",
+                "hosts_list",
+                "hosts_variable_data_retrieve",
+                "inventories_list",
+                "inventory__get_host_details",
+                "inventory__get_host_system_profile",
+                "inventory__get_host_tags",
+                "inventory__list_hosts",
+            ],
         )
         self.assertTrue(triage["tool_selections"], "must be non-empty for SELECTED")
 
@@ -239,13 +266,46 @@ class TestWireCVE(unittest.TestCase):
             for selection in node.get("parameters", {}).get("tool_selections", []):
                 self.assertIsInstance(selection, str, node["id"])
 
-    def test_tools_all_expands_to_whole_surface(self):
+    def test_strategy_none_sends_no_tool_selections(self):
+        # investigate_agent reasons over what triage gathered, so it gets
+        # no tools. AO's enum is ALL|NONE|SELECTED and SELECTED with an
+        # empty list is rejected, so this must be NONE — and the key must
+        # be absent, matching what AO's own UI sends.
         investigate = self.nodes["investigate_agent"]["parameters"]
+        self.assertEqual(investigate["tool_selection_strategy"], "NONE")
+        self.assertNotIn("tool_selections", investigate)
+        # It still connects to both integrations, and still needs a model
+        # and a credential.
+        self.assertEqual(len(investigate["integration_connections"]), 2)
+        self.assertEqual(investigate["llm_model_id"], UUID % 20)
+
+    def test_tools_all_expands_to_whole_surface(self):
+        bindings = copy.deepcopy(self.bindings)
+        node = bindings["nodes"]["investigate_agent"]
+        node["tool_selection_strategy"] = "SELECTED"
+        node["tools_all"] = ["lightspeed_mcp", "aap_mcp"]
+        wired = ao_wire_definition(self.definition, bindings, self.resolved)
+        investigate = {n["id"]: n for n in wired["nodes"]}["investigate_agent"]
         self.assertEqual(
-            sorted(investigate["tool_selections"]),
-            ["hosts_list", "hosts_variable_data_retrieve",
-             "vulnerability__get_cve_details", "vulnerability__get_cve_systems"],
+            sorted(investigate["parameters"]["tool_selections"]),
+            sorted(list(CVE_TOOLS["lightspeed_mcp"]) + list(CVE_TOOLS["aap_mcp"])),
         )
+
+    def test_strategy_none_with_tools_is_rejected(self):
+        bindings = copy.deepcopy(self.bindings)
+        bindings["nodes"]["investigate_agent"]["tools"] = {
+            "aap_mcp": ["hosts_list"]
+        }
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, bindings, self.resolved)
+        self.assertIn("NONE", str(caught.exception))
+
+    def test_unknown_strategy_is_rejected(self):
+        bindings = copy.deepcopy(self.bindings)
+        bindings["nodes"]["investigate_agent"]["tool_selection_strategy"] = "EVERY"
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, bindings, self.resolved)
+        self.assertIn("EVERY", str(caught.exception))
 
     def test_static_job_template_resolves_to_id(self):
         fetch = self.nodes["fetch_and_commit"]["parameters"]
@@ -437,13 +497,21 @@ class TestFailureModes(unittest.TestCase):
         self.assertIn("tool_that_does_not_exist", str(ctx.exception))
 
     def test_empty_tools_with_selected_strategy_is_rejected(self):
+        # An integration that exposed nothing after refresh must fail
+        # tools_all rather than emit the empty list AO rejects. Pinned
+        # tools can no longer reach this: every agentic node in the CVE
+        # bindings is now either explicitly pinned or NONE, so the case
+        # is set up directly.
+        bindings = copy.deepcopy(self.bindings)
+        node = bindings["nodes"]["investigate_agent"]
+        node["tool_selection_strategy"] = "SELECTED"
+        node["tools_all"] = ["lightspeed_mcp"]
         resolved = fake_resolved(
-            ao_required_job_templates(self.definition, self.bindings), {}
+            ao_required_job_templates(self.definition, bindings), {}
         )
-        # No tools exposed -> tools_all on investigate_agent must fail
-        # rather than emit the empty list AO rejects.
-        with self.assertRaises(AOWiringError):
-            ao_wire_definition(self.definition, self.bindings, resolved)
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, bindings, resolved)
+        self.assertIn("exposed none", str(caught.exception))
 
 
 class TestCollection(unittest.TestCase):
