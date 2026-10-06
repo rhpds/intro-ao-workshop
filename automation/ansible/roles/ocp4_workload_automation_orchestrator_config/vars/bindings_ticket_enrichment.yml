@@ -5,9 +5,8 @@
 # role builds at run time, not AO UUIDs. Only agentic and
 # aap_job_template nodes need wiring.
 #
-# The one workflow with a webhook_trigger
-# (POST /api/v1/webhooks/openflake-incident), so the only consumer of
-# the aap-webhooks service account.
+# Triggered by POST /api/v1/webhooks/openflake-incident, authorized
+# for the aap-solutions-webhooks service account.
 
 ao_workflow_bindings:
   nodes:
@@ -101,11 +100,12 @@ ao_workflow_bindings:
   # required property", and an empty list fails too ("[] should be
   # non-empty"). The value is the service ACCOUNT's id; passing the id
   # of a credential hanging off that account is a hard 422, as is any
-  # account belonging to a different project than the workflow.
+  # account belonging to a different project than the workflow — which
+  # is why this is `solutions_webhooks` and not the student account.
   triggers:
     # "OpenFlake Trigger", webhook path `openflake-incident`. Opaque
     # activity_<uuid> id, like the job template nodes above.
     activity_e34a948c_7ecc_4414_85fe_8ad26beb2370:
       type: webhook_trigger
       service_accounts:
-        - webhooks
+        - solutions_webhooks

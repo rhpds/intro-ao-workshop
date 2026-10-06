@@ -1,13 +1,31 @@
 {
   "triggers": [
     {
-      "id": "trigger_manual",
-      "type": "manual_trigger",
-      "name": "Manual Trigger",
-      "parameters": {},
+      "id": "activity_c3bbccdb_3cd8_62e2_3905_6a09e7131220",
+      "name": "Disk Alert Trigger",
+      "type": "webhook_trigger",
       "position": {
         "x": 0,
         "y": 486.5
+      },
+      "parameters": {
+        "input_schema": {
+          "type": "object",
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "mount": {
+              "type": "string"
+            },
+            "simulated_percent": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "webhook_path": "disk-utilization"
       }
     }
   ],
@@ -88,9 +106,7 @@
       "name": "Launch AAP job template",
       "parameters": {
         "diff_mode": false,
-        "extra_vars": {
-          "test_disk_use_percent": 50
-        },
+        "extra_vars": {},
         "credential_id": "YOUR_AAP_CREDENTIAL_ID",
         "job_template_name": "Disk Utilization Check",
         "organization_name": "Default"
@@ -280,7 +296,7 @@
       "from_port": "case_1"
     },
     {
-      "from": "trigger_manual",
+      "from": "activity_c3bbccdb_3cd8_62e2_3905_6a09e7131220",
       "to": "activity_61ac9127_f147_4fa8_9c04_189097e753e9"
     },
     {

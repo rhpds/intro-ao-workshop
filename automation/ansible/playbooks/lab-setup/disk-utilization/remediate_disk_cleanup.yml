@@ -10,6 +10,7 @@
         disk_use_percent: "{{ disk_use_percent | default('unknown') }}"
         disk_tier: "{{ disk_tier | default('unknown') }}"
         log_retention_days: "{{ log_retention_days | default(90) | int }}"
+        large_log_threshold_mb: "{{ large_log_threshold_mb | default(100) | int }}"
 
     - name: Capture disk usage before cleanup
       ansible.builtin.command:
@@ -61,6 +62,43 @@
         - ansible_check_mode
         - ansible_facts['os_family'] == 'RedHat'
 
+    # The two age-based rules below find nothing on a lab node: it was
+    # provisioned this morning, so no archive is 90 days old. Measured
+    # on a real run, the chatroom card read "Log Archives 0 files
+    # (0.0 MB)" and the whole 168.8 MB reclaimed was dnf cache — which
+    # does not resolve a capacity alert.
+    #
+    # An oversized file in /var/log is what actually causes one, and
+    # removing it is what ticket-enrichment/remediate_disk_cleanup.yml
+    # already does for the same reason. Journals are excluded: systemd
+    # owns them and vacuums them on its own schedule.
+    - name: Find oversized log files
+      ansible.builtin.find:
+        paths: /var/log
+        size: "{{ large_log_threshold_mb }}m"
+        recurse: true
+        file_type: file
+        excludes:
+          - "*.journal"
+          - "*.journal~"
+      register: large_log_files
+
+    - name: Remove oversized log files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ large_log_files.files | default([]) }}"
+      loop_control:
+        label: "{{ item.path }} ({{ (item.size / 1048576) | round(0) }} MB)"
+      when: not ansible_check_mode
+
+    - name: Preview oversized log cleanup (check mode)
+      ansible.builtin.debug:
+        msg: >-
+          [check mode] Would remove {{ large_log_files.files | default([]) | length }}
+          log files over {{ large_log_threshold_mb }} MB from /var/log.
+      when: ansible_check_mode
+
     - name: Find old compressed log archives
       ansible.builtin.find:
         paths: /var/log
@@ -109,7 +147,9 @@
       ansible.builtin.debug:
         msg: >-
           {{ disk_mount }} was {{ disk_use_percent_before }}% full —
-          removed {{ dnf_cache_files.files | default([]) | length }} dnf cache entries,
+          removed {{ large_log_files.files | default([]) | length }} log files over
+          {{ large_log_threshold_mb }} MB,
+          {{ dnf_cache_files.files | default([]) | length }} dnf cache entries,
           {{ old_log_archives_gz.files | default([]) | length }} compressed logs,
           and {{ old_log_archives_plain.files | default([]) | length }} uncompressed rotated logs
           older than {{ log_retention_days }} days.
@@ -151,10 +191,26 @@
               (old_logs_to_remove | map(attribute='size') | sum | default(0)) / 1048576
             ) | round(1)
           }}
+        large_logs_freed_mb: >-
+          {{
+            (
+              (large_log_files.files | default([]) | map(attribute='size') | sum | default(0))
+              / 1048576
+            ) | round(1)
+          }}
 
     - name: Calculate reclaimed and mount usage change
       ansible.builtin.set_fact:
-        total_reclaimed_mb: "{{ (dnf_cache_freed_mb | float) + (logs_freed_mb | float) | round(1) }}"
+        # Parenthesised around the whole sum: `|` binds tighter than
+        # `+` in Jinja, so `a + b | round(1)` rounds only b.
+        total_reclaimed_mb: >-
+          {{
+            (
+              (dnf_cache_freed_mb | float)
+              + (logs_freed_mb | float)
+              + (large_logs_freed_mb | float)
+            ) | round(1)
+          }}
         mount_usage_change_mb: >-
           {{
             (
@@ -168,6 +224,7 @@
         disk_use_percent: "{{ disk_use_percent_after }}"
         dnf_cache_removed: "{{ dnf_cache_files.files | default([]) | length }}"
         log_archives_removed: "{{ old_logs_to_remove | length }}"
+        large_logs_removed: "{{ large_log_files.files | default([]) | length }}"
         dry_run: "{{ ansible_check_mode }}"
 
     - name: Publish notify artifacts for downstream steps

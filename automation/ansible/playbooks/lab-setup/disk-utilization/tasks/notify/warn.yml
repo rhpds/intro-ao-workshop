@@ -11,6 +11,11 @@
           - title: Would Reclaim
             value: "{{ total_reclaimed_mb }} MB"
             short: true
+          - title: Large Logs
+            value: >-
+              {{ large_logs_removed }} files ({{ large_logs_freed_mb }} MB,
+              over {{ large_log_threshold_mb }} MB each)
+            short: true
           - title: DNF Cache
             value: "{{ dnf_cache_removed }} files ({{ dnf_cache_freed_mb }} MB)"
             short: true
@@ -32,6 +37,11 @@
         fields:
           - title: Total Reclaimed
             value: "{{ total_reclaimed_mb }} MB"
+            short: true
+          - title: Large Logs
+            value: >-
+              {{ large_logs_removed }} files ({{ large_logs_freed_mb }} MB,
+              over {{ large_log_threshold_mb }} MB each)
             short: true
           - title: DNF Cache
             value: "{{ dnf_cache_removed }} files ({{ dnf_cache_freed_mb }} MB)"

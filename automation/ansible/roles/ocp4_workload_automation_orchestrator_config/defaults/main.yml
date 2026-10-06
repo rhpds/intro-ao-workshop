@@ -81,11 +81,17 @@ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_secret_key: LIGHTSPE
 
 # `solutions` is the reference implementation. `default` is the
 # student workspace and is deliberately NOT seeded — modules 02 and 03
-# are exactly that work done by hand.
+# are exactly that work done by hand. The one exception is a service
+# account, below: the student cannot give their own workflow a working
+# webhook trigger without one, and minting it is not what the modules
+# teach.
 ocp4_workload_automation_orchestrator_config_solutions_project: solutions
 ocp4_workload_automation_orchestrator_config_solutions_project_description: >-
   Reference implementation. Every credential, integration and workflow
   the lab builds, already wired and published.
+
+# Ships with AO; this role never creates or deletes it.
+ocp4_workload_automation_orchestrator_config_student_project: default
 
 # Asset names. Credentials are hard project-scoped in AO and the API
 # enforces it at workflow-create time, so each lives in `solutions`.
@@ -123,9 +129,14 @@ ocp4_workload_automation_orchestrator_config_workflows:
   - key: disk_utilization
     name: Disk Utilization Remediation
     file: disk-utilization-remediation.json
+    # Webhook-triggered since the fill is real: AAP's "Disk Utilization
+    # Simulate Alert" fills the node and then calls AO, so the same
+    # service account requirement as Ticket Enrichment applies.
+    requires_service_account: true
     description: >-
       Check disk utilization on a target host and branch to cleanup,
       expansion, or notification based on the percentage used.
+      Triggered by webhook after AAP fills the disk, not manually.
     enabled: true
   - key: ticket_enrichment
     name: Ticket Enrichment Demo
@@ -149,27 +160,47 @@ ocp4_workload_automation_orchestrator_config_publish_workflows: true
 # helps while iterating on a binding file.
 ocp4_workload_automation_orchestrator_config_fail_on_invalid_workflow: true
 
-# Service account — closes AgnosticV's REPLACE_ME credential.
-# Consumed by Ticket Enrichment Demo, the one webhook-triggered
-# workflow: AAP calls POST /api/v1/webhooks/openflake-incident, which
-# requires a service account bearer token.
+# Service accounts — these close AgnosticV's REPLACE_ME credentials.
+# A webhook trigger names the accounts allowed to fire it, and AO
+# rejects a trigger whose account sits in a different project than the
+# workflow. So one account per project, not one overall:
+#
+#   solutions  the simulate job templates firing the reference
+#              workflows, on paths `openflake-incident` and
+#              `disk-utilization`
+#   default    the same job templates firing the workflow the student
+#              builds in module 03, on `student-*` paths
+#
+# `key` is what vars/bindings_*.yml cites to authorize a trigger;
+# `aap_credential` is the AAP credential whose client_id/client_secret
+# fields get the minted pair. Both AAP credentials are attached to
+# every simulate job template — they are separate credential types, so
+# the controller allows it and their injected env vars do not collide.
 ocp4_workload_automation_orchestrator_config_manage_service_account: true
 
-ocp4_workload_automation_orchestrator_config_service_account_name: aap-webhooks
-ocp4_workload_automation_orchestrator_config_service_account_description: >-
-  Lets Ansible Automation Platform trigger Automation Orchestrator
-  workflows over POST /api/v1/webhooks/{path}. Created by
-  ocp4_workload_automation_orchestrator_config.
+ocp4_workload_automation_orchestrator_config_service_accounts:
+  - key: solutions_webhooks
+    name: aap-solutions-webhooks
+    project: "{{ ocp4_workload_automation_orchestrator_config_solutions_project }}"
+    aap_credential: Automation Orchestrator (Solutions)
+    description: >-
+      Lets Ansible Automation Platform fire the reference workflows in
+      the solutions project over POST /api/v1/webhooks/{path}. Created
+      by ocp4_workload_automation_orchestrator_config.
+  - key: student_webhooks
+    name: aap-student-webhooks
+    project: "{{ ocp4_workload_automation_orchestrator_config_student_project }}"
+    aap_credential: Automation Orchestrator (Student)
+    description: >-
+      Lets Ansible Automation Platform fire the workflows the student
+      builds in the default project over POST
+      /api/v1/webhooks/{path}. Created by
+      ocp4_workload_automation_orchestrator_config.
 
-# A service account reaches only its own project's workflows
-# (measured: its token lists zero projects and 403s on /integrations).
-# Point at `default` if AAP ever needs a student-built workflow.
-ocp4_workload_automation_orchestrator_config_service_account_project: >-
-  {{ ocp4_workload_automation_orchestrator_config_solutions_project }}
-
-# Field names come from AgnosticV's custom `AO webhooks` credential
-# type, not from any API.
-ocp4_workload_automation_orchestrator_config_aap_ao_credential_name: Automation Orchestrator
+# Field names come from AgnosticV's custom `AO webhooks (solutions)`
+# and `AO webhooks (student)` credential types, not from any API. Both
+# types use the same field names and differ only in the environment
+# variables they inject.
 ocp4_workload_automation_orchestrator_config_aap_ao_client_id_field: client_id
 ocp4_workload_automation_orchestrator_config_aap_ao_client_secret_field: client_secret
 

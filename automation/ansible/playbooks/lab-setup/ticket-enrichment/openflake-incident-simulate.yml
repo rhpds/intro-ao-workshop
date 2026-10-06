@@ -148,10 +148,30 @@
     openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default('admin', true) }}"
     openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') }}"
 
+    # Whose workflow to fire — the leading word of the `webhook_target`
+    # survey choice, `student` or `solutions`. Defaults to `student`
+    # because building that workflow is the assignment; solutions is
+    # the fallback for someone who falls behind.
+    #
+    # It selects the credential AND the path together, because the two
+    # have to agree: AO only honours a trigger authorized for an
+    # account in the same project as the workflow.
+    _target: "{{ (webhook_target | default('student') | string).split(' ')[0] | lower }}"
+
+    # Injected by AgnosticV's two `AO webhooks (*)` credential types,
+    # both attached to this job template. Separate types so the
+    # controller accepts both at once (one type with two credentials
+    # is rejected) and neither overwrites the other's variables.
     ao_base_url: "{{ lookup('env', 'AO_BASE_URL')  }}"
-    ao_sa_client_id: "{{ lookup('env', 'AO_CLIENT_ID') }}"
-    ao_sa_client_secret: "{{ lookup('env', 'AO_CLIENT_SECRET') }}"
-    ao_webhook_path: "openflake-incident"
+    ao_sa_client_id: >-
+      {{ lookup('env', 'AO_SOLUTIONS_CLIENT_ID') if _target == 'solutions'
+         else lookup('env', 'AO_STUDENT_CLIENT_ID') }}
+    ao_sa_client_secret: >-
+      {{ lookup('env', 'AO_SOLUTIONS_CLIENT_SECRET') if _target == 'solutions'
+         else lookup('env', 'AO_STUDENT_CLIENT_SECRET') }}
+    ao_webhook_path: >-
+      {{ 'openflake-incident' if _target == 'solutions'
+         else 'student-openflake-incident' }}
 
     scenarios:
       auto_remediate:
@@ -255,6 +275,30 @@
       ansible.builtin.debug:
         msg: "Created incident tickets: {{ ticket_map }}"
 
+    - name: Fail on an unrecognised webhook target
+      ansible.builtin.assert:
+        that:
+          - _target in ['student', 'solutions']
+        fail_msg: >-
+          webhook_target resolved to '{{ _target }}'. Pick a survey
+          choice beginning with either "student" or "solutions".
+        quiet: true
+
+    - name: Fail when the credential for this target is not attached
+      # Caught here rather than at the token call, where an empty
+      # client_id comes back as an opaque 401.
+      ansible.builtin.assert:
+        that:
+          - ao_base_url | length > 0
+          - ao_sa_client_id | length > 0
+          - ao_sa_client_secret | length > 0
+        fail_msg: >-
+          No AO credentials in the environment for the '{{ _target }}'
+          target. Attach the "Automation Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential to this job template.
+        quiet: true
+
     - name: Get AO service account token
       ansible.builtin.uri:
         url: "{{ ao_base_url }}/api/v1/auth/token"
@@ -265,7 +309,10 @@
           client_id: "{{ ao_sa_client_id }}"
           client_secret: "{{ ao_sa_client_secret }}"
         status_code: [200, 201]
+        validate_certs: false
       register: ao_token_resp
+      # The request body carries the client secret.
+      no_log: true
 
     - name: Fire AO webhook for each incident
       ansible.builtin.uri:
@@ -277,10 +324,31 @@
         body_format: json
         body:
           incident_number: "{{ ticket_map[item] }}"
-        status_code: [200, 201, 202]
+        # 404 and 403 are accepted so the task below can explain them;
+        # both are ordinary states mid-lab and AO's raw body for
+        # either says nothing useful.
+        status_code: [200, 201, 202, 403, 404]
         validate_certs: false
       loop: "{{ active_scenarios }}"
       register: webhook_results
+
+    - name: Explain a webhook that was refused
+      when: webhook_results.results | selectattr('status', 'in', [403, 404]) | list | length > 0
+      ansible.builtin.fail:
+        msg: >-
+          Automation Orchestrator refused
+          /api/v1/webhooks/{{ ao_webhook_path }}
+          ({{ webhook_results.results | map(attribute='status') | unique | join(', ') }}).
+          404 means nothing is listening on that path —
+          {{ "build the workflow in your default project, give its
+             trigger exactly this path, and publish it"
+             if _target == 'student'
+             else "the solutions workflow is missing or unpublished" }}.
+          403 means the '{{ _target }}' service account is not among
+          the trigger's authorized accounts; AO only honours one in
+          the same project as the workflow. The incident tickets
+          ({{ ticket_map.values() | join(', ') }}) were created either
+          way.
 
     - name: Summary
       ansible.builtin.debug:

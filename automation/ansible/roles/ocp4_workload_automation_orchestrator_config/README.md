@@ -374,35 +374,57 @@ Two API facts shape how:
 is `POST /api/v1/auth/token`, **form-encoded**, `grant_type=client_credentials`.
 
 A service account is scoped to one project and is sharply limited: a token for an
-account scoped to project X lists zero projects and 403s on `/integrations`. The
-account is created in `solutions`; point
-`..._service_account_project` at `default` if the lab ever needs AAP to trigger a
-workflow the student built.
+account scoped to project X lists zero projects and 403s on `/integrations`.
+AO also requires the account authorizing a webhook trigger to sit in the **same
+project as the workflow** — anything else is a 422 at import.
 
-Its consumer is **Ticket Enrichment Demo**, the one workflow here with a
-`webhook_trigger` rather than a manual trigger. AAP calls
-`POST /api/v1/webhooks/openflake-incident`, which the API documents as
+That is why there are two accounts rather than one, listed in
+`..._service_accounts`:
+
+| `key` | Account | Project | AAP credential |
+| --- | --- | --- | --- |
+| `solutions_webhooks` | `aap-solutions-webhooks` | `solutions` | `Automation Orchestrator (Solutions)` |
+| `student_webhooks` | `aap-student-webhooks` | `default` | `Automation Orchestrator (Student)` |
+
+`key` is what `vars/bindings_*.yml` cites to authorize a trigger. Both binding
+files name `solutions_webhooks`, because both reference workflows live in
+`solutions`; `student_webhooks` exists for the trigger the student builds by
+hand in module 03, on the `student-` prefixed paths. It is the one thing this
+role puts in `default`, and only because minting a service account is not what
+those modules teach.
+
+The consumers are **Ticket Enrichment Demo** and **Disk Utilization
+Remediation**, the two workflows here with a `webhook_trigger` rather than a
+manual one. AAP calls `POST /api/v1/webhooks/openflake-incident` and
+`POST /api/v1/webhooks/disk-utilization`, which the API documents as
 "Requires a service account Bearer token".
 
-That makes the service account a **prerequisite of workflow import**, not a
-step after it: the trigger has to carry the account's id, and AO validates the
+That makes the service accounts a **prerequisite of workflow import**, not a
+step after it: the trigger has to carry an account id, and AO validates the
 reference when the workflow is posted. So `setup_service_account.yml` runs
 *before* `setup_workflows.yml` — reversing those two is the
 `'authorized_service_account_ids' is a required property` failure.
 
-`..._manage_service_account: false` therefore **skips** Ticket Enrichment
-rather than importing it unauthorized; AO will not accept a webhook trigger
-with no authorized account, and an empty list fails too, so there is no
-third option. The other two workflows are unaffected.
+`..._manage_service_account: false` therefore **skips** both of those workflows
+rather than importing them unauthorized; AO will not accept a webhook trigger
+with no authorized account, and an empty list fails too, so there is no third
+option. RHEL CVE Remediation is unaffected.
 
-For the same reason, pointing `..._service_account_project` at `default` while
-the workflows live in `solutions` breaks the import with a 422 — AO requires
-the account and the workflow to share a project.
+Teardown deletes both accounts **by name**. The student one lives in `default`,
+which this role never deletes, so nothing else would ever clean it up.
 
 The AAP-side field names (`client_id`, `client_secret`) come from the AgnosticV
-credential-type definition, not from any API, and are the one thing in this role
+credential-type definitions, not from any API, and are the one thing in this role
 not verified against a live system — no AAP instance was available. They are
 variables; correct them in `defaults/main.yml` if the PATCH 400s.
+
+The two AAP credentials are deliberately **separate credential types**
+(`AO webhooks (solutions)` and `AO webhooks (student)`), injecting
+`AO_SOLUTIONS_*` and `AO_STUDENT_*` respectively. The controller rejects two
+credentials of the same type on one job template, and even if it did not, two
+credentials injecting the same variable names would silently overwrite each
+other. Separate types let the simulate job templates carry both and let a
+survey choice pick between them at launch.
 
 ## Testing
 

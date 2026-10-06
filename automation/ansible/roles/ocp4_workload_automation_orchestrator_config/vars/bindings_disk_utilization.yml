@@ -3,7 +3,8 @@
 #
 # Node IDs are opaque `activity_<uuid>` strings, so each entry carries
 # its display name. All nine nodes are aap_job_template — no agentic
-# nodes, so no LLM or MCP wiring.
+# nodes, so no LLM or MCP wiring. The trigger is a webhook, wired at
+# the bottom of this file.
 #
 # The raw export ships `credential_id: YOUR_AAP_CREDENTIAL_ID` on
 # every node. That placeholder is stripped before import (a non-UUID
@@ -83,3 +84,23 @@ ao_workflow_bindings:
       credential: aap
       integration: aap
       job_template: Notify Chatroom
+
+  # --- Triggers -----------------------------------------------------
+  #
+  # "Disk Alert Trigger", webhook path `disk-utilization`. Fired by the
+  # AAP job template "Disk Utilization Simulate Alert" once it has
+  # actually filled the node, so the check node below measures a real
+  # df rather than a percentage handed to it.
+  #
+  # AO requires authorized_service_account_ids on any trigger that
+  # exposes an HTTP endpoint and rejects the workflow without one — an
+  # empty list fails too. The account must belong to the same project
+  # as the workflow, so this names the `solutions` account and not the
+  # student one: `student_webhooks` here would be a hard 422 at
+  # import. The student's own trigger, built by hand in module 03, is
+  # the one that cites the student account.
+  triggers:
+    activity_c3bbccdb_3cd8_62e2_3905_6a09e7131220:
+      type: webhook_trigger
+      service_accounts:
+        - solutions_webhooks
