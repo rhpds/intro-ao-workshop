@@ -37,10 +37,17 @@
     # falls back on. `foo: "{{ foo | default(x) }}"` is a recursive loop
     # whenever the extra var is absent, which is every default launch.
     _disk_mount: "{{ disk_mount | default('/') }}"
-    # /var/log because that is where remediate_disk_cleanup.yml looks.
-    # Ballast dropped anywhere else would raise the percentage and then
-    # survive its own remediation.
-    _ballast_path: "{{ ballast_path | default('/var/log/app-debug.log') }}"
+    # Named and dated like a rotated syslog nothing ever cleaned up,
+    # because that is precisely what remediate_disk_cleanup.yml
+    # deletes: files under /var/log matching messages-*, secure-*,
+    # wtmp-*, btmp-* or *.gz whose mtime is older than
+    # log_retention_days (90 by default). The directory alone is not
+    # enough — ballast named app-debug.log, or dated today, survives
+    # its own remediation and the warning branch reclaims nothing.
+    _ballast_age_days: "{{ ballast_age_days | default(200) | int }}"
+    _ballast_path: >-
+      {{ ballast_path | default('/var/log/messages-'
+         ~ ('%Y%m%d' | strftime(now().timestamp() - (_ballast_age_days | int) * 86400))) }}
     # Floor on what is left afterwards. 97% of a 25 GiB root leaves
     # ~870 MB, which is tight but workable; below this the node starts
     # failing at things unrelated to the lab. The floor is what makes
@@ -165,6 +172,19 @@
       args:
         executable: /bin/bash
       changed_when: true
+      when: _target_pct | int > 0
+
+    - name: Backdate the ballast past the log retention window
+      # `find` in remediate_disk_cleanup.yml matches on mtime, so a
+      # file created a second ago is never old enough to be collected
+      # however it is named. Without this the warning branch runs to
+      # completion and frees nothing.
+      ansible.builtin.file:
+        path: "{{ _ballast_path }}"
+        state: file
+        modification_time: >-
+          {{ '%Y%m%d%H%M.%S' | strftime(now().timestamp()
+             - (_ballast_age_days | int) * 86400) }}
       when: _target_pct | int > 0
 
     - name: Measure the filesystem after filling
