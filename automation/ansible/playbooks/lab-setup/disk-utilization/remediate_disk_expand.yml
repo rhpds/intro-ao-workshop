@@ -11,6 +11,26 @@
         disk_tier: "{{ disk_tier | default('critical') }}"
         disk_expand_gb: "{{ disk_expand_gb | default(5) | int }}"
 
+    # Before anything grows. Expanding lowers the percentage without
+    # freeing a byte, so a df taken afterwards is never the number that
+    # triggered the alert — reporting it as "was X% full" describes a
+    # disk that would not have reached the critical tier at all.
+    - name: Capture disk usage before expanding
+      ansible.builtin.command:
+        cmd: df -P {{ disk_mount }}
+      register: _df_before
+      changed_when: false
+      check_mode: false
+
+    - name: Parse disk usage before expanding
+      ansible.builtin.set_fact:
+        disk_use_percent_before: >-
+          {{
+            _df_before.stdout_lines[1].split()[4] | regex_replace('%', '')
+            if (_df_before.stdout_lines | length) > 1
+            else disk_use_percent
+          }}
+
     - name: Discover block device for mount
       ansible.builtin.command:
         cmd: findmnt -n -o SOURCE {{ disk_mount }}
@@ -158,6 +178,14 @@
       ansible.builtin.set_fact:
         remediation_action: Expand Disk Volume
         dry_run: "{{ ansible_check_mode }}"
+        # The same bytes over a bigger volume. This is the whole point
+        # of the branch and the card should show both ends of it.
+        disk_use_percent_after: >-
+          {{
+            _df_after.stdout_lines[1] | regex_findall('([0-9]+)%') | first | default('unknown')
+            if (_df_after.stdout_lines | length) > 1
+            else 'unknown'
+          }}
 
     - name: Publish notify artifacts for downstream steps
       ansible.builtin.include_tasks: tasks/publish_notify_artifacts.yml

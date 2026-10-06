@@ -163,6 +163,11 @@
       "name": "Remediate - Expand Disk",
       "parameters": {
         "diff_mode": false,
+        "extra_vars": {
+          "disk_tier": "${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_tier}",
+          "disk_mount": "${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_mount}",
+          "disk_use_percent": "${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_use_percent}"
+        },
         "credential_id": "YOUR_AAP_CREDENTIAL_ID",
         "job_template_name": "Linux - Remediate - Disk Expand",
         "organization_name": "Default"

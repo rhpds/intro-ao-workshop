@@ -4,7 +4,7 @@
     mattermost_attachments:
       - text: >-
           [check mode] {{ notify_host }}: would grow the root volume backing {{ disk_mount }}
-          (currently {{ disk_use_percent }}% full).
+          (currently {{ disk_use_percent_before }}% full).
         color: '#9b59b6'
         title: Critical — Disk Expanded (Check Mode)
         fields:
@@ -27,7 +27,8 @@
     mattermost_attachments:
       - text: >-
           {{ notify_host }}: grew the root volume backing {{ disk_mount }}
-          (was {{ disk_use_percent }}% full).
+          (usage {{ disk_use_percent_before }}% → {{ disk_use_percent_after }}%,
+          same data over a larger volume — nothing was deleted).
         color: '#9b59b6'
         title: Critical — Disk Expanded
         fields:
