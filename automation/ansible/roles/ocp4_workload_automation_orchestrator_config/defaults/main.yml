@@ -69,9 +69,15 @@ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_host: >-
 ocp4_workload_automation_orchestrator_config_openflake_mcp_token: >-
   {{ lookup('agnosticd.core.agnosticd_user_data', 'openflake_mcp_bearer_token') }}
 
-# Measured: an MCP initialize POST returns 200 with and without a
-# bearer, so an AO credential here would send a discarded header.
-ocp4_workload_automation_orchestrator_config_lightspeed_mcp_authenticated: false
+# Lightspeed MCP authenticates with the console.redhat.com service
+# account secret it was deployed with. Left empty, the token is read
+# from the Secret the sibling ocp4_workload_lightspeed_mcp_server role
+# creates, so the catalog only has to supply the value once. Set this
+# to override.
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_token: ""
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_secret_namespace: lightspeed-mcp
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_secret_name: lightspeed-mcp-credentials
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_secret_key: LIGHTSPEED_CLIENT_SECRET
 
 # `solutions` is the reference implementation. `default` is the
 # student workspace and is deliberately NOT seeded — modules 02 and 03
@@ -87,6 +93,7 @@ ocp4_workload_automation_orchestrator_config_llm_credential_name: LLM Provider
 ocp4_workload_automation_orchestrator_config_aap_credential_name: Ansible Automation Platform
 ocp4_workload_automation_orchestrator_config_aap_mcp_credential_name: AAP MCP Bearer Token
 ocp4_workload_automation_orchestrator_config_openflake_mcp_credential_name: OpenFlake MCP Bearer Token
+ocp4_workload_automation_orchestrator_config_lightspeed_mcp_credential_name: Lightspeed MCP Bearer Token
 
 ocp4_workload_automation_orchestrator_config_llm_integration_name: LLM
 ocp4_workload_automation_orchestrator_config_aap_integration_name: AAP
