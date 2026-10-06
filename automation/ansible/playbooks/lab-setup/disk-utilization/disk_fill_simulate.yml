@@ -33,15 +33,18 @@
   gather_facts: false
 
   vars:
-    disk_mount: "{{ disk_mount | default('/') }}"
+    # Underscore-prefixed so each name differs from the extra var it
+    # falls back on. `foo: "{{ foo | default(x) }}"` is a recursive loop
+    # whenever the extra var is absent, which is every default launch.
+    _disk_mount: "{{ disk_mount | default('/') }}"
     # /var/log because that is where remediate_disk_cleanup.yml looks.
     # Ballast dropped anywhere else would raise the percentage and then
     # survive its own remediation.
-    ballast_path: "{{ ballast_path | default('/var/log/app-debug.log') }}"
+    _ballast_path: "{{ ballast_path | default('/var/log/app-debug.log') }}"
     # Floor on what is left afterwards. 97% of a 19.8 GiB root leaves
     # ~600 MB, which is tight but workable; below this the node starts
     # failing at things unrelated to the lab.
-    min_free_mb: "{{ min_free_mb | default(500) | int }}"
+    _min_free_mb: "{{ min_free_mb | default(500) | int }}"
 
   tasks:
     - name: Resolve the requested fill percentage
@@ -70,21 +73,21 @@
           - -o
           - TARGET
           - --target
-          - "{{ ballast_path | dirname }}"
+          - "{{ _ballast_path | dirname }}"
       register: _ballast_fs
       changed_when: false
 
     - name: Fail when the ballast would land on a different filesystem
-      # The check step measures disk_mount. Ballast on a separate
+      # The check step measures _disk_mount. Ballast on a separate
       # filesystem would never move that number, and the run would look
       # like the fill silently did nothing.
       ansible.builtin.assert:
         that:
-          - (_ballast_fs.stdout | trim) == (disk_mount | trim)
+          - (_ballast_fs.stdout | trim) == (_disk_mount | trim)
         fail_msg: >-
-          {{ ballast_path | dirname }} is on {{ _ballast_fs.stdout | trim }},
-          not {{ disk_mount }}. Filling it would not change usage on
-          {{ disk_mount }}, which is what the workflow measures.
+          {{ _ballast_path | dirname }} is on {{ _ballast_fs.stdout | trim }},
+          not {{ _disk_mount }}. Filling it would not change usage on
+          {{ _disk_mount }}, which is what the workflow measures.
         quiet: true
 
     # Unconditional, and before measuring: every run starts from the
@@ -94,13 +97,13 @@
     # the volume lowers the percentage without freeing anything.
     - name: Remove ballast left by a previous run
       ansible.builtin.file:
-        path: "{{ ballast_path }}"
+        path: "{{ _ballast_path }}"
         state: absent
       register: _ballast_cleared
 
     - name: Measure the filesystem
       ansible.builtin.command:
-        cmd: df -PB1 {{ disk_mount }}
+        cmd: df -PB1 {{ _disk_mount }}
       register: _df_before
       changed_when: false
 
@@ -114,9 +117,9 @@
     - name: Report the reset
       ansible.builtin.debug:
         msg: >-
-          Reset: {{ ballast_path }}
+          Reset: {{ _ballast_path }}
           {{ 'removed' if _ballast_cleared is changed else 'was not present' }}.
-          {{ disk_mount }} is {{ _pct_before }}% full. No webhook fired.
+          {{ _disk_mount }} is {{ _pct_before }}% full. No webhook fired.
       when: _target_pct | int == 0
 
     - name: Compute the ballast size
@@ -132,7 +135,7 @@
         that:
           - _ballast_bytes | int > 0
         fail_msg: >-
-          {{ disk_mount }} is already {{ _pct_before }}% full, so it cannot be
+          {{ _disk_mount }} is already {{ _pct_before }}% full, so it cannot be
           filled down to {{ _target_pct }}%. Run the reset choice first, or
           pick a higher percentage.
         quiet: true
@@ -141,11 +144,11 @@
     - name: Fail when the fill would leave too little free space
       ansible.builtin.assert:
         that:
-          - ((_fs_avail | int) - (_ballast_bytes | int)) >= ((min_free_mb | int) * 1048576)
+          - ((_fs_avail | int) - (_ballast_bytes | int)) >= ((_min_free_mb | int) * 1048576)
         fail_msg: >-
-          Filling {{ disk_mount }} to {{ _target_pct }}% would leave
+          Filling {{ _disk_mount }} to {{ _target_pct }}% would leave
           {{ (((_fs_avail | int) - (_ballast_bytes | int)) / 1048576) | round(1) }} MB
-          free, under the {{ min_free_mb }} MB floor.
+          free, under the {{ _min_free_mb }} MB floor.
         quiet: true
       when: _target_pct | int > 0
 
@@ -155,8 +158,8 @@
       # real write time.
       ansible.builtin.shell: |
         set -o pipefail
-        fallocate -l {{ _ballast_bytes | int }} {{ ballast_path | quote }} 2>/dev/null || \
-          dd if=/dev/zero of={{ ballast_path | quote }} bs=1M \
+        fallocate -l {{ _ballast_bytes | int }} {{ _ballast_path | quote }} 2>/dev/null || \
+          dd if=/dev/zero of={{ _ballast_path | quote }} bs=1M \
              count={{ ((_ballast_bytes | int) / 1048576) | round | int }} 2>/dev/null
       args:
         executable: /bin/bash
@@ -165,7 +168,7 @@
 
     - name: Measure the filesystem after filling
       ansible.builtin.command:
-        cmd: df -PB1 {{ disk_mount }}
+        cmd: df -PB1 {{ _disk_mount }}
       register: _df_after
       changed_when: false
       when: _target_pct | int > 0
@@ -179,7 +182,7 @@
       ansible.builtin.debug:
         msg: >-
           Allocated {{ ((_ballast_bytes | int) / 1073741824) | round(2) }} GiB at
-          {{ ballast_path }} — {{ disk_mount }} went {{ _pct_before }}% →
+          {{ _ballast_path }} — {{ _disk_mount }} went {{ _pct_before }}% →
           {{ _pct_after }}% (target {{ _target_pct }}%).
       when: _target_pct | int > 0
 
@@ -189,7 +192,7 @@
       ansible.builtin.set_fact:
         sim_fire_webhook: "{{ _target_pct | int > 0 }}"
         sim_host: "{{ inventory_hostname }}"
-        sim_mount: "{{ disk_mount }}"
+        sim_mount: "{{ _disk_mount }}"
         sim_target_pct: "{{ _target_pct }}"
         sim_pct_before: "{{ _pct_before }}"
         sim_pct_after: "{{ _pct_after | default(_pct_before) }}"
