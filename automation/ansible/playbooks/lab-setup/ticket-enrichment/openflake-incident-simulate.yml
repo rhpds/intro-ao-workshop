@@ -156,7 +156,11 @@
     # It selects the credential AND the path together, because the two
     # have to agree: AO only honours a trigger authorized for an
     # account in the same project as the workflow.
-    _target: "{{ (webhook_target | default('student') | string).split(' ')[0] | lower }}"
+    # `default(..., true)` and not plain `default`: a survey that is
+    # disabled, or saved without this question, sends the variable
+    # through as an empty string rather than leaving it undefined, and
+    # plain `default` only catches the undefined case.
+    _target: "{{ (webhook_target | default('student', true) | string).split(' ')[0] | lower }}"
 
     # Injected by AgnosticV's two `AO webhooks (*)` credential types,
     # both attached to this job template. Separate types so the
