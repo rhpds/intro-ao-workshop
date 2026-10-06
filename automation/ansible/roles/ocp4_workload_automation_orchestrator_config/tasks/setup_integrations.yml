@@ -8,9 +8,12 @@
 #
 # Which scope each integration gets is a lab decision, not an API one:
 #
-#   project  LLM, AAP MCP — these carry the lab's own LiteLLM virtual
-#            key and a minted AAP token, so they stay inside
-#            `solutions` rather than being offered to every project.
+#   project  Solutions LLM, Solutions AAP MCP — these carry the lab's
+#            own LiteLLM virtual key and a minted AAP token, so they
+#            stay inside `solutions` rather than being offered to every
+#            project. Named for it too: the UI's integrations list is
+#            flat, so the name is the only thing telling the student
+#            these two are not theirs to use.
 #   global   AAP, OpenFlake MCP, Lightspeed MCP — shared infrastructure
 #            the student is expected to reach from `default` too, since
 #            modules 02 and 03 rebuild against the same endpoints.

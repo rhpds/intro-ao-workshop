@@ -8,21 +8,29 @@ workflows. Install and configuration are kept separate on purpose.
 
 ## What it builds
 
-Everything lands in a single project, `solutions` — the reference implementation,
-so the lab is runnable the moment it finishes provisioning.
+Every workflow lands in a single project, `solutions` — the reference
+implementation, so the lab is runnable the moment it finishes provisioning.
+Integrations split: the two carrying lab-specific secrets stay in `solutions`,
+the three fronting shared infrastructure are global so the student can reach
+them from `default` when rebuilding by hand in modules 02 and 03.
 
-| Asset | Type | Credential |
-|---|---|---|
-| `solutions` | project | — |
-| LLM | integration | LLM Provider, from LiteLLM user_data |
-| AAP | integration | Ansible Automation Platform |
-| AAP MCP | integration | HTTP Bearer Token, **minted at provision time** |
-| OpenFlake MCP | integration | HTTP Bearer Token, from `openflake_mcp_bearer_token` |
-| Lightspeed MCP | integration | HTTP Bearer Token, **read off the cluster** |
-| RHEL CVE Remediation | workflow | imported, wired, validated, published |
-| Disk Utilization Remediation | workflow | imported, wired, validated, published |
-| Ticket Enrichment Demo | workflow | imported, wired, validated, published |
-| `aap-webhooks` | service account | client_id/secret patched onto AAP |
+| Asset | Type | Scope | Credential |
+|---|---|---|---|
+| `solutions` | project | — | — |
+| Solutions LLM | integration | project | LLM Provider, from LiteLLM user_data |
+| Solutions AAP MCP | integration | project | HTTP Bearer Token, **minted at provision time** |
+| AAP | integration | global | Ansible Automation Platform |
+| OpenFlake MCP | integration | global | HTTP Bearer Token, from `openflake_mcp_bearer_token` |
+| Lightspeed MCP | integration | global | HTTP Bearer Token, **read off the cluster** |
+| RHEL CVE Remediation | workflow | `solutions` | imported, wired, validated, published |
+| Disk Utilization Remediation | workflow | `solutions` | imported, wired, validated, published |
+| Ticket Enrichment Demo | workflow | `solutions` | imported, wired, validated, published |
+| `aap-webhooks` | service account | `solutions` | client_id/secret patched onto AAP |
+
+The two project-scoped integrations are *named* for it as well as scoped for it.
+The UI lists all integrations together with no per-project grouping, so a plain
+"LLM" sitting there in module 02 reads as the one to use — when the exercise is
+to build your own.
 
 Lightspeed MCP's handshake and discovery are open — an `initialize` POST
 returns 200 with no `Authorization` header and 200 with a bogus bearer, and
