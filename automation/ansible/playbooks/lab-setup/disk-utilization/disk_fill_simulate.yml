@@ -298,7 +298,34 @@
         validate_certs: false
       register: ao_token_resp
       no_log: true
+      # Checked by the next task instead, which can report the status
+      # without reprinting the request body.
+      failed_when: false
       when: sim_fire_webhook | bool
+
+    - name: Explain a service account credential Automation Orchestrator rejected
+      # The task above is no_log because its request body carries the
+      # client secret, so an ordinary failure there shows up only as
+      # "the output has been hidden". The response body holds no
+      # secret, so report it here.
+      when:
+        - sim_fire_webhook | bool
+        - ao_token_resp.status | default(0) not in [200, 201]
+      ansible.builtin.fail:
+        msg: >-
+          Automation Orchestrator would not issue a token for the
+          '{{ _target }}' service account — HTTP
+          {{ ao_token_resp.status | default('no response') }} from
+          {{ ao_base_url }}/api/v1/auth/token. Response:
+          {{ ao_token_resp.json | default(ao_token_resp.msg | default('none', true), true) }}.
+          A 401 means the client id or secret on the "Automation
+          Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential does not match a service account in AO — the
+          secret is shown only once, when the account is created, so a
+          re-paste needs a rotate. A connection error means
+          AO_BASE_URL is wrong or AO is not up. The disk on
+          {{ sim_host }} is still filled to {{ sim_pct_after }}%.
 
     - name: Fire the disk utilization webhook
       # The body is context for the notification steps only. The

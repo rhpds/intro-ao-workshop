@@ -318,6 +318,30 @@
       register: ao_token_resp
       # The request body carries the client secret.
       no_log: true
+      # Checked by the next task instead, which can report the status
+      # without reprinting the request body.
+      failed_when: false
+
+    - name: Explain a service account credential Automation Orchestrator rejected
+      # Without this, the no_log above turns every auth failure into
+      # "the output has been hidden". The response body holds no
+      # secret.
+      when: ao_token_resp.status | default(0) not in [200, 201]
+      ansible.builtin.fail:
+        msg: >-
+          Automation Orchestrator would not issue a token for the
+          '{{ _target }}' service account — HTTP
+          {{ ao_token_resp.status | default('no response') }} from
+          {{ ao_base_url }}/api/v1/auth/token. Response:
+          {{ ao_token_resp.json | default(ao_token_resp.msg | default('none', true), true) }}.
+          A 401 means the client id or secret on the "Automation
+          Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential does not match a service account in AO — the
+          secret is shown only once, when the account is created, so a
+          re-paste needs a rotate. The incident tickets
+          ({{ ticket_map.values() | join(', ') }}) were created either
+          way.
 
     - name: Fire AO webhook for each incident
       ansible.builtin.uri:
