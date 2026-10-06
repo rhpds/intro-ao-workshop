@@ -88,6 +88,12 @@
     status_code: [200]
     validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
   register: r_int_validate
+  # Never fatal, at either layer. The result of this call is advisory
+  # — see the warning below — so the call itself must not be the thing
+  # that fails a provision. Without this, a transient 5xx, or an AAP
+  # controller slow enough to pass uri's timeout while AO probes it,
+  # would abort a run over a status field nothing downstream reads.
+  failed_when: false
 
 - name: "Warn on a failed validation: {{ _int_name }}"
   # A failed validation is HTTP *200* with success:false — a pointed
@@ -100,17 +106,26 @@
   # reporting a failed validation while the MCP protocol itself works,
   # so failing the provision here would break runs that are fine.
   # qa-automation/healthcheck.yml is where runnability is asserted.
-  when: not (r_int_validate.json.success | default(false) | bool)
+  # Two distinct failures, one warning: AO said the integration is
+  # broken (200 + success:false), or the validate call itself did not
+  # land (anything else, now that failed_when is off).
+  when: >-
+    r_int_validate.status | default(0) != 200
+    or not (r_int_validate.json.success | default(false) | bool)
   ansible.builtin.debug:
     msg: |
-      WARNING: {{ _int_name }} failed AO's validation check.
+      WARNING: {{ _int_name }} did not pass AO's validation check.
 
+        HTTP:       {{ r_int_validate.status | default('(no response)') }}
         error_type: {{ r_int_validate.json.error_type | default('(none)') }}
-        error:      {{ r_int_validate.json.error | default('(none)') }}
+        error:      {{ r_int_validate.json.error
+                       | default(r_int_validate.msg | default('(none)')) }}
 
       The integration still exists and is still wired into the
-      workflows, but it shows as 'error' in the AO UI and its tools or
-      models may not be callable at run time.
+      workflows. If AO reported the error, it shows as 'error' in the
+      AO UI and its tools or models may not be callable at run time; if
+      the call itself failed, the status is simply still 'unknown' and
+      nothing else is affected.
 
 - name: "Refresh integration: {{ _int_name }}"
   # Mandatory for the two types that enumerate a resource: before a
