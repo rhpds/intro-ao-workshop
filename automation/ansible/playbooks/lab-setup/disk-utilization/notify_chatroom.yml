@@ -13,6 +13,13 @@
         remediation_action: "{{ remediation_action | default('unknown') | string }}"
         dnf_cache_removed: "{{ dnf_cache_removed | default('unknown') | string }}"
         log_archives_removed: "{{ log_archives_removed | default('unknown') | string }}"
+        # Needed by tasks/notify/warn.yml. Defaulted here as well as
+        # passed by the workflow, because an undefined variable in a
+        # tier template drops the whole include into the rescue below
+        # and posts "Unsupported Disk Tier" over a correctly routed run.
+        large_logs_removed: "{{ large_logs_removed | default('unknown') | string }}"
+        large_logs_freed_mb: "{{ large_logs_freed_mb | default('unknown') | string }}"
+        large_log_threshold_mb: "{{ large_log_threshold_mb | default('100') | string }}"
         disk_use_percent_before: "{{ disk_use_percent_before | default(disk_use_percent | default('unknown')) | string }}"
         disk_use_percent_after: "{{ disk_use_percent_after | default('unknown') | string }}"
         total_reclaimed_mb: "{{ total_reclaimed_mb | default('unknown') | string }}"
@@ -32,10 +39,15 @@
         - name: Include unsupported notification template
           ansible.builtin.include_tasks: tasks/notify/unsupported.yml
         - name: Show notify template resolution
+          # The reason matters as much as the fallback: this rescue
+          # catches a missing tier file and an undefined variable
+          # *inside* an existing one alike, and the two look identical
+          # on the chatroom card.
           ansible.builtin.debug:
             msg: >-
-              Could not load tasks/notify/{{ disk_tier }}.yml
+              Could not render tasks/notify/{{ disk_tier }}.yml
               (disk_tier={{ disk_tier | quote }}) — using unsupported.
+              Reason: {{ ansible_failed_result.msg | default('unknown') }}
 
     - name: Send notification message via Mattermost
       community.general.mattermost:
