@@ -115,7 +115,7 @@ Enrichment agents are pinned. Disk Utilization has no agentic nodes.
 python3 tests/test_ao_workflow.py
 ```
 
-43 tests, no network. They run the real exported JSON through the real binding
+44 tests, no network. They run the real exported JSON through the real binding
 files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
 expression handling, and each failure mode. Requires PyYAML.
 
@@ -172,6 +172,42 @@ from the exports, and that a reader would otherwise get wrong:
   takes `api_key` *only*; `Ansible Automation Platform` takes
   `username`+`password` **or** `oauth_token`, never both. `base_url`/`host` and
   `verify_ssl` are integration configuration, not credential inputs.
+- **`tool_selections` holds tool *ids*, not tool names.** Both are strings and
+  the request model is only `array(string)`, so AO accepts names without a
+  murmur: the workflow imports `201`, reads back `has_validation_issues: false`,
+  and publishes. The damage shows only in the UI, which resolves the list
+  against live tool ids and drops what does not match —
+
+  ```js
+  hQ = integration => integration.discovered_tools.map(gQ)   // gQ = tool => tool.id
+  valid = toolIds.filter(id => new Set(integrations.flatMap(hQ)).has(id))
+  ```
+
+  then reports *"N previously selected tools are no longer available and have
+  been removed."* On a provisioned lab this cost RHEL CVE Remediation all 12 of
+  its tools and Ticket Enrichment's two agents 2 and 1 — every selection, since
+  a name never matches a UUID. **Neither validation nor the publish gate catches
+  this**, so the only defence is sending ids and failing loudly when one cannot
+  be resolved.
+- **`scope` is `global` | `project`** (anything else: *"Input should be 'global'
+  or 'project'"*). It is settable on create and on PATCH, and defaults to
+  `project` when omitted. `project_id` is not accepted on create and
+  `project_ids` is read-only, so a project-scoped integration is attached with
+  a separate `POST /integrations/{id}/projects/{project_id}`.
+- **A global integration cannot be associated with a project** — that POST is a
+  422, and its project listing stays empty. Association is therefore
+  project-scope-only, which is why `ao_create_integration.yml` guards it.
+- **Accessibility is scope-aware, not association-based.** This is the part
+  worth knowing, because the two findings above suggest the opposite: a global
+  integration has no project associations, yet a workflow in `solutions` that
+  cites it still imports. Measured by replaying the live RHEL CVE definition —
+  7 `aap_job_template` nodes pointing at a global, unassociated AAP integration
+  — which posted `201` with `has_validation_issues: false`. So "not accessible
+  in this project" applies to *project*-scoped integrations attached elsewhere,
+  not to global ones.
+- **`GET /integrations/{id}/tools` is MCP-only.** For `ansible_automation_platform`
+  and `llm_provider` it is a 422 *"Integration Type Mismatch"*, not an empty
+  list — the same type-guard shape as `/refresh`.
 - **`integration_connections` entries need `credential_id` as well as
   `integration_id`.** A bare `{integration_id}` fails validation with
   *"'credential_id' is a required property"* at
@@ -365,7 +401,7 @@ variables; correct them in `defaults/main.yml` if the PATCH 400s.
 Offline, no infrastructure — the wiring transform, against the real exports:
 
 ```bash
-python3 tests/test_ao_workflow.py     # 43 tests
+python3 tests/test_ao_workflow.py     # 44 tests
 ```
 
 Against a live lab, after provisioning:

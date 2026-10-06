@@ -141,26 +141,42 @@ def ao_required_job_templates(definition, bindings):
 
 
 def _tool_selection(integration_id, tool_name, tool_id):
-    """Build one `tool_selections` entry.
+    """Build one `tool_selections` entry: the tool's UUID.
 
-    AO wants a bare tool *name* string here, not an object. Confirmed
-    against a live instance: every dict shape tried
-    ({integration_id, tool_name}, {integration_id, tool_id},
-    {name}, {id}) is rejected with a 500, while ["hosts_list"] is
-    accepted and validates.
+    The entry is a bare string, not an object — every dict shape tried
+    against a live instance ({integration_id, tool_name},
+    {integration_id, tool_id}, {name}, {id}) is rejected with a 500.
+    But the string is the tool's *id*, not its name.
 
-    The integration is therefore identified only by
-    `integration_connections`, and the tool by name within it — which
-    means two integrations exposing the same tool name would be
-    ambiguous. Not a case this lab hits (the AAP and Lightspeed MCP
-    surfaces are disjoint), but worth knowing.
+    Both are strings, so AO's schema accepts either: the request model
+    is `tool_selections: array(string).optional()`, with no referential
+    check. A workflow naming tools by name therefore imports 201 and
+    reads back has_validation_issues: false — and is still broken.
+    The breakage only shows in the UI, which resolves the list against
+    the live tool inventory and silently drops whatever does not match:
 
-    integration_id and tool_id are still taken as arguments because the
-    caller has already resolved them and uses them to prove the tool
-    actually exists on that integration before selecting it.
+        hQ = integration => integration.discovered_tools.map(gQ)
+        gQ = tool => tool.id
+        valid = toolIds.filter(id => new Set(integrations.flatMap(hQ)).has(id))
+
+    and then reports "N previously selected tools are no longer
+    available and have been removed." Measured on a provisioned lab:
+    RHEL CVE Remediation lost all 12, Ticket Enrichment's two agents
+    lost 2 and 1 — every selection, because a name never matches a UUID.
+
+    So `validation_result` cannot be trusted to catch this, and neither
+    can the publish gate. The only defence is sending the right value.
     """
-    del integration_id, tool_id  # identified by name; see docstring
-    return tool_name
+    if not tool_id:
+        raise AOWiringError(
+            "tool '%s' on integration '%s' resolved to no id. "
+            "tool_selections carries tool UUIDs, and AO accepts a bad one "
+            "silently — the workflow imports and publishes, then the UI "
+            "drops the tool as 'no longer available'. Refresh the "
+            "integration so its /tools listing is populated."
+            % (tool_name, integration_id)
+        )
+    return tool_id
 
 
 def _wire_agentic(node, binding, resolved):
@@ -235,7 +251,12 @@ def _wire_agentic(node, binding, resolved):
         integration_id = _lookup(resolved, "integrations", integration_key, node_id)
         available = (resolved.get("tools") or {}).get(integration_key, {})
         for tool_name in tool_names:
-            if available and tool_name not in available:
+            # Not `if available and ...`: an integration that exposed no
+            # tools used to skip this check entirely and then select the
+            # tool anyway, with a null id. AO takes that without
+            # complaint and the UI drops it later, so an empty listing
+            # has to fail here instead.
+            if tool_name not in available:
                 raise AOWiringError(
                     "agentic node '%s' wants tool '%s' from integration '%s', "
                     "which exposes: %s"

@@ -223,23 +223,35 @@ class TestWireCVE(unittest.TestCase):
         self.assertEqual(triage["tool_selection_strategy"], "SELECTED")
         self.assertEqual(len(triage["integration_connections"]), 2)
 
-        self.assertEqual(
-            sorted(triage["tool_selections"]),
+        # Named here for readability, asserted as the ids AO actually
+        # wants — the UI resolves tool_selections against live tool ids
+        # and silently drops anything else.
+        expected = sorted(
             [
-                "advisor__get_hosts_hitting_a_rule",
-                "advisor__get_recommendations_stats",
-                "advisor__get_rule_details",
-                "content-sources__list_repositories",
-                "groups_list",
-                "hosts_list",
-                "hosts_variable_data_retrieve",
-                "inventories_list",
-                "inventory__get_host_details",
-                "inventory__get_host_system_profile",
-                "inventory__get_host_tags",
-                "inventory__list_hosts",
-            ],
+                CVE_TOOLS["lightspeed_mcp"][name]
+                for name in (
+                    "advisor__get_hosts_hitting_a_rule",
+                    "advisor__get_recommendations_stats",
+                    "advisor__get_rule_details",
+                    "content-sources__list_repositories",
+                    "inventory__get_host_details",
+                    "inventory__get_host_system_profile",
+                    "inventory__get_host_tags",
+                    "inventory__list_hosts",
+                )
+            ]
+            + [
+                CVE_TOOLS["aap_mcp"][name]
+                for name in (
+                    "groups_list",
+                    "hosts_list",
+                    "hosts_variable_data_retrieve",
+                    "inventories_list",
+                )
+            ]
         )
+        self.assertEqual(sorted(triage["tool_selections"]), expected)
+        self.assertEqual(len(expected), 12)
         self.assertTrue(triage["tool_selections"], "must be non-empty for SELECTED")
 
     def test_every_connection_carries_both_ids(self):
@@ -262,12 +274,19 @@ class TestWireCVE(unittest.TestCase):
             ao_wire_definition(self.definition, self.bindings, resolved)
         self.assertIn("lightspeed_mcp", str(caught.exception))
 
-    def test_tool_selections_are_bare_strings(self):
-        # AO 500s on every object shape; only a list of names is
-        # accepted. Guard the regression.
+    def test_tool_selections_are_bare_id_strings(self):
+        # Two regressions in one. AO 500s on every object shape, so each
+        # entry must be a bare string — and the string must be the
+        # tool's id. Sending names passes AO's schema and the publish
+        # gate, then the UI drops every one of them as "no longer
+        # available", which is how this shipped broken.
+        known = {tid for tools in CVE_TOOLS.values() for tid in tools.values()}
+        names = {name for tools in CVE_TOOLS for name in CVE_TOOLS[tools]}
         for node in self.wired["nodes"]:
             for selection in node.get("parameters", {}).get("tool_selections", []):
                 self.assertIsInstance(selection, str, node["id"])
+                self.assertIn(selection, known, node["id"])
+                self.assertNotIn(selection, names, node["id"])
 
     def test_strategy_none_sends_no_tool_selections(self):
         # investigate_agent reasons over what triage gathered, so it gets
@@ -291,7 +310,10 @@ class TestWireCVE(unittest.TestCase):
         investigate = {n["id"]: n for n in wired["nodes"]}["investigate_agent"]
         self.assertEqual(
             sorted(investigate["parameters"]["tool_selections"]),
-            sorted(list(CVE_TOOLS["lightspeed_mcp"]) + list(CVE_TOOLS["aap_mcp"])),
+            sorted(
+                list(CVE_TOOLS["lightspeed_mcp"].values())
+                + list(CVE_TOOLS["aap_mcp"].values())
+            ),
         )
 
     def test_strategy_none_with_tools_is_rejected(self):
@@ -460,19 +482,26 @@ class TestWireTicketEnrichment(unittest.TestCase):
             ao_wire_definition(definition, self.bindings, self.resolved)
         self.assertIn("no entry under `triggers:`", str(caught.exception))
 
-    def test_agents_get_pinned_tools_as_bare_strings(self):
+    def test_agents_get_pinned_tools_as_id_strings(self):
         agents = {n["id"]: n["parameters"] for n in self.wired["nodes"]
                   if n["type"] == "agentic"}
 
+        # These two agents are exactly where the live lab reported "2
+        # previously selected tools are no longer available" and "1 ...
+        # no longer available": both had been wired with names.
         triage = agents["triage_agent"]
         self.assertEqual(triage["llm_model_id"], UUID % 20)
         self.assertEqual(
-            sorted(triage["tool_selections"]), ["job_templates_list", "perform_query"]
+            sorted(triage["tool_selections"]),
+            sorted([TICKET_TOOLS["aap_mcp"]["job_templates_list"],
+                    TICKET_TOOLS["openflake_mcp"]["perform_query"]]),
         )
 
         # The inform-only agent is read-only and needs OpenFlake alone.
         enrich = agents["enrich_and_assign_agent"]
-        self.assertEqual(enrich["tool_selections"], ["perform_query"])
+        self.assertEqual(
+            enrich["tool_selections"], [TICKET_TOOLS["openflake_mcp"]["perform_query"]]
+        )
         self.assertEqual(
             [c["integration_id"] for c in enrich["integration_connections"]],
             [UUID % 13],
@@ -546,12 +575,29 @@ class TestFailureModes(unittest.TestCase):
         node = bindings["nodes"]["investigate_agent"]
         node["tool_selection_strategy"] = "SELECTED"
         node["tools_all"] = ["lightspeed_mcp"]
+        # Silence the other agent. With an empty tool surface its pinned
+        # selections now fail first — correctly, but that is the
+        # neighbouring test's business, not this one's.
+        triage = bindings["nodes"]["triage_agent"]
+        triage["tool_selection_strategy"] = "NONE"
+        triage.pop("tools", None)
         resolved = fake_resolved(
             ao_required_job_templates(self.definition, bindings), {}
         )
         with self.assertRaises(AOWiringError) as caught:
             ao_wire_definition(self.definition, bindings, resolved)
         self.assertIn("exposed none", str(caught.exception))
+
+    def test_pinned_tool_on_an_empty_surface_is_rejected(self):
+        # The counterpart: a pinned tool against an integration that
+        # exposed nothing used to be selected anyway, with a null id.
+        # AO accepts that and the UI drops it later, so it must fail here.
+        resolved = fake_resolved(
+            ao_required_job_templates(self.definition, self.bindings), {}
+        )
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, self.bindings, resolved)
+        self.assertIn("which exposes: (none)", str(caught.exception))
 
 
 class TestCollection(unittest.TestCase):
