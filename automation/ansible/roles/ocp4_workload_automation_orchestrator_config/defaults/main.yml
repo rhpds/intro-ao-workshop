@@ -122,6 +122,10 @@ ocp4_workload_automation_orchestrator_config_workflows:
   - key: ticket_enrichment
     name: Ticket Enrichment Demo
     file: ticket-enrichment.json
+    # Its webhook trigger must name an authorized service account, and
+    # AO rejects the workflow without one. Skipped rather than failed
+    # when ..._manage_service_account is false.
+    requires_service_account: true
     description: >-
       Triage an OpenFlake incident with an AI agent, then auto-remediate,
       route through an approval gate, or enrich the ticket for manual

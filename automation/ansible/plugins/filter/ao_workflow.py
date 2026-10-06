@@ -32,6 +32,21 @@ SELF_CONTAINED_NODE_TYPES = ("script", "switch", "approval")
 
 WIRED_NODE_TYPES = ("agentic", "aap_job_template")
 
+# Triggers need wiring too, and are a separate list from `nodes` — a
+# workflow's entry points live under `triggers`, so iterating only
+# `nodes` silently leaves them inert.
+#
+# `manual_trigger` and `schedule_trigger` are self-contained. The two
+# that expose an HTTP endpoint are not: AO requires
+# `authorized_service_account_ids` on them, and rejects the whole
+# workflow with "'authorized_service_account_ids' is a required
+# property" without it. From AO's own UI schema,
+# `authorizedServiceAccountIds: array(uuid).optional()`, and the
+# selector that fills it maps GET /service_accounts through
+# {id, name} — so the UUIDs are service account ids, not the ids of
+# the credentials hanging off them.
+AUTHORIZED_TRIGGER_TYPES = ("webhook_trigger", "eda_trigger")
+
 # How an agentic node chooses its tools. Read off AO's own UI schema:
 # `tool_selection_strategy: enum(["ALL","NONE","SELECTED"])`. Only
 # SELECTED carries a `tool_selections` list; ALL offers the
@@ -303,6 +318,42 @@ def _wire_aap_job_template(node, binding, resolved):
     return node
 
 
+def _wire_trigger(trigger, binding, resolved):
+    params = trigger.setdefault("parameters", {})
+    trigger_id = trigger.get("id")
+    trigger_type = trigger.get("type")
+
+    keys = (binding or {}).get("service_accounts") or []
+    if not keys:
+        raise AOWiringError(
+            "trigger '%s' (type %s) authorizes no service accounts. AO "
+            "requires a non-empty authorized_service_account_ids on this "
+            "trigger type and rejects the workflow without one — an empty "
+            "list fails the same way, with '[] should be non-empty'."
+            % (trigger_id, trigger_type)
+        )
+
+    table = resolved.get("service_accounts") or {}
+    ids = []
+    for key in keys:
+        if not table.get(key):
+            raise AOWiringError(
+                "trigger '%s' authorizes service account '%s', which was not "
+                "created (have: %s). The service account phase must run "
+                "BEFORE workflow import, and "
+                "..._manage_service_account must be true."
+                % (trigger_id, key, ", ".join(sorted(table)) or "none")
+            )
+        ids.append(table[key])
+
+    # AO checks these against the workflow's own project and returns a
+    # hard 422 "Service account(s) not found in this project" — not a
+    # validation finding — so a service account minted in a different
+    # project fails the import outright.
+    params["authorized_service_account_ids"] = ids
+    return trigger
+
+
 def _lookup(resolved, bucket, key, node_id):
     table = resolved.get(bucket) or {}
     if key not in table or table[key] is None:
@@ -331,6 +382,24 @@ def ao_wire_definition(definition, bindings, resolved):
     """
     wired = copy.deepcopy(definition)
     node_bindings = (bindings or {}).get("nodes", {})
+    trigger_bindings = (bindings or {}).get("triggers", {})
+
+    # Triggers are a sibling list of `nodes`, not members of it, so a
+    # loop over nodes alone leaves them unwired. Only the types that
+    # expose an HTTP endpoint need anything; manual and schedule
+    # triggers are self-contained and are left alone.
+    for trigger in wired.get("triggers", []):
+        if trigger.get("type") not in AUTHORIZED_TRIGGER_TYPES:
+            continue
+        binding = trigger_bindings.get(trigger.get("id"))
+        if binding is None:
+            raise AOWiringError(
+                "trigger '%s' (type %s) exposes an HTTP endpoint, so AO "
+                "requires authorized_service_account_ids on it, but it has "
+                "no entry under `triggers:` in the binding file"
+                % (trigger.get("id"), trigger.get("type"))
+            )
+        _wire_trigger(trigger, binding, resolved)
 
     for node in wired.get("nodes", []):
         node_type = node.get("type")

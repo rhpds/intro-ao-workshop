@@ -8,6 +8,10 @@
 #     them
 #   - integrations must be refreshed and polled before workflow
 #     wiring, which needs model and tool IDs
+#   - the service account must exist before workflow wiring too:
+#     Ticket Enrichment Demo's webhook trigger carries
+#     authorized_service_account_ids, and AO rejects the workflow
+#     outright without it
 #   - AAP job templates must already exist on the controller, which is
 #     why this role runs after infra.aap_configuration.dispatch
 
@@ -26,12 +30,15 @@
 - name: Create, associate and refresh the solutions integrations
   ansible.builtin.include_tasks: setup_integrations.yml
 
-- name: Import, wire, validate and publish the solutions workflows
-  ansible.builtin.include_tasks: setup_workflows.yml
-
 - name: Mint a service account and patch the AAP credential
+  # Ahead of the workflows, not after them: the Ticket Enrichment
+  # webhook trigger has to name this account's id, and AO validates
+  # the reference at import time.
   when: ocp4_workload_automation_orchestrator_config_manage_service_account | bool
   ansible.builtin.include_tasks: setup_service_account.yml
+
+- name: Import, wire, validate and publish the solutions workflows
+  ansible.builtin.include_tasks: setup_workflows.yml
 
 - name: Show the configured Automation Orchestrator assets
   when: not silent | bool

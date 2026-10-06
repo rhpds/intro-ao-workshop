@@ -56,6 +56,21 @@ An imported workflow is inert until its nodes carry IDs that only exist after th
 surrounding assets are created. Only two node types need it — `agentic` and
 `aap_job_template`. `script`, `switch` and `approval` are self-contained.
 
+**Triggers need wiring too, and they are a sibling list of `nodes`, not members
+of it** — so a loop over `nodes` alone leaves them inert. `manual_trigger` and
+`schedule_trigger` are self-contained, but `webhook_trigger` and `eda_trigger`
+expose an HTTP endpoint and must carry `authorized_service_account_ids`. AO
+rejects the workflow without one:
+
+```
+[error] schema_violation: 'authorized_service_account_ids' is a required property
+        (node=activity_e34a948c_7ecc_4414_85fe_8ad26beb2370 field=parameters)
+```
+
+That is a *trigger* id, not a node id, which is what makes the finding
+confusing — the node it names is not in `nodes`. Ticket Enrichment Demo is the
+only workflow here with one.
+
 The mapping is declarative, one file per workflow, keyed by node ID:
 
 - `vars/bindings_rhel_cve_remediation.yml`
@@ -100,7 +115,7 @@ Enrichment agents are pinned. Disk Utilization has no agentic nodes.
 python3 tests/test_ao_workflow.py
 ```
 
-39 tests, no network. They run the real exported JSON through the real binding
+43 tests, no network. They run the real exported JSON through the real binding
 files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
 expression handling, and each failure mode. Requires PyYAML.
 
@@ -173,7 +188,26 @@ from the exports, and that a reader would otherwise get wrong:
   workflow's `current_version`.
 - **`validation_result` is only on write responses.** A later `GET` returns
   `null` and reports the outcome as the boolean `has_validation_issues`, so the
-  findings must be captured from the POST/PATCH or they are lost.
+  findings must be captured from the POST/PATCH or they are lost. It is also
+  absent on a *clean* write — a workflow that validates returns no
+  `validation_result` at all, so "no findings" and "no result" look alike.
+- **`authorized_service_account_ids` takes service ACCOUNT ids**, as a
+  non-empty list. All four wrong answers fail differently, which is worth
+  knowing because only the first is a validation finding: omitting the key is
+  `'authorized_service_account_ids' is a required property`; `[]` is
+  `'[] should be non-empty'`; the id of a *credential* belonging to that
+  account, or any id from another project, is a hard **422** *"Service
+  account(s) not found in this project"*.
+- **A webhook path is globally unique.** A second trigger on the same
+  `webhook_path` is a 409 `WEBHOOK_TRIGGER_PATH_CONFLICT`, across projects —
+  so a student who builds a workflow on `openflake-incident` in `default`
+  blocks this role's re-run.
+- **Workflow references are checked at the API layer, before validation.**
+  A node naming an integration of the wrong kind is a 422 (*"Integration 'AAP
+  MCP' is type 'mcp_server', but this node requires type
+  'ansible_automation_platform'"*), as is an integration not associated with
+  the workflow's project (*"not accessible in this project"*) or a credential
+  from another project. These never reach `validation_result`.
 
 Two further things worth knowing:
 
@@ -304,9 +338,22 @@ workflow the student built.
 Its consumer is **Ticket Enrichment Demo**, the one workflow here with a
 `webhook_trigger` rather than a manual trigger. AAP calls
 `POST /api/v1/webhooks/openflake-incident`, which the API documents as
-"Requires a service account Bearer token". Set
-`..._manage_service_account: false` and that workflow is reachable only from the
-AO UI.
+"Requires a service account Bearer token".
+
+That makes the service account a **prerequisite of workflow import**, not a
+step after it: the trigger has to carry the account's id, and AO validates the
+reference when the workflow is posted. So `setup_service_account.yml` runs
+*before* `setup_workflows.yml` — reversing those two is the
+`'authorized_service_account_ids' is a required property` failure.
+
+`..._manage_service_account: false` therefore **skips** Ticket Enrichment
+rather than importing it unauthorized; AO will not accept a webhook trigger
+with no authorized account, and an empty list fails too, so there is no
+third option. The other two workflows are unaffected.
+
+For the same reason, pointing `..._service_account_project` at `default` while
+the workflows live in `solutions` breaks the import with a 422 — AO requires
+the account and the workflow to share a project.
 
 The AAP-side field names (`client_id`, `client_secret`) come from the AgnosticV
 credential-type definition, not from any API, and are the one thing in this role
@@ -318,7 +365,7 @@ variables; correct them in `defaults/main.yml` if the PATCH 400s.
 Offline, no infrastructure — the wiring transform, against the real exports:
 
 ```bash
-python3 tests/test_ao_workflow.py     # 39 tests
+python3 tests/test_ao_workflow.py     # 43 tests
 ```
 
 Against a live lab, after provisioning:
