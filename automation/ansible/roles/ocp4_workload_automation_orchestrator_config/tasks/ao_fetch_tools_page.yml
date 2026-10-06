@@ -1,14 +1,20 @@
 ---
 # Fetch one further page of /tools and merge it into `_int_tools_map`.
 #
-# No retry loop here: the first page already proved the integration has
-# refreshed and is answering, so a failure on page two is a real error,
-# not something to wait out.
+# Called from a bounded loop, so both tasks are no-ops once the cursor
+# runs out. No retry loop: the first page already proved the
+# integration has refreshed and is answering, so a failure here is a
+# real error, not something to wait out.
+#
+# The cursor is base64 and may contain + and /, which mean something
+# else in a query string — hence urlencode.
 
 - name: "Fetch a further tools page for {{ _int_name }}"
+  when: _int_tools_cursor | length > 0
   ansible.builtin.uri:
     url: >-
-      {{ _ao_api }}/integrations/{{ _int_id }}/tools?limit={{ _ao_tools_page_size }}&offset={{ _tools_offset }}
+      {{ _ao_api }}/integrations/{{ _int_id }}/tools?limit={{ _ao_tools_page_size
+      }}&{{ _ao_tools_cursor_param }}={{ _int_tools_cursor | urlencode }}
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]
@@ -17,10 +23,18 @@
   register: r_int_tools_page
 
 - name: "Merge a further tools page for {{ _int_name }}"
+  when: _int_tools_cursor | length > 0
+  vars:
+    _page: >-
+      {{ r_int_tools_page.content | regex_replace('[\x00-\x1f]', ' ') | from_json }}
+    _next: "{{ _page.next | default('') | default('', true) }}"
   ansible.builtin.set_fact:
     _int_tools_map: >-
       {{ _int_tools_map
-         | combine(r_int_tools_page.content
-                   | regex_replace('[\x00-\x1f]', ' ')
-                   | from_json
-                   | intro_ao_workshop.automation.ao_name_id_map) }}
+         | combine(_page | intro_ao_workshop.automation.ao_name_id_map) }}
+    # An unchanged cursor means the parameter name was wrong and AO
+    # ignored it, handing back the same page. Stop rather than spin out
+    # the page budget, and record it so the warning can say which of
+    # the two it was.
+    _int_tools_cursor: "{{ '' if _next == _int_tools_cursor else _next }}"
+    _int_tools_stalled: "{{ _next == _int_tools_cursor }}"

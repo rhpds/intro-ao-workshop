@@ -32,6 +32,12 @@ SELF_CONTAINED_NODE_TYPES = ("script", "switch", "approval")
 
 WIRED_NODE_TYPES = ("agentic", "aap_job_template")
 
+# How an agentic node chooses its tools. Read off AO's own UI schema:
+# `tool_selection_strategy: enum(["ALL","NONE","SELECTED"])`. Only
+# SELECTED carries a `tool_selections` list; ALL offers the
+# integration's whole surface and NONE offers nothing.
+TOOL_SELECTION_STRATEGIES = ("ALL", "NONE", "SELECTED")
+
 # A runtime expression such as "${deploy_script.artifacts.template_name}"
 # resolves inside AO at execution time. There is no static job template
 # to look up for one, so it must not be sent to the AAP controller.
@@ -228,15 +234,33 @@ def _wire_agentic(node, binding, resolved):
     strategy = binding.get("tool_selection_strategy") or params.get(
         "tool_selection_strategy", "SELECTED"
     )
+    if strategy not in TOOL_SELECTION_STRATEGIES:
+        raise AOWiringError(
+            "agentic node '%s' uses tool_selection_strategy '%s'; AO accepts "
+            "only %s" % (node_id, strategy, ", ".join(sorted(TOOL_SELECTION_STRATEGIES)))
+        )
     params["tool_selection_strategy"] = strategy
 
-    if strategy == "SELECTED" and not selections:
-        raise AOWiringError(
-            "agentic node '%s' uses tool_selection_strategy SELECTED but the "
-            "binding selects no tools; AO rejects an empty tool_selections"
-            % node_id
-        )
-    params["tool_selections"] = selections
+    if strategy == "SELECTED":
+        if not selections:
+            raise AOWiringError(
+                "agentic node '%s' uses tool_selection_strategy SELECTED but "
+                "the binding selects no tools; AO rejects an empty "
+                "tool_selections" % node_id
+            )
+        params["tool_selections"] = selections
+    else:
+        # ALL and NONE carry no selection list. AO's own UI only sends
+        # `tool_selections` when the strategy is SELECTED, so drop any
+        # list the export shipped rather than sending one that is
+        # ignored at best and contradicts the strategy at worst.
+        if selections:
+            raise AOWiringError(
+                "agentic node '%s' uses tool_selection_strategy %s but the "
+                "binding also selects tools; %s takes no tool list"
+                % (node_id, strategy, strategy)
+            )
+        params.pop("tool_selections", None)
 
     return node
 

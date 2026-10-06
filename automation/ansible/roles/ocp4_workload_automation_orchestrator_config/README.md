@@ -73,16 +73,26 @@ role, and is silently ignored once the role ships inside a collection — the
 symptom is `No filter named 'ao_collection'` at the first `set_fact` that uses
 one.
 
-Two ways to select tools for an agentic node:
+`tool_selection_strategy` is an enum of exactly **`ALL` | `NONE` | `SELECTED`**,
+and only `SELECTED` carries a `tool_selections` list. `SELECTED` with an empty
+list is rejected ("should be non-empty"), so a node that should get no tools is
+`NONE`, not an empty `SELECTED`. The wiring filter enforces all three rules:
+unknown strategy, empty `SELECTED`, and tools listed under `ALL`/`NONE` each
+fail the provision.
+
+Under `SELECTED` there are two ways to choose:
 
 - `tools:` names them explicitly. Use this when the node's prompt calls specific
   tools by name — a renamed tool then fails the provision instead of silently
   handing the agent something it cannot call.
-- `tools_all:` takes an integration's whole surface. Use this when the prompt
-  just says "use the Lightspeed MCP" and a pinned list would be guesswork.
+- `tools_all:` takes an integration's whole surface, pinned at provision time.
+  Prefer the `ALL` strategy if you genuinely want "whatever the server offers",
+  since that is resolved by AO at run time and cannot go stale.
 
-`tool_selections` must be non-empty when the strategy is `SELECTED`; AO rejects
-`[]` with "should be non-empty".
+In this role, `triage_agent` in RHEL CVE Remediation does the gathering and
+carries 12 pinned read-only tools across Lightspeed and AAP MCP;
+`investigate_agent` reasons over what triage found and is `NONE`. Both Ticket
+Enrichment agents are pinned. Disk Utilization has no agentic nodes.
 
 ### Testing the wiring without an AO instance
 
@@ -90,7 +100,7 @@ Two ways to select tools for an agentic node:
 python3 tests/test_ao_workflow.py
 ```
 
-36 tests, no network. They run the real exported JSON through the real binding
+39 tests, no network. They run the real exported JSON through the real binding
 files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
 expression handling, and each failure mode. Requires PyYAML.
 
@@ -190,6 +200,12 @@ fine — so that rule re-creates them on every run, issuing fresh UUIDs and
 silently breaking the workflow nodes still pointing at the old ones. Matching on
 name keeps IDs stable.
 
+The role does still *run* the validation — otherwise every integration it
+creates would sit at `unknown`, looking unchecked next to the ones a student
+creates by hand in module 02 — but a `success: false` is a loud warning naming
+AO's own `error_type` and `error`, not a failed provision. The distinction is
+the point: the status should be accurate, and it should not be load-bearing.
+
 Secret material (`inputs`) and workflow definitions are re-pushed on every run,
 so a rotated key or a corrected binding file actually lands.
 
@@ -205,16 +221,55 @@ so a rotated key or a corrected binding file actually lands.
   loop is bounded below that, so a token cannot expire mid-phase.
 - **Poll, never sleep.** `POST /api/v1/integrations/{id}/refresh` is mandatory
   before `/models` or `/tools` return addressable IDs, and it is asynchronous.
+- **`/refresh` and `/validate` are orthogonal, and both are needed.** An
+  integration is created at `validation_status: unknown` and stays there — a
+  refresh that synced all 140 of AAP MCP's tools left the status untouched 20 s
+  later. `POST /integrations/{id}/validate` is the only thing that moves it, and
+  is what the UI's "Validate" button fires. Refresh populates `/models` and
+  `/tools`; validate checks that the endpoint and credential actually work.
+  Unlike refresh, validate has **no type guard** — `ansible_automation_platform`
+  422s on refresh but validates normally — so it runs for all three types.
+  It is synchronous: the status has moved by the time it returns.
+- **A failed validation is HTTP 200.** The body is
+  `{success, checked_at, error, error_type}`, and a base_url pointing at a live
+  host that speaks no MCP returns
+  `200 {"success": false, "error": "Method not allowed: HTTP 405",
+  "error_type": "connection_error"}` while the integration goes to
+  `validation_status: error`. So the status code proves nothing; only `success`
+  does. The role warns on a false rather than failing — see *Re-run behaviour*.
 - **`/tools` needs defensive parsing.** Tool descriptions contain raw control
   characters, which are illegal inside JSON strings — the response is read as
   text, scrubbed, then parsed.
-- **`/tools` must be paged.** `limit` is capped at 100 (101 is a hard 422, not a
-  clamp) and AAP MCP exposes more than that. A measured run returned exactly 100
-  tools with `job_templates_list` missing while `job_templates_retrieve` was
-  present — a truncated list that wires cleanly and leaves the agent unable to
-  call the tool its prompt names. `ao_poll_tools.yml` reads `total` from the
-  envelope and fetches the rest by `offset`, and warns if the collected count
-  still falls short.
+- **`/tools` must be paged, and the pagination is keyset.** `limit` is capped at
+  100 (101 is a hard 422, not a clamp) and AAP MCP exposes **140** tools — two
+  pages. A run before paging returned exactly 100 with `job_templates_list`
+  missing while `job_templates_retrieve` was present — a truncated list that
+  wires cleanly and leaves the agent unable to call the tool its prompt names.
+  Both are real tools; only the page boundary separated them. The
+  envelope's `total` is **always null**; `next` carries a base64 cursor that
+  decodes to `{created_at, direction, id, sort_field, sort_direction}`, sorted
+  `created_at desc` (which is why a page is not alphabetical). So there is no
+  page count up front — `ao_poll_tools.yml` runs a page budget and stops when
+  the cursor is spent, and warns loudly if it stalls or the budget runs out.
+  The envelope names the cursor but not the parameter that takes it back; that
+  was measured against a live AO and is **`cursor`**.
+- **AO validates the query string strictly.** Any parameter it does not declare
+  is a 422 — `"Unknown query parameter(s): next"` — and one unknown name
+  rejects the whole request even when the rest are valid. So an unknown
+  parameter cannot be passed speculatively alongside a good one, and a
+  mis-spelled cursor parameter fails loudly rather than being ignored.
+  Pagination is implemented once for the whole API: `/projects` with `limit=1`
+  returns the same cursor shape as `/tools`, which makes any collection a
+  usable probe when no MCP integration exists yet.
+- **Every collection GET sends `limit`.** AO's default page size is **20** when
+  `limit` is omitted — measured by asking a 140-tool integration for its
+  listing without one. Because every lookup here matches assets *by name*, a
+  listing that quietly stops at 20 does not fail: it reports the asset as
+  absent and creates a duplicate instead of reconciling. The lab's own assets
+  are far under 20, but students create credentials and integrations by hand in
+  module 02 in the same AO, so re-runs have no guaranteed margin.
+  `_ao_collection_page_size` covers the ten collection GETs; `/workflows/{id}`
+  and the other single-object GETs take no `limit`.
 - **Model choice comes from `litellm_available_models`.** A hardcoded preference
   chain silently falls through to "first available" on this lab's qwen/minimax
   models, which makes a misconfiguration look like a success.
@@ -263,7 +318,7 @@ variables; correct them in `defaults/main.yml` if the PATCH 400s.
 Offline, no infrastructure — the wiring transform, against the real exports:
 
 ```bash
-python3 tests/test_ao_workflow.py     # 36 tests
+python3 tests/test_ao_workflow.py     # 39 tests
 ```
 
 Against a live lab, after provisioning:

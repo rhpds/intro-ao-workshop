@@ -21,7 +21,7 @@
 
 - name: "Look up existing object: {{ _fc_kind ~ '/' ~ _fc_name }}"
   ansible.builtin.uri:
-    url: "{{ _ao_api }}/{{ _fc_kind }}"
+    url: "{{ _ao_api }}/{{ _fc_kind }}?limit={{ _ao_collection_page_size }}"
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]

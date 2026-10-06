@@ -46,7 +46,7 @@
 
 - name: "List projects already associated with {{ _int_name }}"
   ansible.builtin.uri:
-    url: "{{ _ao_api }}/integrations/{{ _int_id }}/projects"
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/projects?limit={{ _ao_collection_page_size }}"
     method: GET
     headers: "{{ _ao_headers }}"
     status_code: [200]
@@ -66,6 +66,51 @@
     headers: "{{ _ao_headers }}"
     status_code: [200, 201, 204]
     validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+
+- name: "Validate integration: {{ _int_name }}"
+  # Separate from /refresh, and not optional. A new integration is
+  # created at validation_status 'unknown' and stays there: measured,
+  # a refresh that synced all 140 of AAP MCP's tools left the status
+  # untouched 20 s later. Only this call moves it, and it is what the
+  # UI's "Validate" button fires. Without it every integration this
+  # role creates reads as unchecked next to the ones the student
+  # creates by hand in module 02.
+  #
+  # Unlike /refresh it has no type guard. ansible_automation_platform
+  # 422s on refresh ("Refresh Not Supported") but validates normally,
+  # so this runs for all three types.
+  #
+  # Synchronous: the status has already moved by the time it returns.
+  ansible.builtin.uri:
+    url: "{{ _ao_api }}/integrations/{{ _int_id }}/validate"
+    method: POST
+    headers: "{{ _ao_headers }}"
+    status_code: [200]
+    validate_certs: "{{ ocp4_workload_automation_orchestrator_config_validate_certs }}"
+  register: r_int_validate
+
+- name: "Warn on a failed validation: {{ _int_name }}"
+  # A failed validation is HTTP *200* with success:false — a pointed
+  # base_url at a live host that speaks no MCP returned
+  # 200 {"success": false, "error": "Method not allowed: HTTP 405",
+  # "error_type": "connection_error"}. So status_code proves nothing
+  # here; only the body does.
+  #
+  # Warn rather than fail. MCP integrations in this lab have been seen
+  # reporting a failed validation while the MCP protocol itself works,
+  # so failing the provision here would break runs that are fine.
+  # qa-automation/healthcheck.yml is where runnability is asserted.
+  when: not (r_int_validate.json.success | default(false) | bool)
+  ansible.builtin.debug:
+    msg: |
+      WARNING: {{ _int_name }} failed AO's validation check.
+
+        error_type: {{ r_int_validate.json.error_type | default('(none)') }}
+        error:      {{ r_int_validate.json.error | default('(none)') }}
+
+      The integration still exists and is still wired into the
+      workflows, but it shows as 'error' in the AO UI and its tools or
+      models may not be callable at run time.
 
 - name: "Refresh integration: {{ _int_name }}"
   # Mandatory for the two types that enumerate a resource: before a

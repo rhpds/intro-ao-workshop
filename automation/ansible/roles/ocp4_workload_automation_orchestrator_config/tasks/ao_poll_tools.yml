@@ -14,8 +14,10 @@
 #    clamp — and AAP MCP exposes more tools than that. A single page
 #    silently truncates: a measured run returned exactly 100 tools with
 #    `job_templates_list` missing while `job_templates_retrieve` was
-#    present. The binding files name tools that live past the first
-#    page, so the rest are fetched below off `total`.
+#    present, and Ticket Enrichment Demo pins `job_templates_list`.
+#    Pagination is keyset, not offset: `total` is always null and the
+#    `next` cursor is what advances it, so the page count is not known
+#    up front and the loop below just runs a budget.
 #
 # 3. 422 is accepted so that a rejected request leaves the retry loop
 #    on the first attempt. Polling exists to wait out an asynchronous
@@ -56,13 +58,15 @@
 - name: "Start the tool map for {{ _int_name }}"
   ansible.builtin.set_fact:
     _int_tools_map: "{{ _int_tools_payload | intro_ao_workshop.automation.ao_name_id_map }}"
-    _int_tools_total: "{{ _int_tools_payload.total | default(0) | int }}"
+    # `| default('', true)` as well, because the key is present and
+    # explicitly null on the last page rather than absent.
+    _int_tools_cursor: "{{ _int_tools_payload.next | default('') | default('', true) }}"
+    _int_tools_stalled: false
 
 - name: "Show the pagination envelope for {{ _int_name }}"
-  # Everything except `resources`. The documented envelope is
-  # {next, prev, total, resources}, but `total` is what the paging
-  # below depends on — print it so a changed envelope is visible in
-  # the log instead of silently truncating the list again.
+  # Everything except `resources`. Printed because the paging below
+  # depends on the envelope's shape, and the last time it changed the
+  # list silently truncated instead of failing.
   when: not silent | bool
   ansible.builtin.debug:
     msg: >-
@@ -72,36 +76,41 @@
          | items2dict }}
 
 - name: "Fetch the remaining tool pages for {{ _int_name }}"
-  when: _int_tools_total | int > _ao_tools_page_size | int
+  # Keyset pagination gives no page count up front — `total` is always
+  # null — so this runs the page budget and each include is a no-op
+  # once the cursor is spent.
   ansible.builtin.include_tasks: ao_fetch_tools_page.yml
-  loop: >-
-    {{ range(_ao_tools_page_size | int,
-             _int_tools_total | int,
-             _ao_tools_page_size | int) | list }}
+  loop: "{{ range(1, _ao_tools_max_pages | int) | list }}"
   loop_control:
-    loop_var: _tools_offset
-    label: "{{ _int_name }} offset {{ _tools_offset }}"
+    loop_var: _tools_page
+    label: "{{ _int_name }} page {{ _tools_page + 1 }}"
 
 - name: "Record the tool map for {{ _int_name }}"
   ansible.builtin.set_fact:
     _ao_integration_tools: "{{ _ao_integration_tools | combine({_int_key: _int_tools_map}) }}"
 
 - name: "Warn on a tool list that did not page to completion: {{ _int_name }}"
-  # Either `total` was absent from the envelope, or `offset` did not
-  # advance the window. Either way the list is short and any binding
-  # naming a tool past the first page will fail to wire.
-  when: _int_tools_map | length < _int_tools_total | int
+  # A short list wires cleanly and leaves the agent unable to call a
+  # tool its prompt names, so it has to be loud.
+  when: _int_tools_stalled | bool or _int_tools_cursor | length > 0
   ansible.builtin.debug:
-    msg: >-
-      WARNING: {{ _int_name }} reports {{ _int_tools_total }} tools but
-      only {{ _int_tools_map | length }} were collected. Paging did not
-      complete — check the envelope above and correct the paging in
-      ao_poll_tools.yml.
+    msg: |
+      WARNING: {{ _int_name }}'s tool list is truncated at
+      {{ _int_tools_map | length }} tools.
+
+      Cursor repeated: {{ _int_tools_stalled }} — if true, AO returned
+      the same page twice. '{{ _ao_tools_cursor_param }}' was the
+      verified parameter when this was written, so this means AO's
+      pagination changed; re-probe it and correct
+      _ao_tools_cursor_param in vars/main.yml.
+
+      Cursor still pending: {{ _int_tools_cursor | length > 0 }} — if
+      true, the budget of {{ _ao_tools_max_pages }} pages ran out. Raise
+      _ao_tools_max_pages in vars/main.yml.
 
 - name: "Show the tools exposed by {{ _int_name }}"
   when: not silent | bool
   ansible.builtin.debug:
     msg: >-
-      {{ _int_name }} exposes {{ _int_tools_map | length }} tool(s)
-      of {{ _int_tools_total }} reported:
+      {{ _int_name }} exposes {{ _int_tools_map | length }} tool(s):
       {{ _int_tools_map.keys() | list | sort | join(', ') }}
