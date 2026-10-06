@@ -95,9 +95,17 @@ ocp4_workload_automation_orchestrator_config_aap_mcp_credential_name: AAP MCP Be
 ocp4_workload_automation_orchestrator_config_openflake_mcp_credential_name: OpenFlake MCP Bearer Token
 ocp4_workload_automation_orchestrator_config_lightspeed_mcp_credential_name: Lightspeed MCP Bearer Token
 
-ocp4_workload_automation_orchestrator_config_llm_integration_name: LLM
+# The integrations list is flat — it shows every integration at once,
+# with no per-project grouping — so the two project-scoped ones say so
+# in their name. Without it the student sees an "LLM" and an "AAP MCP"
+# already sitting there in module 02 and reasonably assumes they are
+# the ones to use, when in fact those belong to `solutions` and the
+# exercise is to build their own. The three global ones keep their
+# plain names: those really are shared, and the student is meant to
+# reach for them.
+ocp4_workload_automation_orchestrator_config_llm_integration_name: Solutions LLM
 ocp4_workload_automation_orchestrator_config_aap_integration_name: AAP
-ocp4_workload_automation_orchestrator_config_aap_mcp_integration_name: AAP MCP
+ocp4_workload_automation_orchestrator_config_aap_mcp_integration_name: Solutions AAP MCP
 ocp4_workload_automation_orchestrator_config_openflake_mcp_integration_name: OpenFlake MCP
 ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name: Lightspeed MCP
 
