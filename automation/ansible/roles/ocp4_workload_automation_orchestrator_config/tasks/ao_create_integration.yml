@@ -9,6 +9,9 @@
 #                        | mcp_server
 #   _int_configuration — type-specific configuration dict, which must
 #                        itself repeat integration_type
+#   _int_scope         — optional, `global` | `project`, default
+#                        project. See setup_integrations.yml for which
+#                        integration gets which and why.
 
 #   _int_credential    — optional key into _ao_credential_ids
 
@@ -22,7 +25,7 @@
         {
           'name': _int_name,
           'integration_type': _int_type,
-          'scope': 'project',
+          'scope': _int_scope | default('project'),
           'configuration': _int_configuration,
         }
         | combine(
@@ -30,9 +33,15 @@
             if _int_credential is defined else {}
           )
       }}
+    # scope is patched as well as created, so an integration that
+    # already exists at the wrong scope is corrected in place rather
+    # than left as it was found.
     _fc_patch: >-
       {{
-        {'configuration': _int_configuration}
+        {
+          'configuration': _int_configuration,
+          'scope': _int_scope | default('project'),
+        }
         | combine(
             {'management_credential_id': _ao_credential_ids[_int_credential]}
             if _int_credential is defined else {}
@@ -57,8 +66,15 @@
   # This endpoint returns `project_id`/`project_name`, not `id`/`name`
   # like every other collection — matching on `id` would silently
   # never find the association and re-POST on every run.
+  #
+  # Only for project scope. A global integration rejects association
+  # with a 422 (measured, twice, on an integration freshly PATCHed to
+  # global), and this task accepts only [200, 201, 204], so attempting
+  # it would fail the provision. Global integrations carry no project
+  # associations at all — the listing comes back empty.
   when: >-
-    _ao_project_id not in
+    (_int_scope | default('project')) == 'project'
+    and _ao_project_id not in
     (r_int_projects.json | intro_ao_workshop.automation.ao_collection | map(attribute='project_id') | list)
   ansible.builtin.uri:
     url: "{{ _ao_api }}/integrations/{{ _int_id }}/projects/{{ _ao_project_id }}"

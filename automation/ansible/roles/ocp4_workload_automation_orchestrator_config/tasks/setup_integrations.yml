@@ -1,9 +1,22 @@
 ---
 # Create the five solutions integrations.
 #
-# `scope` is exactly `global` | `project`. `project_id` is NOT
+# `scope` is exactly `global` | `project` (AO rejects anything else
+# with "Input should be 'global' or 'project'"). `project_id` is NOT
 # accepted on create and `project_ids` is read-only, so association is
 # a separate POST /integrations/{id}/projects/{project_id}.
+#
+# Which scope each integration gets is a lab decision, not an API one:
+#
+#   project  LLM, AAP MCP — these carry the lab's own LiteLLM virtual
+#            key and a minted AAP token, so they stay inside
+#            `solutions` rather than being offered to every project.
+#   global   AAP, OpenFlake MCP, Lightspeed MCP — shared infrastructure
+#            the student is expected to reach from `default` too, since
+#            modules 02 and 03 rebuild against the same endpoints.
+#
+# Left unset, AO defaults to `project` — which is how all five were
+# created before this was passed explicitly.
 #
 # Every `configuration` repeats `integration_type` — see vars/main.yml.
 #
@@ -43,6 +56,7 @@
   ansible.builtin.include_tasks: ao_create_integration.yml
   vars:
     _int_key: aap
+    _int_scope: global
     _int_name: "{{ ocp4_workload_automation_orchestrator_config_aap_integration_name }}"
     _int_type: "{{ _ao_integration_type_aap }}"
     _int_credential: aap
@@ -65,6 +79,7 @@
   ansible.builtin.include_tasks: ao_create_integration.yml
   vars:
     _int_key: openflake_mcp
+    _int_scope: global
     _int_name: "{{ ocp4_workload_automation_orchestrator_config_openflake_mcp_integration_name }}"
     _int_type: "{{ _ao_integration_type_mcp }}"
     _int_credential: openflake_mcp
@@ -81,6 +96,7 @@
   ansible.builtin.include_tasks: ao_create_integration.yml
   vars:
     _int_key: lightspeed_mcp
+    _int_scope: global
     _int_name: "{{ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name }}"
     _int_type: "{{ _ao_integration_type_mcp }}"
     _int_credential: lightspeed_mcp
