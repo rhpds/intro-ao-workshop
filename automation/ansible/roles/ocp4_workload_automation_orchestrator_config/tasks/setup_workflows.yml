@@ -12,8 +12,39 @@
       {{ ocp4_workload_automation_orchestrator_config_workflows
          | selectattr('enabled', 'defined')
          | selectattr('enabled')
-         | list }}
+         | rejectattr('requires_service_account', 'defined')
+         | list
+         + (ocp4_workload_automation_orchestrator_config_workflows
+            | selectattr('enabled', 'defined')
+            | selectattr('enabled')
+            | selectattr('requires_service_account', 'defined')
+            | list
+            if ocp4_workload_automation_orchestrator_config_manage_service_account | bool
+            else []) }}
     _ao_required_job_templates: []
+
+- name: Warn about workflows skipped for want of a service account
+  # A webhook-triggered workflow cannot be imported at all without an
+  # authorized service account — AO rejects the definition — so the
+  # choice is skip it or fail the provision. Skipping keeps
+  # ..._manage_service_account: false a usable setting, which is what
+  # it is documented to be.
+  vars:
+    _ao_skipped_workflows: >-
+      {{ ocp4_workload_automation_orchestrator_config_workflows
+         | selectattr('enabled', 'defined') | selectattr('enabled')
+         | selectattr('requires_service_account', 'defined') | map(attribute='name') | list }}
+  when:
+    - not ocp4_workload_automation_orchestrator_config_manage_service_account | bool
+    - _ao_skipped_workflows | length > 0
+  ansible.builtin.debug:
+    msg: |
+      WARNING: skipping {{ _ao_skipped_workflows | join(', ') }}.
+
+      These are triggered by webhook, and AO requires a non-empty
+      authorized_service_account_ids on a webhook trigger — so they
+      cannot be imported at all while
+      ..._manage_service_account is false.
 
 - name: Collect the AAP job templates every workflow needs
   ansible.builtin.include_tasks: ao_collect_job_templates.yml

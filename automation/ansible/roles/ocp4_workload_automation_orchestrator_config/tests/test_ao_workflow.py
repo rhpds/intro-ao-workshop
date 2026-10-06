@@ -75,6 +75,9 @@ def fake_resolved(job_template_names, tools=None):
         "job_templates": {
             name: 100 + index for index, name in enumerate(sorted(job_template_names))
         },
+        # Keyed the same way credentials and integrations are. Only
+        # Ticket Enrichment's webhook trigger consumes it.
+        "service_accounts": {"webhooks": UUID % 50},
         "llm_model_id": UUID % 20,
         "organization": "Default",
     }
@@ -419,6 +422,43 @@ class TestWireTicketEnrichment(unittest.TestCase):
         self.assertEqual(
             triggers[0]["parameters"]["webhook_path"], "openflake-incident"
         )
+
+    def test_webhook_trigger_is_authorized_for_the_service_account(self):
+        # The export ships no authorized_service_account_ids, and AO
+        # rejects the workflow without one: a measured import returned
+        # is_valid=False with "'authorized_service_account_ids' is a
+        # required property" against this exact trigger id.
+        params = self.wired["triggers"][0]["parameters"]
+        self.assertEqual(params["authorized_service_account_ids"], [UUID % 50])
+
+    def test_trigger_without_a_service_account_is_rejected(self):
+        # AO rejects an empty list too ("[] should be non-empty"), so
+        # wiring one is never the right answer — fail here instead,
+        # where the message names the trigger.
+        bindings = copy.deepcopy(self.bindings)
+        trigger_id = next(iter(bindings["triggers"]))
+        bindings["triggers"][trigger_id]["service_accounts"] = []
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, bindings, self.resolved)
+        self.assertIn("authorizes no service accounts", str(caught.exception))
+
+    def test_trigger_fails_when_the_service_account_was_not_created(self):
+        # The symptom when the service account phase runs after the
+        # workflow phase, which is how this was ordered originally.
+        resolved = copy.deepcopy(self.resolved)
+        resolved["service_accounts"] = {}
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, self.bindings, resolved)
+        self.assertIn("must run", str(caught.exception))
+
+    def test_unbound_http_trigger_is_rejected(self):
+        # A re-export that adds a webhook or EDA trigger must not slip
+        # through unwired just because the binding file wasn't updated.
+        definition = copy.deepcopy(self.definition)
+        definition["triggers"][0]["id"] = "activity_brand_new_trigger"
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(definition, self.bindings, self.resolved)
+        self.assertIn("no entry under `triggers:`", str(caught.exception))
 
     def test_agents_get_pinned_tools_as_bare_strings(self):
         agents = {n["id"]: n["parameters"] for n in self.wired["nodes"]

@@ -13,6 +13,8 @@ ao_workflow_bindings:
   nodes:
 
     # --- AI nodes -------------------------------------------------
+    #
+    # (triggers are wired separately, at the bottom of this file)
 
     # Picks a route from the incident. The prompt names both tools and
     # allows one call per step, so they are pinned — a renamed tool
@@ -87,3 +89,23 @@ ao_workflow_bindings:
       type: aap_job_template
       credential: aap
       integration: aap
+
+  # --- Triggers -----------------------------------------------------
+  #
+  # Triggers are a separate list from nodes in the export, and this is
+  # the only workflow here with one that needs wiring: a webhook_trigger
+  # rather than the manual trigger the other two carry.
+  #
+  # AO requires authorized_service_account_ids on it and rejects the
+  # workflow without one — "'authorized_service_account_ids' is a
+  # required property", and an empty list fails too ("[] should be
+  # non-empty"). The value is the service ACCOUNT's id; passing the id
+  # of a credential hanging off that account is a hard 422, as is any
+  # account belonging to a different project than the workflow.
+  triggers:
+    # "OpenFlake Trigger", webhook path `openflake-incident`. Opaque
+    # activity_<uuid> id, like the job template nodes above.
+    activity_e34a948c_7ecc_4414_85fe_8ad26beb2370:
+      type: webhook_trigger
+      service_accounts:
+        - webhooks

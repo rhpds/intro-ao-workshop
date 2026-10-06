@@ -24,6 +24,8 @@
              'integration_credentials': _ao_integration_credentials,
              'tools': _ao_integration_tools,
              'job_templates': _ao_job_template_ids,
+             'service_accounts': ({'webhooks': _ao_service_account_id}
+                                  if _ao_service_account_id is defined else {}),
              'llm_model_id': _ao_llm_model_id | default(''),
              'organization': ocp4_workload_automation_orchestrator_config_aap_organization,
            }) }}
