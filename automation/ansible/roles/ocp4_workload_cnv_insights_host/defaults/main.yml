@@ -16,17 +16,8 @@ ocp4_workload_cnv_insights_host_node_groups:
       - node3
 
 # -------------------------------------------------------------------
-# Red Hat Insights / rhc credentials — REQUIRED
-# Supply via secrets include. These map to the mandatory vars in
-# rhpds.rhel_management.insights_host:
-#   insights_host_org           → insights_org (mandatory)
-#   insights_host_activation_key → insights_activation_key (mandatory)
+# Red Hat account credentials for rhc connect — REQUIRED
+# Supply via secrets include.
 # -------------------------------------------------------------------
-insights_host_org: "{{ insights_org | mandatory }}"
-insights_host_activation_key: "{{ insights_activation_key | mandatory }}"
-
-# -------------------------------------------------------------------
-# PostgreSQL setup (part of the rhel_management demo environment)
-# Set to false to skip DB initialisation if not needed.
-# -------------------------------------------------------------------
-ocp4_workload_cnv_insights_host_setup_postgresql: true
+ocp4_workload_cnv_insights_host_rh_username: "{{ rh_username | mandatory }}"
+ocp4_workload_cnv_insights_host_rh_password: "{{ rh_password | mandatory }}"

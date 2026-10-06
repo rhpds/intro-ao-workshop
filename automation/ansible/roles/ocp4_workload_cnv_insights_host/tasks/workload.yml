@@ -10,14 +10,10 @@
 
 # -------------------------------------------------------
 # Step 2: Register each node with Red Hat Insights.
-# Wraps rhpds.rhel_management.insights_host using delegate_to
-# so it runs within the openshift-workloads localhost context.
+# Uses rhc connect --username/--password, restores rhsm.conf
+# after connect so Satellite repo config is preserved.
 # -------------------------------------------------------
 - name: Register CNV nodes with Red Hat Insights
-  vars:
-    # Override inventory_hostname so katello.facts gets the node name,
-    # not 'localhost' (which is what inventory_hostname equals during delegation)
-    _insights_fqdn: "{{ _node }}.{{ guid }}.internal"
   ansible.builtin.include_tasks: register_node.yml
   loop: "{{ ocp4_workload_cnv_insights_host_nodes }}"
   loop_control:
