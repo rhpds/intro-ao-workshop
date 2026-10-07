@@ -14,6 +14,20 @@
         active_scenarios: "{{ scenario_list if scenario_list is sequence and scenario_list is not string else [scenario_list] }}"
 
     # --- auto_remediate: fill disk with large log files ---
+
+    # Unconditional, and before the baseline. fallocate overwrites the
+    # file rather than growing it, so a re-run measures a /var/log that
+    # is already full and the ticket opens reading "rose from 36% to
+    # 36% within a minute" — no growth, which is the one thing the
+    # incident is about. The file normally disappears when the
+    # auto_remediate branch runs, so this only matters after a run that
+    # failed before remediation. That is exactly when someone re-runs.
+    - name: Remove the capacity ballast left by a previous run
+      ansible.builtin.file:
+        path: /var/log/capacity_test.log
+        state: absent
+      when: "'auto_remediate' in active_scenarios"
+
     - name: Baseline /var/log usage before planting
       ansible.builtin.command:
         cmd: df -BG --output=pcent,used,size /var/log
@@ -48,6 +62,26 @@
       ignore_errors: true
 
     # --- needs_approval: spawn CPU-eating process ---
+
+    # The spawn below overwrites the pid file, so without this an
+    # earlier spin loop is orphaned with nothing left pointing at it
+    # and burns a core for the rest of the lab. It also skews the next
+    # ticket's CPU figures, which are measured system-wide.
+    - name: Stop the runaway process left by a previous run
+      ansible.builtin.shell: |
+        pid=$(cat /tmp/runaway_process.pid 2>/dev/null || true)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          kill "$pid" 2>/dev/null
+          echo "killed $pid"
+        else
+          echo "nothing to clean up"
+        fi
+      args:
+        executable: /bin/bash
+      register: _runaway_cleared
+      changed_when: "'killed' in _runaway_cleared.stdout"
+      when: "'needs_approval' in active_scenarios"
+
     - name: Spawn runaway process to simulate high CPU
       ansible.builtin.shell: |
         nohup nice -n 10 bash -c 'while true; do :; done' </dev/null >/dev/null 2>&1 &
