@@ -23,14 +23,17 @@
   register: r_remove_service_accounts
   failed_when: false
 
-- name: Delete the service account
-  # Deleted by name rather than left to the project cascade: the
-  # service account project is configurable, and may be `default`,
-  # which this role must never delete.
+- name: Delete the service accounts
+  # Deleted by name rather than left to the project cascade. The
+  # student account lives in `default`, which this role must never
+  # delete, so nothing else would ever clean it up.
+  vars:
+    _ao_managed_service_account_names: >-
+      {{ ocp4_workload_automation_orchestrator_config_service_accounts
+         | map(attribute='name') | list }}
   loop: >-
     {{ (r_remove_service_accounts.json | default({}, true) | intro_ao_workshop.automation.ao_collection)
-       | selectattr('name', 'equalto',
-                    ocp4_workload_automation_orchestrator_config_service_account_name)
+       | selectattr('name', 'in', _ao_managed_service_account_names)
        | list }}
   loop_control:
     label: "{{ item.name }}"

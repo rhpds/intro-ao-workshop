@@ -14,6 +14,20 @@
         active_scenarios: "{{ scenario_list if scenario_list is sequence and scenario_list is not string else [scenario_list] }}"
 
     # --- auto_remediate: fill disk with large log files ---
+
+    # Unconditional, and before the baseline. fallocate overwrites the
+    # file rather than growing it, so a re-run measures a /var/log that
+    # is already full and the ticket opens reading "rose from 36% to
+    # 36% within a minute" — no growth, which is the one thing the
+    # incident is about. The file normally disappears when the
+    # auto_remediate branch runs, so this only matters after a run that
+    # failed before remediation. That is exactly when someone re-runs.
+    - name: Remove the capacity ballast left by a previous run
+      ansible.builtin.file:
+        path: /var/log/capacity_test.log
+        state: absent
+      when: "'auto_remediate' in active_scenarios"
+
     - name: Baseline /var/log usage before planting
       ansible.builtin.command:
         cmd: df -BG --output=pcent,used,size /var/log
@@ -48,6 +62,26 @@
       ignore_errors: true
 
     # --- needs_approval: spawn CPU-eating process ---
+
+    # The spawn below overwrites the pid file, so without this an
+    # earlier spin loop is orphaned with nothing left pointing at it
+    # and burns a core for the rest of the lab. It also skews the next
+    # ticket's CPU figures, which are measured system-wide.
+    - name: Stop the runaway process left by a previous run
+      ansible.builtin.shell: |
+        pid=$(cat /tmp/runaway_process.pid 2>/dev/null || true)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+          kill "$pid" 2>/dev/null
+          echo "killed $pid"
+        else
+          echo "nothing to clean up"
+        fi
+      args:
+        executable: /bin/bash
+      register: _runaway_cleared
+      changed_when: "'killed' in _runaway_cleared.stdout"
+      when: "'needs_approval' in active_scenarios"
+
     - name: Spawn runaway process to simulate high CPU
       ansible.builtin.shell: |
         nohup nice -n 10 bash -c 'while true; do :; done' </dev/null >/dev/null 2>&1 &
@@ -148,10 +182,37 @@
     openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default('admin', true) }}"
     openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') }}"
 
-    ao_base_url: "{{ lookup('env', 'AO_BASE_URL')  }}"
-    ao_sa_client_id: "{{ lookup('env', 'AO_CLIENT_ID') }}"
-    ao_sa_client_secret: "{{ lookup('env', 'AO_CLIENT_SECRET') }}"
-    ao_webhook_path: "openflake-incident"
+    # Whose workflow to fire — the leading word of the `webhook_target`
+    # survey choice, `student` or `solutions`. Defaults to `student`
+    # because building that workflow is the assignment; solutions is
+    # the fallback for someone who falls behind.
+    #
+    # It selects the credential AND the path together, because the two
+    # have to agree: AO only honours a trigger authorized for an
+    # account in the same project as the workflow.
+    # Bare `split()` splits on runs of any whitespace and drops leading
+    # and trailing empties, so a survey option saved as "  solutions -
+    # ..." still yields "solutions". `split(' ')` would return the
+    # empty string sitting before that first space. Appending the
+    # fallback covers undefined, empty and all-whitespace in one step.
+    _target: "{{ ((webhook_target | default('') | string).split() + ['student'])[0] | lower }}"
+
+    # Injected by AgnosticV's two `AO webhooks (*)` credential types,
+    # both attached to this job template. Separate types so the
+    # controller accepts both at once (one type with two credentials
+    # is rejected) and neither overwrites the other's variables.
+    # Trailing slashes stripped: every URL below appends `/api/v1/...`,
+    # and a doubled slash is a 404 from AO rather than a redirect.
+    ao_base_url: "{{ lookup('env', 'AO_BASE_URL') | regex_replace('/+$', '') }}"
+    ao_sa_client_id: >-
+      {{ lookup('env', 'AO_SOLUTIONS_CLIENT_ID') if _target == 'solutions'
+         else lookup('env', 'AO_STUDENT_CLIENT_ID') }}
+    ao_sa_client_secret: >-
+      {{ lookup('env', 'AO_SOLUTIONS_CLIENT_SECRET') if _target == 'solutions'
+         else lookup('env', 'AO_STUDENT_CLIENT_SECRET') }}
+    ao_webhook_path: >-
+      {{ 'openflake-incident' if _target == 'solutions'
+         else 'student-openflake-incident' }}
 
     scenarios:
       auto_remediate:
@@ -255,6 +316,30 @@
       ansible.builtin.debug:
         msg: "Created incident tickets: {{ ticket_map }}"
 
+    - name: Fail on an unrecognised webhook target
+      ansible.builtin.assert:
+        that:
+          - _target in ['student', 'solutions']
+        fail_msg: >-
+          webhook_target resolved to '{{ _target }}'. Pick a survey
+          choice beginning with either "student" or "solutions".
+        quiet: true
+
+    - name: Fail when the credential for this target is not attached
+      # Caught here rather than at the token call, where an empty
+      # client_id comes back as an opaque 401.
+      ansible.builtin.assert:
+        that:
+          - ao_base_url | length > 0
+          - ao_sa_client_id | length > 0
+          - ao_sa_client_secret | length > 0
+        fail_msg: >-
+          No AO credentials in the environment for the '{{ _target }}'
+          target. Attach the "Automation Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential to this job template.
+        quiet: true
+
     - name: Get AO service account token
       ansible.builtin.uri:
         url: "{{ ao_base_url }}/api/v1/auth/token"
@@ -265,7 +350,34 @@
           client_id: "{{ ao_sa_client_id }}"
           client_secret: "{{ ao_sa_client_secret }}"
         status_code: [200, 201]
+        validate_certs: false
       register: ao_token_resp
+      # The request body carries the client secret.
+      no_log: true
+      # Checked by the next task instead, which can report the status
+      # without reprinting the request body.
+      failed_when: false
+
+    - name: Explain a service account credential Automation Orchestrator rejected
+      # Without this, the no_log above turns every auth failure into
+      # "the output has been hidden". The response body holds no
+      # secret.
+      when: ao_token_resp.status | default(0) not in [200, 201]
+      ansible.builtin.fail:
+        msg: >-
+          Automation Orchestrator would not issue a token for the
+          '{{ _target }}' service account — HTTP
+          {{ ao_token_resp.status | default('no response') }} from
+          {{ ao_base_url }}/api/v1/auth/token. Response:
+          {{ ao_token_resp.json | default(ao_token_resp.msg | default('none', true), true) }}.
+          A 401 means the client id or secret on the "Automation
+          Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential does not match a service account in AO — the
+          secret is shown only once, when the account is created, so a
+          re-paste needs a rotate. The incident tickets
+          ({{ ticket_map.values() | join(', ') }}) were created either
+          way.
 
     - name: Fire AO webhook for each incident
       ansible.builtin.uri:
@@ -277,10 +389,31 @@
         body_format: json
         body:
           incident_number: "{{ ticket_map[item] }}"
-        status_code: [200, 201, 202]
+        # 404 and 403 are accepted so the task below can explain them;
+        # both are ordinary states mid-lab and AO's raw body for
+        # either says nothing useful.
+        status_code: [200, 201, 202, 403, 404]
         validate_certs: false
       loop: "{{ active_scenarios }}"
       register: webhook_results
+
+    - name: Explain a webhook that was refused
+      when: webhook_results.results | selectattr('status', 'in', [403, 404]) | list | length > 0
+      ansible.builtin.fail:
+        msg: >-
+          Automation Orchestrator refused
+          /api/v1/webhooks/{{ ao_webhook_path }}
+          ({{ webhook_results.results | map(attribute='status') | unique | join(', ') }}).
+          404 means nothing is listening on that path —
+          {{ "build the workflow in your default project, give its
+             trigger exactly this path, and publish it"
+             if _target == 'student'
+             else "the solutions workflow is missing or unpublished" }}.
+          403 means the '{{ _target }}' service account is not among
+          the trigger's authorized accounts; AO only honours one in
+          the same project as the workflow. The incident tickets
+          ({{ ticket_map.values() | join(', ') }}) were created either
+          way.
 
     - name: Summary
       ansible.builtin.debug:

@@ -1,0 +1,424 @@
+---
+# Fill the target host's filesystem to a chosen percentage, then tell
+# Automation Orchestrator to go and look.
+#
+# This replaces the Disk Utilization workflow's manual trigger and its
+# faked `test_disk_use_percent`. Nothing is simulated downstream: the
+# ballast is a real file, so the workflow's check step runs a real
+# `df`, the switch picks a branch from a real number, and the
+# remediation that runs has something to actually remediate.
+#
+# Two plays, same split as ticket-enrichment/openflake-incident-simulate.yml:
+# play 1 touches the host, play 2 runs on localhost and calls AO. They
+# are sequential, so there is no race between filling and alerting.
+#
+# Two survey variables, both dropdowns so there is nothing to mistype:
+#
+#   disk_fill_target  how full to make the disk. The choices carry
+#                     their own explanation — "85% - warning, triggers
+#                     log cleanup" — so only the leading integer is
+#                     read. 0 means reset: clear the ballast and fire
+#                     nothing.
+#   webhook_target    whose workflow to fire, `student` or
+#                     `solutions`. Only the leading word is read. It
+#                     selects the AO credential AND the webhook path
+#                     together, because the two have to agree: AO only
+#                     honours a trigger authorized for an account in
+#                     the same project as the workflow.
+
+# Play 1: put real bytes on the target host
+- name: Simulate - fill the disk on the target host
+  hosts: "{{ target_host | default('node2') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    # Underscore-prefixed so each name differs from the extra var it
+    # falls back on. `foo: "{{ foo | default(x) }}"` is a recursive loop
+    # whenever the extra var is absent, which is every default launch.
+    _disk_mount: "{{ disk_mount | default('/') }}"
+    # Named and dated like a rotated syslog nothing ever cleaned up,
+    # because that is precisely what remediate_disk_cleanup.yml
+    # deletes: files under /var/log matching messages-*, secure-*,
+    # wtmp-*, btmp-* or *.gz whose mtime is older than
+    # log_retention_days (90 by default). The directory alone is not
+    # enough — ballast named app-debug.log, or dated today, survives
+    # its own remediation and the warning branch reclaims nothing.
+    _ballast_age_days: "{{ ballast_age_days | default(200) | int }}"
+    _ballast_path: >-
+      {{ ballast_path | default('/var/log/messages-'
+         ~ ('%Y%m%d' | strftime(now().timestamp() - (_ballast_age_days | int) * 86400))) }}
+    # Floor on what is left afterwards. 97% of a 25 GiB root leaves
+    # ~870 MB, which is tight but workable; below this the node starts
+    # failing at things unrelated to the lab. The floor is what makes
+    # the ceiling safe as the critical branch grows the volume.
+    _min_free_mb: "{{ min_free_mb | default(500) | int }}"
+
+  tasks:
+    - name: Resolve the requested fill percentage
+      ansible.builtin.set_fact:
+        _target_pct: "{{ (disk_fill_target | default('0', true) | string
+                          | regex_search('[0-9]+') | default('0', true)) | int }}"
+
+    - name: Fail when the fill percentage is out of range
+      # Above 97 there is not enough slack left for the remediation
+      # playbooks themselves to run.
+      ansible.builtin.assert:
+        that:
+          - _target_pct | int >= 0
+          - _target_pct | int <= 97
+        fail_msg: >-
+          disk_fill_target resolved to {{ _target_pct }}%, which is outside
+          0-97. Pass a survey choice beginning with the percentage, e.g.
+          "85% - warning, triggers log cleanup".
+        quiet: true
+
+    - name: Resolve the filesystem holding the ballast directory
+      ansible.builtin.command:
+        argv:
+          - findmnt
+          - -n
+          - -o
+          - TARGET
+          - --target
+          - "{{ _ballast_path | dirname }}"
+      register: _ballast_fs
+      changed_when: false
+
+    - name: Fail when the ballast would land on a different filesystem
+      # The check step measures _disk_mount. Ballast on a separate
+      # filesystem would never move that number, and the run would look
+      # like the fill silently did nothing.
+      ansible.builtin.assert:
+        that:
+          - (_ballast_fs.stdout | trim) == (_disk_mount | trim)
+        fail_msg: >-
+          {{ _ballast_path | dirname }} is on {{ _ballast_fs.stdout | trim }},
+          not {{ _disk_mount }}. Filling it would not change usage on
+          {{ _disk_mount }}, which is what the workflow measures.
+        quiet: true
+
+    # Unconditional, and before measuring: every run starts from the
+    # same baseline. Without this, a second run would measure a disk
+    # already full from the first and compute a negative ballast — and
+    # the critical branch leaves its ballast behind, since expanding
+    # the volume lowers the percentage without freeing anything.
+    - name: Remove ballast left by a previous run
+      ansible.builtin.file:
+        path: "{{ _ballast_path }}"
+        state: absent
+      register: _ballast_cleared
+
+    - name: Measure the filesystem
+      ansible.builtin.command:
+        cmd: df -PB1 {{ _disk_mount }}
+      register: _df_before
+      changed_when: false
+
+    - name: Parse the filesystem measurements
+      ansible.builtin.set_fact:
+        _fs_total: "{{ _df_before.stdout_lines[1].split()[1] | int }}"
+        _fs_used: "{{ _df_before.stdout_lines[1].split()[2] | int }}"
+        _fs_avail: "{{ _df_before.stdout_lines[1].split()[3] | int }}"
+        _pct_before: "{{ _df_before.stdout_lines[1].split()[4] | regex_replace('%', '') | int }}"
+
+    - name: Report the reset
+      ansible.builtin.debug:
+        msg: >-
+          Reset: {{ _ballast_path }}
+          {{ 'removed' if _ballast_cleared is changed else 'was not present' }}.
+          {{ _disk_mount }} is {{ _pct_before }}% full. No webhook fired.
+      when: _target_pct | int == 0
+
+    - name: Compute the ballast size
+      # XFS has no reserved-blocks margin, so df's percentage is
+      # used/total and the arithmetic is exact. fallocate's unwritten
+      # extents count as used, so the file need never be written.
+      ansible.builtin.set_fact:
+        _ballast_bytes: "{{ ((_fs_total | int) * (_target_pct | int) / 100 - (_fs_used | int)) | int }}"
+      when: _target_pct | int > 0
+
+    - name: Fail when the target is at or below current usage
+      ansible.builtin.assert:
+        that:
+          - _ballast_bytes | int > 0
+        fail_msg: >-
+          {{ _disk_mount }} is already {{ _pct_before }}% full, so it cannot be
+          filled down to {{ _target_pct }}%. Run the reset choice first, or
+          pick a higher percentage.
+        quiet: true
+      when: _target_pct | int > 0
+
+    - name: Fail when the fill would leave too little free space
+      ansible.builtin.assert:
+        that:
+          - ((_fs_avail | int) - (_ballast_bytes | int)) >= ((_min_free_mb | int) * 1048576)
+        fail_msg: >-
+          Filling {{ _disk_mount }} to {{ _target_pct }}% would leave
+          {{ (((_fs_avail | int) - (_ballast_bytes | int)) / 1048576) | round(1) }} MB
+          free, under the {{ _min_free_mb }} MB floor.
+        quiet: true
+      when: _target_pct | int > 0
+
+    - name: Allocate the ballast
+      # fallocate is instant on XFS. dd is the fallback for a
+      # filesystem that does not support preallocation, where it costs
+      # real write time.
+      ansible.builtin.shell: |
+        set -o pipefail
+        fallocate -l {{ _ballast_bytes | int }} {{ _ballast_path | quote }} 2>/dev/null || \
+          dd if=/dev/zero of={{ _ballast_path | quote }} bs=1M \
+             count={{ ((_ballast_bytes | int) / 1048576) | round | int }} 2>/dev/null
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: _target_pct | int > 0
+
+    - name: Backdate the ballast past the log retention window
+      # `find` in remediate_disk_cleanup.yml matches on mtime, so a
+      # file created a second ago is never old enough to be collected
+      # however it is named. Without this the warning branch runs to
+      # completion and frees nothing.
+      ansible.builtin.file:
+        path: "{{ _ballast_path }}"
+        state: file
+        modification_time: >-
+          {{ '%Y%m%d%H%M.%S' | strftime(now().timestamp()
+             - (_ballast_age_days | int) * 86400) }}
+      when: _target_pct | int > 0
+
+    - name: Measure the filesystem after filling
+      ansible.builtin.command:
+        cmd: df -PB1 {{ _disk_mount }}
+      register: _df_after
+      changed_when: false
+      when: _target_pct | int > 0
+
+    - name: Parse the usage after filling
+      ansible.builtin.set_fact:
+        _pct_after: "{{ _df_after.stdout_lines[1].split()[4] | regex_replace('%', '') | int }}"
+      when: _target_pct | int > 0
+
+    - name: Report the fill
+      ansible.builtin.debug:
+        msg: >-
+          Allocated {{ ((_ballast_bytes | int) / 1073741824) | round(2) }} GiB at
+          {{ _ballast_path }} — {{ _disk_mount }} went {{ _pct_before }}% →
+          {{ _pct_after }}% (target {{ _target_pct }}%).
+      when: _target_pct | int > 0
+
+    # Carried to play 2 on localhost, which has no access to this
+    # play's host facts otherwise.
+    - name: Publish the simulation result for the webhook play
+      ansible.builtin.set_fact:
+        sim_fire_webhook: "{{ _target_pct | int > 0 }}"
+        sim_host: "{{ inventory_hostname }}"
+        sim_mount: "{{ _disk_mount }}"
+        sim_target_pct: "{{ _target_pct }}"
+        sim_pct_before: "{{ _pct_before }}"
+        sim_pct_after: "{{ _pct_after | default(_pct_before) }}"
+      delegate_to: localhost
+      delegate_facts: true
+      run_once: true
+
+# Play 2: tell AO the disk is in trouble
+- name: Simulate - fire the Automation Orchestrator webhook
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # Leading word of the survey choice; the rest is prose for the
+    # student. Defaults to `student` because building that workflow is
+    # the assignment — solutions is the fallback for someone stuck.
+    #
+    # Bare `split()` splits on runs of any whitespace and drops leading
+    # and trailing empties, so a survey option saved as "  solutions -
+    # ..." still yields "solutions". `split(' ')` would return the
+    # empty string sitting before that first space.
+    #
+    # Appending the fallback to the list rather than using `default`
+    # covers undefined, empty and all-whitespace in one step: an empty
+    # split is [], so the fallback lands at index 0.
+    _target: "{{ ((webhook_target | default('') | string).split() + ['student'])[0] | lower }}"
+
+    # Injected by AgnosticV's two `AO webhooks (*)` credential types,
+    # both attached to this job template. Separate types precisely so
+    # the controller accepts both at once and neither set of variables
+    # overwrites the other — one type with two credentials is rejected
+    # as "Cannot assign multiple ... credentials".
+    #
+    # Both inject AO_BASE_URL with the same value, so whichever wins
+    # is correct and either credential works on its own.
+    # Trailing slashes stripped: every URL below appends `/api/v1/...`,
+    # and a doubled slash is a 404 from AO rather than a redirect.
+    ao_base_url: "{{ lookup('env', 'AO_BASE_URL') | regex_replace('/+$', '') }}"
+    ao_sa_client_id: >-
+      {{ lookup('env', 'AO_SOLUTIONS_CLIENT_ID') if _target == 'solutions'
+         else lookup('env', 'AO_STUDENT_CLIENT_ID') }}
+    ao_sa_client_secret: >-
+      {{ lookup('env', 'AO_SOLUTIONS_CLIENT_SECRET') if _target == 'solutions'
+         else lookup('env', 'AO_STUDENT_CLIENT_SECRET') }}
+
+    # Fixed per target rather than typed. The student is told this
+    # exact path in module 03 when they create their trigger, so there
+    # is nothing to get wrong and no free-text survey field.
+    ao_webhook_path: >-
+      {{ 'disk-utilization' if _target == 'solutions'
+         else 'student-disk-utilization' }}
+
+    sim_fire_webhook: "{{ hostvars['localhost'].sim_fire_webhook | default(false) }}"
+    sim_host: "{{ hostvars['localhost'].sim_host | default('unknown') }}"
+    sim_mount: "{{ hostvars['localhost'].sim_mount | default('/') }}"
+    sim_target_pct: "{{ hostvars['localhost'].sim_target_pct | default('0') }}"
+    sim_pct_after: "{{ hostvars['localhost'].sim_pct_after | default('unknown') }}"
+
+  tasks:
+    - name: Report that the reset fired no webhook
+      ansible.builtin.debug:
+        msg: >-
+          Reset only — ballast cleared on {{ sim_host }} and no workflow
+          triggered. Run again with a percentage to start a scenario.
+      when: not (sim_fire_webhook | bool)
+
+    - name: Fail on an unrecognised webhook target
+      ansible.builtin.assert:
+        that:
+          - _target in ['student', 'solutions']
+        fail_msg: >-
+          webhook_target resolved to '{{ _target }}'. Pick a survey
+          choice beginning with either "student" or "solutions".
+        quiet: true
+      when: sim_fire_webhook | bool
+
+    - name: Fail when the credential for this target is not attached
+      # Caught here rather than at the token call, where an empty
+      # client_id comes back as an opaque 401.
+      ansible.builtin.assert:
+        that:
+          - ao_base_url | length > 0
+          - ao_sa_client_id | length > 0
+          - ao_sa_client_secret | length > 0
+        fail_msg: >-
+          No AO credentials in the environment for the '{{ _target }}'
+          target. Attach the "Automation Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential to this job template.
+        quiet: true
+      when: sim_fire_webhook | bool
+
+    - name: Get an Automation Orchestrator service account token
+      ansible.builtin.uri:
+        url: "{{ ao_base_url }}/api/v1/auth/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+          client_id: "{{ ao_sa_client_id }}"
+          client_secret: "{{ ao_sa_client_secret }}"
+        status_code: [200, 201]
+        validate_certs: false
+      register: ao_token_resp
+      no_log: true
+      # Checked by the next task instead, which can report the status
+      # without reprinting the request body.
+      failed_when: false
+      when: sim_fire_webhook | bool
+
+    - name: Explain a service account credential Automation Orchestrator rejected
+      # The task above is no_log because its request body carries the
+      # client secret, so an ordinary failure there shows up only as
+      # "the output has been hidden". The response body holds no
+      # secret, so report it here.
+      when:
+        - sim_fire_webhook | bool
+        - ao_token_resp.status | default(0) not in [200, 201]
+      ansible.builtin.fail:
+        msg: >-
+          Automation Orchestrator would not issue a token for the
+          '{{ _target }}' service account — HTTP
+          {{ ao_token_resp.status | default('no response') }} from
+          {{ ao_base_url }}/api/v1/auth/token. Response:
+          {{ ao_token_resp.json | default(ao_token_resp.msg | default('none', true), true) }}.
+          A 401 means the client id or secret on the "Automation
+          Orchestrator
+          ({{ 'Solutions' if _target == 'solutions' else 'Student' }})"
+          credential does not match a service account in AO — the
+          secret is shown only once, when the account is created, so a
+          re-paste needs a rotate. A connection error means
+          AO_BASE_URL is wrong or AO is not up. The disk on
+          {{ sim_host }} is still filled to {{ sim_pct_after }}%.
+
+    - name: Fire the disk utilization webhook
+      # The body is context for the notification steps only. The
+      # workflow's check step deliberately takes no percentage from
+      # here — it runs df on the host and reads the real number, which
+      # is the entire point of filling the disk for real.
+      ansible.builtin.uri:
+        url: "{{ ao_base_url }}/api/v1/webhooks/{{ ao_webhook_path }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ ao_token_resp.json.access_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          host: "{{ sim_host }}"
+          mount: "{{ sim_mount }}"
+          simulated_percent: "{{ sim_target_pct | string }}"
+        # 404 and 403 are accepted so the two tasks below can explain
+        # them. Both are ordinary states mid-lab, and the raw body AO
+        # returns for either says nothing useful.
+        status_code: [200, 201, 202, 403, 404]
+        validate_certs: false
+      register: webhook_result
+      when: sim_fire_webhook | bool
+
+    - name: Explain a webhook path nothing is listening on
+      when:
+        - sim_fire_webhook | bool
+        - webhook_result.status | default(0) == 404
+      ansible.builtin.fail:
+        msg: >-
+          Nothing in Automation Orchestrator is listening on
+          /api/v1/webhooks/{{ ao_webhook_path }}.
+          {{ "Build the workflow in your default project first, give its
+             trigger exactly this path, and publish it — an unpublished
+             workflow does not answer."
+             if _target == 'student'
+             else "The solutions workflow should have been created at
+             provision time, so this means it is missing or
+             unpublished." }}
+          The disk on {{ sim_host }} is still filled to
+          {{ sim_pct_after }}%; re-run with the reset choice to clear
+          it.
+
+    - name: Explain a webhook the credential is not allowed to fire
+      when:
+        - sim_fire_webhook | bool
+        - webhook_result.status | default(0) == 403
+      ansible.builtin.fail:
+        msg: >-
+          The '{{ _target }}' service account is not authorized for
+          /api/v1/webhooks/{{ ao_webhook_path }}. AO only honours a
+          trigger whose authorized service account is in the same
+          project as the workflow — add
+          'aap-{{ _target }}-webhooks' to the trigger's authorized
+          accounts. The disk on {{ sim_host }} is still filled to
+          {{ sim_pct_after }}%.
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================================
+          DISK UTILIZATION WORKFLOW TRIGGERED
+          ============================================================
+            Host:            {{ sim_host }}
+            Mount:           {{ sim_mount }}
+            Filled to:       {{ sim_pct_after }}% (target {{ sim_target_pct }}%)
+            Expected branch: {{ 'OK - no action' if sim_pct_after | int < 80
+                                else ('Warning - log cleanup' if sim_pct_after | int <= 95
+                                      else 'Critical - expand volume') }}
+            Fired:           {{ _target }} workflow, /api/v1/webhooks/{{ ao_webhook_path }}
+            Execution:       {{ webhook_result.json.execution_id | default('N/A') }}
+          ============================================================
+      when: sim_fire_webhook | bool

@@ -75,9 +75,15 @@ def fake_resolved(job_template_names, tools=None):
         "job_templates": {
             name: 100 + index for index, name in enumerate(sorted(job_template_names))
         },
-        # Keyed the same way credentials and integrations are. Only
-        # Ticket Enrichment's webhook trigger consumes it.
-        "service_accounts": {"webhooks": UUID % 50},
+        # Keyed the same way credentials and integrations are. Both
+        # accounts the role mints are present, because the point of
+        # the key is that a binding file can name the wrong one: only
+        # `solutions_webhooks` shares a project with these workflows,
+        # and AO 422s a trigger authorized for an account outside it.
+        "service_accounts": {
+            "solutions_webhooks": UUID % 50,
+            "student_webhooks": UUID % 51,
+        },
         "llm_model_id": UUID % 20,
         "organization": "Default",
     }
@@ -401,6 +407,41 @@ class TestWireDisk(unittest.TestCase):
         resolved["llm_model_id"] = None
         ao_wire_definition(self.definition, self.bindings, resolved)
 
+    def test_webhook_trigger_is_authorized_for_the_service_account(self):
+        # Also catches the export and the binding file drifting apart:
+        # the trigger id is hand-written in bindings_disk_utilization.yml,
+        # and an id that matches nothing in the export leaves the
+        # trigger unwired, which AO rejects at import.
+        trigger = self.wired["triggers"][0]
+        self.assertEqual(trigger["type"], "webhook_trigger")
+        self.assertEqual(
+            trigger["parameters"]["authorized_service_account_ids"], [UUID % 50]
+        )
+        self.assertEqual(
+            trigger["parameters"]["webhook_path"], "disk-utilization"
+        )
+        # The solutions account, not the student one — see
+        # TestWireTicketEnrichment.test_binding_names_the_solutions_account.
+        self.assertEqual(
+            self.bindings["triggers"][trigger["id"]]["service_accounts"],
+            ["solutions_webhooks"],
+        )
+
+    def test_check_node_sends_no_simulated_percentage(self):
+        # The premise of the whole scenario: AAP fills the disk for
+        # real and the check step measures it. A `test_disk_use_percent`
+        # here puts the faked number back and the switch stops reading
+        # reality — which is easy to reintroduce, because re-exporting
+        # from the AO UI after a manual test carries it along.
+        check = [
+            n for n in self.wired["nodes"]
+            if n["parameters"].get("job_template_name") == "Disk Utilization Check"
+        ]
+        self.assertEqual(len(check), 1)
+        self.assertNotIn(
+            "test_disk_use_percent", check[0]["parameters"].get("extra_vars", {})
+        )
+
 
 TICKET_TOOLS = {
     "openflake_mcp": {
@@ -435,9 +476,10 @@ class TestWireTicketEnrichment(unittest.TestCase):
         self.assertEqual(types.count("aap_job_template"), 6)
 
     def test_webhook_trigger_survives_wiring(self):
-        # This is the only workflow triggered by webhook rather than
-        # manually, and the webhook path is what the aap-webhooks
-        # service account is minted for.
+        # The solutions copy of the path. `student-openflake-incident`
+        # is the student's, created by hand in module 03 — a re-export
+        # that brought that path in here would mean the two workflows
+        # had been confused.
         triggers = self.wired["triggers"]
         self.assertEqual(len(triggers), 1)
         self.assertEqual(triggers[0]["type"], "webhook_trigger")
@@ -452,6 +494,34 @@ class TestWireTicketEnrichment(unittest.TestCase):
         # required property" against this exact trigger id.
         params = self.wired["triggers"][0]["parameters"]
         self.assertEqual(params["authorized_service_account_ids"], [UUID % 50])
+
+    def test_binding_names_the_solutions_account(self):
+        # The key is load-bearing, not cosmetic. Both accounts resolve,
+        # so swapping this to `student_webhooks` wires perfectly
+        # cleanly here and then fails at import — AO 422s a trigger
+        # authorized for an account outside the workflow's project.
+        # Pinned so that swap has to be deliberate.
+        bindings = copy.deepcopy(self.bindings)
+        trigger_id = next(iter(bindings["triggers"]))
+        self.assertEqual(
+            bindings["triggers"][trigger_id]["service_accounts"],
+            ["solutions_webhooks"],
+        )
+        bindings["triggers"][trigger_id]["service_accounts"] = ["student_webhooks"]
+        wired = ao_wire_definition(self.definition, bindings, self.resolved)
+        self.assertEqual(
+            wired["triggers"][0]["parameters"]["authorized_service_account_ids"],
+            [UUID % 51],
+        )
+
+    def test_unknown_service_account_key_is_rejected(self):
+        # A typo or a key renamed in defaults/main.yml without the
+        # binding following it.
+        bindings = copy.deepcopy(self.bindings)
+        trigger_id = next(iter(bindings["triggers"]))
+        bindings["triggers"][trigger_id]["service_accounts"] = ["webhooks"]
+        with self.assertRaises(AOWiringError):
+            ao_wire_definition(self.definition, bindings, self.resolved)
 
     def test_trigger_without_a_service_account_is_rejected(self):
         # AO rejects an empty list too ("[] should be non-empty"), so

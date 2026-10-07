@@ -1,13 +1,31 @@
 {
   "triggers": [
     {
-      "id": "trigger_manual",
-      "type": "manual_trigger",
-      "name": "Manual Trigger",
-      "parameters": {},
+      "id": "activity_c3bbccdb_3cd8_62e2_3905_6a09e7131220",
+      "name": "Disk Alert Trigger",
+      "type": "webhook_trigger",
       "position": {
         "x": 0,
         "y": 486.5
+      },
+      "parameters": {
+        "input_schema": {
+          "type": "object",
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "mount": {
+              "type": "string"
+            },
+            "simulated_percent": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        "webhook_path": "disk-utilization"
       }
     }
   ],
@@ -47,6 +65,9 @@
           "remediation_action": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.remediation_action}",
           "total_reclaimed_mb": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.total_reclaimed_mb}",
           "log_archives_removed": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.log_archives_removed}",
+          "large_logs_removed": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.large_logs_removed}",
+          "large_logs_freed_mb": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.large_logs_freed_mb}",
+          "large_log_threshold_mb": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.large_log_threshold_mb}",
           "volume_size_after_gb": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.volume_size_after_gb}",
           "volume_size_before_gb": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.volume_size_before_gb}",
           "disk_use_percent_after": "${activity_595ded69_fca6_4ffd_95f4_bb345237efa6.artifacts.disk_use_percent_after}",
@@ -88,9 +109,7 @@
       "name": "Launch AAP job template",
       "parameters": {
         "diff_mode": false,
-        "extra_vars": {
-          "test_disk_use_percent": 50
-        },
+        "extra_vars": {},
         "credential_id": "YOUR_AAP_CREDENTIAL_ID",
         "job_template_name": "Disk Utilization Check",
         "organization_name": "Default"
@@ -121,6 +140,9 @@
           "remediation_action": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.remediation_action}",
           "total_reclaimed_mb": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.total_reclaimed_mb}",
           "log_archives_removed": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.log_archives_removed}",
+          "large_logs_removed": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.large_logs_removed}",
+          "large_logs_freed_mb": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.large_logs_freed_mb}",
+          "large_log_threshold_mb": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.large_log_threshold_mb}",
           "volume_size_after_gb": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.volume_size_after_gb}",
           "volume_size_before_gb": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.volume_size_before_gb}",
           "disk_use_percent_after": "${activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59.artifacts.disk_use_percent_after}",
@@ -141,6 +163,11 @@
       "name": "Remediate - Expand Disk",
       "parameters": {
         "diff_mode": false,
+        "extra_vars": {
+          "disk_tier": "${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_tier}",
+          "disk_mount": "${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_mount}",
+          "disk_use_percent": "${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_use_percent}"
+        },
         "credential_id": "YOUR_AAP_CREDENTIAL_ID",
         "job_template_name": "Linux - Remediate - Disk Expand",
         "organization_name": "Default"
@@ -170,6 +197,9 @@
           "remediation_action": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.remediation_action}",
           "total_reclaimed_mb": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.total_reclaimed_mb}",
           "log_archives_removed": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.log_archives_removed}",
+          "large_logs_removed": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.large_logs_removed}",
+          "large_logs_freed_mb": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.large_logs_freed_mb}",
+          "large_log_threshold_mb": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.large_log_threshold_mb}",
           "volume_size_after_gb": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.volume_size_after_gb}",
           "volume_size_before_gb": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.volume_size_before_gb}",
           "disk_use_percent_after": "${activity_e18d67ef_1f99_4553_9807_81710484a424.artifacts.disk_use_percent_after}",
@@ -225,6 +255,9 @@
           "remediation_action": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.remediation_action}",
           "total_reclaimed_mb": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.total_reclaimed_mb}",
           "log_archives_removed": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.log_archives_removed}",
+          "large_logs_removed": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.large_logs_removed}",
+          "large_logs_freed_mb": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.large_logs_freed_mb}",
+          "large_log_threshold_mb": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.large_log_threshold_mb}",
           "volume_size_after_gb": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.volume_size_after_gb}",
           "volume_size_before_gb": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.volume_size_before_gb}",
           "disk_use_percent_after": "${activity_ee976dab_737f_4a8f_a6ba_e774897e84e8.artifacts.disk_use_percent_after}",
@@ -280,7 +313,7 @@
       "from_port": "case_1"
     },
     {
-      "from": "trigger_manual",
+      "from": "activity_c3bbccdb_3cd8_62e2_3905_6a09e7131220",
       "to": "activity_61ac9127_f147_4fa8_9c04_189097e753e9"
     },
     {
