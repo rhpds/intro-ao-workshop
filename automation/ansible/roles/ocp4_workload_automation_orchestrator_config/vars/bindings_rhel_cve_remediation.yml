@@ -83,6 +83,24 @@ ao_workflow_bindings:
       integration: aap
       job_template: CVE - Notify Mattermost Investigation
 
+    # Success cards. Same template as the investigation card -- the
+    # playbook picks which to post from the report_type extra_var, so
+    # this needs no second job template. One node per branch rather than
+    # one shared node: AO skips a node unless every inbound edge fires,
+    # and the two branches are mutually exclusive, so a shared node
+    # would never run.
+    notify_remediated:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Notify Mattermost Investigation
+
+    notify_remediated_prod:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Notify Mattermost Investigation
+
     # Launch whichever template the deploy node named upstream
     # (`${...artifacts.template_name}`), so no static job_template_id.
     run_cve_remediation:

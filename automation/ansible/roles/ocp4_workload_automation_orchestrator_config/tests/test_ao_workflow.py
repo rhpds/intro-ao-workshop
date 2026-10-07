@@ -8,6 +8,7 @@ or AAP instance required:
     python3 tests/test_ao_workflow.py
 """
 
+import collections
 import copy
 import json
 import os
@@ -123,9 +124,25 @@ class TestPrepare(unittest.TestCase):
         self.assertEqual(definition["schema_version"], "2.0.0")
         # The export names itself; the fallback must not clobber it.
         self.assertNotEqual(definition["name"], "Fallback Name")
-        self.assertEqual(len(definition["nodes"]), 11)
-        self.assertEqual(len(definition["edges"]), 11)
+        self.assertEqual(len(definition["nodes"]), 13)
+        self.assertEqual(len(definition["edges"]), 13)
         self.assertEqual(len(definition["triggers"]), 1)
+
+    def test_no_node_waits_on_more_than_one_edge(self):
+        # AO skips a node unless every inbound edge fires, so a node fed
+        # by two mutually exclusive branches never runs. investigate_agent
+        # was wired from both case_2 and default and sat dead for the
+        # whole of its life; nothing caught it because the branch was
+        # never reached. Converging branches need one node each.
+        for name in (
+            "rhel-cve-remediation.json",
+            "disk-utilization-remediation.json",
+            "ticket-enrichment.json",
+        ):
+            raw = load_workflow(name)
+            inbound = collections.Counter(e["to"] for e in raw["edges"])
+            joins = {node: n for node, n in inbound.items() if n > 1}
+            self.assertEqual(joins, {}, f"{name} has join nodes: {joins}")
 
     def test_disk_export_gets_synthesised_metadata(self):
         raw = load_workflow("disk-utilization-remediation.json")
