@@ -24,6 +24,8 @@ ao_workflow_bindings:
       tool_selection_strategy: SELECTED
       tools:
         lightspeed_mcp:
+          - vulnerability__get_cve_systems
+          - vulnerability__get_cve
           - advisor__get_hosts_hitting_a_rule
           - advisor__get_recommendations_stats
           - advisor__get_rule_details
@@ -38,17 +40,27 @@ ao_workflow_bindings:
           - groups_list
           - inventories_list
 
-    # No tools: this node reasons over what triage already gathered.
-    # NONE rather than an empty SELECTED — AO's strategy enum is
-    # ALL|NONE|SELECTED, and SELECTED with an empty tool_selections is
-    # rejected outright.
+    # Triage reaches this node precisely when it could not resolve the
+    # CVE, so there is nothing gathered to reason over — the prompt
+    # tells it to look the CVE up itself and check the host, which
+    # needs its own tools.
     investigate_agent:
       type: agentic
       credential: llm
       integrations:
         - lightspeed_mcp
         - aap_mcp
-      tool_selection_strategy: NONE
+      tool_selection_strategy: SELECTED
+      tools:
+        lightspeed_mcp:
+          - vulnerability__get_cve
+          - vulnerability__explain_cves
+          - vulnerability__get_system_cves
+          - inventory__get_host_details
+          - inventory__get_host_system_profile
+        aap_mcp:
+          - hosts_list
+          - hosts_variable_data_retrieve
 
     # --- AAP job template nodes -----------------------------------
 
