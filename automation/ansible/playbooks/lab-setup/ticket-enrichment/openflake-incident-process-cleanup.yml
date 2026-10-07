@@ -8,8 +8,19 @@
 
   tasks:
     - name: Capture CPU usage before cleanup
+      # Found by label, not by position. top pads the CPU line to a
+      # fixed width, so at full idle it prints "0.0 ni,100.0 id," with
+      # no space after the comma; awk merges those into one field,
+      # everything shifts left, and $8 lands on the literal "id,".
+      # That reads as 0, giving "100% busy" on a completely idle host
+      # — the remediation reported CPU going 50% -> 100% after it
+      # successfully killed the runaway process. Stripping commas
+      # first and scanning for the field before "id" is immune to the
+      # padding and needs no gawk extensions.
       ansible.builtin.shell: |
-        top -bn2 -d 1 | awk '/^%Cpu/ {v = 100 - $8} END {printf "%.0f", v}'
+        top -bn2 -d 1 | tr ',' ' ' \
+          | awk '/^%Cpu/ {for (i = 1; i <= NF; i++) if ($i == "id") v = 100 - $(i - 1)}
+                 END {printf "%.0f", v}'
       register: cpu_before
       changed_when: false
 
@@ -70,7 +81,9 @@
 
     - name: Capture CPU usage after cleanup
       ansible.builtin.shell: |
-        top -bn2 -d 1 | awk '/^%Cpu/ {v = 100 - $8} END {printf "%.0f", v}'
+        top -bn2 -d 1 | tr ',' ' ' \
+          | awk '/^%Cpu/ {for (i = 1; i <= NF; i++) if ($i == "id") v = 100 - $(i - 1)}
+                 END {printf "%.0f", v}'
       register: cpu_after
       changed_when: false
 
