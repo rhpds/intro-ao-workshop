@@ -103,7 +103,7 @@ CVE_TOOLS = {
         "inventory__get_host_tags": UUID % 26,
         "inventory__list_hosts": UUID % 27,
         "vulnerability__get_cve_systems": UUID % 30,
-        "vulnerability__get_cve_details": UUID % 31,
+        "vulnerability__get_cve": UUID % 31,
     },
     "aap_mcp": {
         "hosts_list": UUID % 32,
@@ -123,8 +123,8 @@ class TestPrepare(unittest.TestCase):
         self.assertEqual(definition["schema_version"], "2.0.0")
         # The export names itself; the fallback must not clobber it.
         self.assertNotEqual(definition["name"], "Fallback Name")
-        self.assertEqual(len(definition["nodes"]), 12)
-        self.assertEqual(len(definition["edges"]), 12)
+        self.assertEqual(len(definition["nodes"]), 11)
+        self.assertEqual(len(definition["edges"]), 11)
         self.assertEqual(len(definition["triggers"]), 1)
 
     def test_disk_export_gets_synthesised_metadata(self):
@@ -236,28 +236,20 @@ class TestWireCVE(unittest.TestCase):
             [
                 CVE_TOOLS["lightspeed_mcp"][name]
                 for name in (
-                    "advisor__get_hosts_hitting_a_rule",
-                    "advisor__get_recommendations_stats",
-                    "advisor__get_rule_details",
-                    "content-sources__list_repositories",
-                    "inventory__get_host_details",
-                    "inventory__get_host_system_profile",
-                    "inventory__get_host_tags",
-                    "inventory__list_hosts",
+                    "vulnerability__get_cve",
+                    "vulnerability__get_cve_systems",
                 )
             ]
             + [
                 CVE_TOOLS["aap_mcp"][name]
                 for name in (
-                    "groups_list",
                     "hosts_list",
                     "hosts_variable_data_retrieve",
-                    "inventories_list",
                 )
             ]
         )
         self.assertEqual(sorted(triage["tool_selections"]), expected)
-        self.assertEqual(len(expected), 12)
+        self.assertEqual(len(expected), 4)
         self.assertTrue(triage["tool_selections"], "must be non-empty for SELECTED")
 
     def test_every_connection_carries_both_ids(self):
@@ -295,17 +287,32 @@ class TestWireCVE(unittest.TestCase):
                 self.assertNotIn(selection, names, node["id"])
 
     def test_strategy_none_sends_no_tool_selections(self):
-        # investigate_agent reasons over what triage gathered, so it gets
-        # no tools. AO's enum is ALL|NONE|SELECTED and SELECTED with an
-        # empty list is rejected, so this must be NONE — and the key must
-        # be absent, matching what AO's own UI sends.
-        investigate = self.nodes["investigate_agent"]["parameters"]
+        # AO's enum is ALL|NONE|SELECTED and SELECTED with an empty list is
+        # rejected, so a toolless node must be NONE — and the key must be
+        # absent, matching what AO's own UI sends. Both shipped agents pin
+        # tools, so build the NONE case rather than borrowing one.
+        bindings = copy.deepcopy(self.bindings)
+        node = bindings["nodes"]["investigate_agent"]
+        node["tool_selection_strategy"] = "NONE"
+        node.pop("tools", None)
+        wired = ao_wire_definition(self.definition, bindings, self.resolved)
+        investigate = {n["id"]: n for n in wired["nodes"]}["investigate_agent"][
+            "parameters"
+        ]
         self.assertEqual(investigate["tool_selection_strategy"], "NONE")
         self.assertNotIn("tool_selections", investigate)
         # It still connects to both integrations, and still needs a model
         # and a credential.
         self.assertEqual(len(investigate["integration_connections"]), 2)
         self.assertEqual(investigate["llm_model_id"], UUID % 20)
+
+    def test_shipped_agents_both_pin_tools(self):
+        # The investigate branch reaches its agent with nothing gathered,
+        # so it does its own lookups; neither agent may run toolless.
+        for node_id in ("triage_agent", "investigate_agent"):
+            params = self.nodes[node_id]["parameters"]
+            self.assertEqual(params["tool_selection_strategy"], "SELECTED", node_id)
+            self.assertTrue(params["tool_selections"], node_id)
 
     def test_tools_all_expands_to_whole_surface(self):
         bindings = copy.deepcopy(self.bindings)
@@ -324,9 +331,9 @@ class TestWireCVE(unittest.TestCase):
 
     def test_strategy_none_with_tools_is_rejected(self):
         bindings = copy.deepcopy(self.bindings)
-        bindings["nodes"]["investigate_agent"]["tools"] = {
-            "aap_mcp": ["hosts_list"]
-        }
+        node = bindings["nodes"]["investigate_agent"]
+        node["tool_selection_strategy"] = "NONE"
+        node["tools"] = {"aap_mcp": ["hosts_list"]}
         with self.assertRaises(AOWiringError) as caught:
             ao_wire_definition(self.definition, bindings, self.resolved)
         self.assertIn("NONE", str(caught.exception))
@@ -356,7 +363,6 @@ class TestWireCVE(unittest.TestCase):
 
     def test_self_contained_nodes_untouched(self):
         for node_id, node_type in (
-            ("parse_investigation", "script"),
             ("route_switch", "switch"),
             ("approval_prod", "approval"),
         ):
