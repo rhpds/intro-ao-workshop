@@ -11,9 +11,11 @@ ao_workflow_bindings:
 
     # --- AI nodes -------------------------------------------------
 
-    # Exactly the three tools the prompt calls by name, nothing more.
-    # Pinned rather than ALL: a renamed tool should fail the provision,
-    # not the agent at run time.
+    # The three tools the prompt calls by name, plus get_cve, which is
+    # the only source for the cve_severity / cvss_score /
+    # exploit_available fields in the response schema. Pinned rather
+    # than ALL: a renamed tool should fail the provision, not the agent
+    # at run time.
     triage_agent:
       type: agentic
       credential: llm
@@ -24,6 +26,7 @@ ao_workflow_bindings:
       tools:
         lightspeed_mcp:
           - vulnerability__get_cve_systems
+          - vulnerability__get_cve
         aap_mcp:
           - hosts_list
           - hosts_variable_data_retrieve
