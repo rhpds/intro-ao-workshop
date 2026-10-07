@@ -11,10 +11,11 @@ ao_workflow_bindings:
 
     # --- AI nodes -------------------------------------------------
 
-    # Triage does the gathering for this workflow, so it carries the
-    # whole read-only surface it needs across both servers. Pinned
-    # rather than ALL: a renamed tool should fail the provision, not
-    # the agent at run time.
+    # The three tools the prompt calls by name, plus get_cve, which is
+    # the only source for the cve_severity / cvss_score /
+    # exploit_available fields in the response schema. Pinned rather
+    # than ALL: a renamed tool should fail the provision, not the agent
+    # at run time.
     triage_agent:
       type: agentic
       credential: llm
@@ -24,31 +25,29 @@ ao_workflow_bindings:
       tool_selection_strategy: SELECTED
       tools:
         lightspeed_mcp:
-          - advisor__get_hosts_hitting_a_rule
-          - advisor__get_recommendations_stats
-          - advisor__get_rule_details
-          - content-sources__list_repositories
-          - inventory__get_host_details
-          - inventory__get_host_system_profile
-          - inventory__get_host_tags
-          - inventory__list_hosts
+          - vulnerability__get_cve_systems
+          - vulnerability__get_cve
         aap_mcp:
           - hosts_list
           - hosts_variable_data_retrieve
-          - groups_list
-          - inventories_list
 
-    # No tools: this node reasons over what triage already gathered.
-    # NONE rather than an empty SELECTED — AO's strategy enum is
-    # ALL|NONE|SELECTED, and SELECTED with an empty tool_selections is
-    # rejected outright.
+    # Triage reaches this node precisely when it could not resolve the
+    # CVE, so there is nothing gathered to reason over. The prompt names
+    # no tools, only the two servers: get_cve covers "all available info
+    # about the CVE" from a bare CVE id, hosts_list covers the AAP host
+    # lookup.
     investigate_agent:
       type: agentic
       credential: llm
       integrations:
         - lightspeed_mcp
         - aap_mcp
-      tool_selection_strategy: NONE
+      tool_selection_strategy: SELECTED
+      tools:
+        lightspeed_mcp:
+          - vulnerability__get_cve
+        aap_mcp:
+          - hosts_list
 
     # --- AAP job template nodes -----------------------------------
 
@@ -79,6 +78,24 @@ ao_workflow_bindings:
       job_template: CVE - Sync and Deploy Remediation
 
     notify_investigate:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Notify Mattermost Investigation
+
+    # Success cards. Same template as the investigation card -- the
+    # playbook picks which to post from the report_type extra_var, so
+    # this needs no second job template. One node per branch rather than
+    # one shared node: AO skips a node unless every inbound edge fires,
+    # and the two branches are mutually exclusive, so a shared node
+    # would never run.
+    notify_remediated:
+      type: aap_job_template
+      credential: aap
+      integration: aap
+      job_template: CVE - Notify Mattermost Investigation
+
+    notify_remediated_prod:
       type: aap_job_template
       credential: aap
       integration: aap
