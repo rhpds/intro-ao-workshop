@@ -11,10 +11,9 @@ ao_workflow_bindings:
 
     # --- AI nodes -------------------------------------------------
 
-    # Triage does the gathering for this workflow, so it carries the
-    # whole read-only surface it needs across both servers. Pinned
-    # rather than ALL: a renamed tool should fail the provision, not
-    # the agent at run time.
+    # Exactly the three tools the prompt calls by name, nothing more.
+    # Pinned rather than ALL: a renamed tool should fail the provision,
+    # not the agent at run time.
     triage_agent:
       type: agentic
       credential: llm
@@ -25,25 +24,15 @@ ao_workflow_bindings:
       tools:
         lightspeed_mcp:
           - vulnerability__get_cve_systems
-          - vulnerability__get_cve
-          - advisor__get_hosts_hitting_a_rule
-          - advisor__get_recommendations_stats
-          - advisor__get_rule_details
-          - content-sources__list_repositories
-          - inventory__get_host_details
-          - inventory__get_host_system_profile
-          - inventory__get_host_tags
-          - inventory__list_hosts
         aap_mcp:
           - hosts_list
           - hosts_variable_data_retrieve
-          - groups_list
-          - inventories_list
 
     # Triage reaches this node precisely when it could not resolve the
-    # CVE, so there is nothing gathered to reason over — the prompt
-    # tells it to look the CVE up itself and check the host, which
-    # needs its own tools.
+    # CVE, so there is nothing gathered to reason over. The prompt names
+    # no tools, only the two servers: get_cve covers "all available info
+    # about the CVE" from a bare CVE id, hosts_list covers the AAP host
+    # lookup.
     investigate_agent:
       type: agentic
       credential: llm
@@ -54,13 +43,8 @@ ao_workflow_bindings:
       tools:
         lightspeed_mcp:
           - vulnerability__get_cve
-          - vulnerability__explain_cves
-          - vulnerability__get_system_cves
-          - inventory__get_host_details
-          - inventory__get_host_system_profile
         aap_mcp:
           - hosts_list
-          - hosts_variable_data_retrieve
 
     # --- AAP job template nodes -----------------------------------
 
