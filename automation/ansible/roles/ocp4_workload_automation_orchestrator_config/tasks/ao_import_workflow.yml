@@ -27,6 +27,9 @@
              'service_accounts': _ao_service_account_ids | default({}, true),
              'llm_model_id': _ao_llm_model_id | default(''),
              'organization': ocp4_workload_automation_orchestrator_config_aap_organization,
+             'trigger_defaults': {
+               'lab_tag': ocp4_workload_automation_orchestrator_config_lab_tag,
+             },
            }) }}
 
 - name: "Create or update workflow: {{ _wf.name }}"

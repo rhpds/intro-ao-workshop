@@ -88,6 +88,27 @@ The mapping is declarative, one file per workflow, keyed by node ID:
 A binding names the credential, integration, tools and job template a node needs
 using role-local keys (`llm`, `aap`, `lightspeed_mcp`, …), never AO UUIDs.
 
+A `triggers:` section does the same for the entry points. Besides
+`service_accounts:` (above), a trigger may carry `input_defaults:` — a list of
+input names whose schema `default` is prefilled from
+`resolved.trigger_defaults` at provision time:
+
+```yaml
+  triggers:
+    trigger_manual:
+      input_defaults:
+        - lab_tag
+```
+
+RHEL CVE Remediation uses this for `lab_tag`, which is the environment's `guid`
+— the group Insights registered the nodes under, and the filter that scopes the
+Lightspeed CVE query to this lab's hosts. Without it the student has to go read
+`/etc/insights-client/tags.yaml` on a lab node. Prefilling sets a default only:
+the input stays required and stays editable. Naming an input the schema does not
+declare fails the provision, so a re-export that renames one cannot silently
+stop prefilling. An empty resolved value (`guid` undefined) leaves the export's
+own default alone.
+
 The transform lives at the **collection** level, in
 `automation/ansible/plugins/filter/ao_workflow.py`, and the task files reference
 it by FQCN (`intro_ao_workshop.automation.ao_wire_definition`). It cannot live in
@@ -112,10 +133,28 @@ Under `SELECTED` there are two ways to choose:
   Prefer the `ALL` strategy if you genuinely want "whatever the server offers",
   since that is resolved by AO at run time and cannot go stale.
 
-In this role, `triage_agent` in RHEL CVE Remediation does the gathering and
-carries 12 pinned read-only tools across Lightspeed and AAP MCP;
-`investigate_agent` reasons over what triage found and is `NONE`. Both Ticket
-Enrichment agents are pinned. Disk Utilization has no agentic nodes.
+In this role, both RHEL CVE Remediation agents are `SELECTED` with tools named
+one by one, because both prompts call tools by name:
+
+- `triage_agent` does the gathering and pins five — `inventory__list_hosts`,
+  `vulnerability__get_cve_systems` and `vulnerability__get_cve` on Lightspeed,
+  `hosts_list` and `hosts_variable_data_retrieve` on AAP MCP.
+
+  The first two are a pair, and the order matters. The lab tag is an Insights
+  **tag**, not part of a hostname: display names in this lab are bare (`node1`)
+  and every other lab on the account reuses them. `inventory__list_hosts` is the
+  only Lightspeed tool that takes a `tags` filter, so it resolves
+  `insights-client/group=<tag>` plus the display name to exactly one inventory
+  UUID; `get_cve_systems` is then called with that `system_uuid`. Its own
+  `filter_` is a full text filter on display name alone — passing the tag to it
+  matches nothing, and passing the hostname matches other labs.
+- `investigate_agent` is reached precisely when triage could not resolve the CVE,
+  so it has nothing gathered to reason over and must look things up itself. It
+  pins two: `vulnerability__get_cve` and `hosts_list`. It is **not** `NONE` — the
+  prompt names both servers.
+
+Both Ticket Enrichment agents are pinned too. Disk Utilization has no agentic
+nodes.
 
 ### Testing the wiring without an AO instance
 
@@ -123,9 +162,9 @@ Enrichment agents are pinned. Disk Utilization has no agentic nodes.
 python3 tests/test_ao_workflow.py
 ```
 
-44 tests, no network. They run the real exported JSON through the real binding
+56 tests, no network. They run the real exported JSON through the real binding
 files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
-expression handling, and each failure mode. Requires PyYAML.
+expression handling, trigger prefilling, and each failure mode. Requires PyYAML.
 
 ## The three workflow exports differ
 

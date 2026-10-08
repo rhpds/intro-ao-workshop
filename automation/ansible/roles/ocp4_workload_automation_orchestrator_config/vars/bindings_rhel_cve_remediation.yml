@@ -7,15 +7,35 @@
 # time, not AO UUIDs.
 
 ao_workflow_bindings:
+
+  # --- Trigger ------------------------------------------------------
+
+  # The manual trigger needs no asset IDs, but its input schema is the
+  # form the student fills in, and lab_tag is this environment's guid —
+  # known at provision time and otherwise a trip to
+  # /etc/insights-client/tags.yaml on a lab node to find. Listing it
+  # here prefills the field's default from
+  # resolved.trigger_defaults.lab_tag; it stays editable and stays
+  # required. host and cve_id are deliberately not prefilled: picking
+  # them is the exercise.
+  triggers:
+    trigger_manual:
+      input_defaults:
+        - lab_tag
+
   nodes:
 
     # --- AI nodes -------------------------------------------------
 
-    # The three tools the prompt calls by name, plus get_cve, which is
-    # the only source for the cve_severity / cvss_score /
-    # exploit_available fields in the response schema. Pinned rather
-    # than ALL: a renamed tool should fail the provision, not the agent
-    # at run time.
+    # The five tools the prompt calls by name, in the order it calls
+    # them. inventory__list_hosts is what scopes the run to this lab:
+    # it is the only Lightspeed tool that takes a `tags` filter, and
+    # the lab tag is an Insights tag, not a substring of any display
+    # name. get_cve_systems then takes the UUID that returns, because
+    # its own `filter_` searches display names only -- which here are
+    # bare ("node1") and are reused by every other lab on the account.
+    # Pinned rather than ALL: a renamed tool should fail the provision,
+    # not the agent at run time.
     triage_agent:
       type: agentic
       credential: llm
@@ -25,6 +45,7 @@ ao_workflow_bindings:
       tool_selection_strategy: SELECTED
       tools:
         lightspeed_mcp:
+          - inventory__list_hosts
           - vulnerability__get_cve_systems
           - vulnerability__get_cve
         aap_mcp:
