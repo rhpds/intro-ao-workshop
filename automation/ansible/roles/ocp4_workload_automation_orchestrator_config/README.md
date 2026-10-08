@@ -133,10 +133,21 @@ Under `SELECTED` there are two ways to choose:
   Prefer the `ALL` strategy if you genuinely want "whatever the server offers",
   since that is resolved by AO at run time and cannot go stale.
 
-In this role, `triage_agent` in RHEL CVE Remediation does the gathering and
-carries 12 pinned read-only tools across Lightspeed and AAP MCP;
-`investigate_agent` reasons over what triage found and is `NONE`. Both Ticket
-Enrichment agents are pinned. Disk Utilization has no agentic nodes.
+In this role, both RHEL CVE Remediation agents are `SELECTED` with tools named
+one by one, because both prompts call tools by name:
+
+- `triage_agent` does the gathering and pins four — `vulnerability__get_cve_systems`
+  and `vulnerability__get_cve` on Lightspeed, `hosts_list` and
+  `hosts_variable_data_retrieve` on AAP MCP. `get_cve` is not named in the prompt
+  but is the only source for the severity, CVSS and exploit fields the response
+  schema demands.
+- `investigate_agent` is reached precisely when triage could not resolve the CVE,
+  so it has nothing gathered to reason over and must look things up itself. It
+  pins two: `vulnerability__get_cve` and `hosts_list`. It is **not** `NONE` — the
+  prompt names both servers.
+
+Both Ticket Enrichment agents are pinned too. Disk Utilization has no agentic
+nodes.
 
 ### Testing the wiring without an AO instance
 
