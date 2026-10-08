@@ -136,11 +136,18 @@ Under `SELECTED` there are two ways to choose:
 In this role, both RHEL CVE Remediation agents are `SELECTED` with tools named
 one by one, because both prompts call tools by name:
 
-- `triage_agent` does the gathering and pins four — `vulnerability__get_cve_systems`
-  and `vulnerability__get_cve` on Lightspeed, `hosts_list` and
-  `hosts_variable_data_retrieve` on AAP MCP. `get_cve` is not named in the prompt
-  but is the only source for the severity, CVSS and exploit fields the response
-  schema demands.
+- `triage_agent` does the gathering and pins five — `inventory__list_hosts`,
+  `vulnerability__get_cve_systems` and `vulnerability__get_cve` on Lightspeed,
+  `hosts_list` and `hosts_variable_data_retrieve` on AAP MCP.
+
+  The first two are a pair, and the order matters. The lab tag is an Insights
+  **tag**, not part of a hostname: display names in this lab are bare (`node1`)
+  and every other lab on the account reuses them. `inventory__list_hosts` is the
+  only Lightspeed tool that takes a `tags` filter, so it resolves
+  `insights-client/group=<tag>` plus the display name to exactly one inventory
+  UUID; `get_cve_systems` is then called with that `system_uuid`. Its own
+  `filter_` is a full text filter on display name alone — passing the tag to it
+  matches nothing, and passing the hostname matches other labs.
 - `investigate_agent` is reached precisely when triage could not resolve the CVE,
   so it has nothing gathered to reason over and must look things up itself. It
   pins two: `vulnerability__get_cve` and `hosts_list`. It is **not** `NONE` — the

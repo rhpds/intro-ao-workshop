@@ -149,6 +149,22 @@ class TestPrepare(unittest.TestCase):
             joins = {node: n for node, n in inbound.items() if n > 1}
             self.assertEqual(joins, {}, f"{name} has join nodes: {joins}")
 
+    def test_triage_scopes_the_cve_lookup_by_insights_tag(self):
+        # The lab tag is an Insights TAG, not a substring of a display
+        # name. Display names in this lab are bare ("node1") and every
+        # other lab on the account reuses them, so neither field alone
+        # identifies a host. A prompt that goes back to
+        # get_cve_systems(filter_=<tag>) gets zero rows and reports
+        # every host as unaffected -- which is exactly what it did.
+        raw = load_workflow("rhel-cve-remediation.json")
+        prompt = next(
+            n for n in raw["nodes"] if n["id"] == "triage_agent"
+        )["parameters"]["prompt"]
+        self.assertIn("inventory__list_hosts", prompt)
+        self.assertIn("insights-client/group=", prompt)
+        self.assertIn("system_uuid", prompt)
+        self.assertIn("Do NOT pass filter_", prompt)
+
     def test_disk_export_gets_synthesised_metadata(self):
         raw = load_workflow("disk-utilization-remediation.json")
         self.assertNotIn("name", raw)
@@ -258,6 +274,7 @@ class TestWireCVE(unittest.TestCase):
             [
                 CVE_TOOLS["lightspeed_mcp"][name]
                 for name in (
+                    "inventory__list_hosts",
                     "vulnerability__get_cve",
                     "vulnerability__get_cve_systems",
                 )
@@ -271,7 +288,7 @@ class TestWireCVE(unittest.TestCase):
             ]
         )
         self.assertEqual(sorted(triage["tool_selections"]), expected)
-        self.assertEqual(len(expected), 4)
+        self.assertEqual(len(expected), 5)
         self.assertTrue(triage["tool_selections"], "must be non-empty for SELECTED")
 
     def _trigger_properties(self, wired=None):
