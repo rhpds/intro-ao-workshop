@@ -88,6 +88,27 @@ The mapping is declarative, one file per workflow, keyed by node ID:
 A binding names the credential, integration, tools and job template a node needs
 using role-local keys (`llm`, `aap`, `lightspeed_mcp`, …), never AO UUIDs.
 
+A `triggers:` section does the same for the entry points. Besides
+`service_accounts:` (above), a trigger may carry `input_defaults:` — a list of
+input names whose schema `default` is prefilled from
+`resolved.trigger_defaults` at provision time:
+
+```yaml
+  triggers:
+    trigger_manual:
+      input_defaults:
+        - lab_tag
+```
+
+RHEL CVE Remediation uses this for `lab_tag`, which is the environment's `guid`
+— the group Insights registered the nodes under, and the filter that scopes the
+Lightspeed CVE query to this lab's hosts. Without it the student has to go read
+`/etc/insights-client/tags.yaml` on a lab node. Prefilling sets a default only:
+the input stays required and stays editable. Naming an input the schema does not
+declare fails the provision, so a re-export that renames one cannot silently
+stop prefilling. An empty resolved value (`guid` undefined) leaves the export's
+own default alone.
+
 The transform lives at the **collection** level, in
 `automation/ansible/plugins/filter/ao_workflow.py`, and the task files reference
 it by FQCN (`intro_ao_workshop.automation.ao_wire_definition`). It cannot live in
@@ -123,9 +144,9 @@ Enrichment agents are pinned. Disk Utilization has no agentic nodes.
 python3 tests/test_ao_workflow.py
 ```
 
-44 tests, no network. They run the real exported JSON through the real binding
+56 tests, no network. They run the real exported JSON through the real binding
 files with faked IDs, and cover placeholder scrubbing, metadata synthesis,
-expression handling, and each failure mode. Requires PyYAML.
+expression handling, trigger prefilling, and each failure mode. Requires PyYAML.
 
 ## The three workflow exports differ
 

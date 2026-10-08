@@ -7,6 +7,22 @@
 # time, not AO UUIDs.
 
 ao_workflow_bindings:
+
+  # --- Trigger ------------------------------------------------------
+
+  # The manual trigger needs no asset IDs, but its input schema is the
+  # form the student fills in, and lab_tag is this environment's guid —
+  # known at provision time and otherwise a trip to
+  # /etc/insights-client/tags.yaml on a lab node to find. Listing it
+  # here prefills the field's default from
+  # resolved.trigger_defaults.lab_tag; it stays editable and stays
+  # required. host and cve_id are deliberately not prefilled: picking
+  # them is the exercise.
+  triggers:
+    trigger_manual:
+      input_defaults:
+        - lab_tag
+
   nodes:
 
     # --- AI nodes -------------------------------------------------

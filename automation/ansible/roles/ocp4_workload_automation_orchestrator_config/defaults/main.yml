@@ -36,6 +36,17 @@ ocp4_workload_automation_orchestrator_config_aap_validate_certs: false
 # Every AAP node in the exports ships organization_name: Default.
 ocp4_workload_automation_orchestrator_config_aap_organization: Default
 
+# Prefilled as the default of the CVE workflow's `lab_tag` trigger
+# input, so the student is not sent off to find it. This is the same
+# value ocp4_workload_cnv_insights_host registers the nodes under
+# (`insights-client --group={{ guid }}`), which is what makes it the
+# right filter for a Lightspeed CVE query.
+#
+# Treat the guid as opaque: a multi-component catalog item gets a
+# component suffix, so this is `abc12-1`, not a bare five characters.
+# Empty leaves the export's own empty default in place.
+ocp4_workload_automation_orchestrator_config_lab_tag: "{{ guid | default('') }}"
+
 # Minted here at provision time; no such token exists in AgnosticV.
 ocp4_workload_automation_orchestrator_config_aap_token_description: >-
   Automation Orchestrator MCP integration (created by AgnosticD)

@@ -36,10 +36,11 @@ WIRED_NODE_TYPES = ("agentic", "aap_job_template")
 # workflow's entry points live under `triggers`, so iterating only
 # `nodes` silently leaves them inert.
 #
-# `manual_trigger` and `schedule_trigger` are self-contained. The two
-# that expose an HTTP endpoint are not: AO requires
-# `authorized_service_account_ids` on them, and rejects the whole
-# workflow with "'authorized_service_account_ids' is a required
+# `manual_trigger` and `schedule_trigger` need no asset IDs (though
+# either may still prefill its input schema — see
+# `_apply_input_defaults`). The two that expose an HTTP endpoint do:
+# AO requires `authorized_service_account_ids` on them, and rejects the
+# whole workflow with "'authorized_service_account_ids' is a required
 # property" without it. From AO's own UI schema,
 # `authorizedServiceAccountIds: array(uuid).optional()`, and the
 # selector that fills it maps GET /service_accounts through
@@ -375,6 +376,55 @@ def _wire_trigger(trigger, binding, resolved):
     return trigger
 
 
+def _apply_input_defaults(trigger, binding, resolved):
+    """Prefill a trigger's input schema with provision-time values.
+
+    A manual trigger's input schema is the form the student fills in by
+    hand, and some of what it asks for is already known when the lab is
+    built — the Insights group tag, for one, which is otherwise a trip
+    to /etc/insights-client/tags.yaml on a lab node. Setting the
+    schema's `default` prefills the field without making it read-only,
+    so the student can still point the run somewhere else.
+
+    The binding lists input names; the values come from
+    `resolved['trigger_defaults']`, the same way every other run-time
+    value reaches this filter.
+    """
+    names = (binding or {}).get("input_defaults") or []
+    if not names:
+        return trigger
+
+    properties = (
+        trigger.setdefault("parameters", {})
+        .setdefault("input_schema", {})
+        .setdefault("properties", {})
+    )
+    table = resolved.get("trigger_defaults") or {}
+
+    for name in names:
+        if name not in properties:
+            raise AOWiringError(
+                "trigger '%s' prefills input '%s', which is not declared in "
+                "its input_schema (have: %s). A re-export that renames an "
+                "input must rename it here too."
+                % (trigger.get("id"), name, ", ".join(sorted(properties)) or "none")
+            )
+        if name not in table:
+            raise AOWiringError(
+                "trigger '%s' prefills input '%s', but no value for it was "
+                "resolved (have: %s)"
+                % (trigger.get("id"), name, ", ".join(sorted(table)) or "none")
+            )
+        # An empty resolved value is no improvement on the export's own
+        # empty default, and writing it would hide the fact that
+        # nothing was known. Leave the export's default standing.
+        if table[name] in (None, ""):
+            continue
+        properties[name]["default"] = table[name]
+
+    return trigger
+
+
 def _lookup(resolved, bucket, key, node_id):
     table = resolved.get(bucket) or {}
     if key not in table or table[key] is None:
@@ -396,7 +446,8 @@ def ao_wire_definition(definition, bindings, resolved):
         {credentials: {key: id}, integrations: {key: id},
          integration_credentials: {integration_key: credential_key},
          tools: {integration_key: {tool_name: tool_id}},
-         job_templates: {name: id}, llm_model_id: id, organization: str}
+         job_templates: {name: id}, llm_model_id: id, organization: str,
+         trigger_defaults: {input_name: value}}
 
     Raises AOWiringError with a message naming the node and the missing
     asset, which beats letting AO return a generic schema violation.
@@ -407,20 +458,22 @@ def ao_wire_definition(definition, bindings, resolved):
 
     # Triggers are a sibling list of `nodes`, not members of it, so a
     # loop over nodes alone leaves them unwired. Only the types that
-    # expose an HTTP endpoint need anything; manual and schedule
-    # triggers are self-contained and are left alone.
+    # expose an HTTP endpoint must have a binding; any trigger may have
+    # one, to prefill its input schema. An unbound manual trigger is
+    # left exactly as exported.
     for trigger in wired.get("triggers", []):
-        if trigger.get("type") not in AUTHORIZED_TRIGGER_TYPES:
-            continue
         binding = trigger_bindings.get(trigger.get("id"))
-        if binding is None:
-            raise AOWiringError(
-                "trigger '%s' (type %s) exposes an HTTP endpoint, so AO "
-                "requires authorized_service_account_ids on it, but it has "
-                "no entry under `triggers:` in the binding file"
-                % (trigger.get("id"), trigger.get("type"))
-            )
-        _wire_trigger(trigger, binding, resolved)
+        if trigger.get("type") in AUTHORIZED_TRIGGER_TYPES:
+            if binding is None:
+                raise AOWiringError(
+                    "trigger '%s' (type %s) exposes an HTTP endpoint, so AO "
+                    "requires authorized_service_account_ids on it, but it has "
+                    "no entry under `triggers:` in the binding file"
+                    % (trigger.get("id"), trigger.get("type"))
+                )
+            _wire_trigger(trigger, binding, resolved)
+        if binding is not None:
+            _apply_input_defaults(trigger, binding, resolved)
 
     for node in wired.get("nodes", []):
         node_type = node.get("type")

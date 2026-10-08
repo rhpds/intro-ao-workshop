@@ -87,6 +87,11 @@ def fake_resolved(job_template_names, tools=None):
         },
         "llm_model_id": UUID % 20,
         "organization": "Default",
+        # Provision-time values prefilled into a trigger's input schema.
+        # The guid gets a component-index suffix on a multi-component
+        # catalog item, so the fixture carries one: nothing here may
+        # assume a bare five characters.
+        "trigger_defaults": {"lab_tag": "abc12-1"},
     }
 
 
@@ -268,6 +273,61 @@ class TestWireCVE(unittest.TestCase):
         self.assertEqual(sorted(triage["tool_selections"]), expected)
         self.assertEqual(len(expected), 4)
         self.assertTrue(triage["tool_selections"], "must be non-empty for SELECTED")
+
+    def _trigger_properties(self, wired=None):
+        trigger = (wired or self.wired)["triggers"][0]
+        return trigger["parameters"]["input_schema"]["properties"]
+
+    def test_manual_trigger_prefills_the_lab_tag(self):
+        # The student should not have to go read
+        # /etc/insights-client/tags.yaml to fill in their own guid.
+        self.assertEqual(self._trigger_properties()["lab_tag"]["default"], "abc12-1")
+
+    def test_prefilling_leaves_the_input_required_and_editable(self):
+        # A default is a prefill, not a lock: the field stays required
+        # so AO still renders and validates it, and the student can
+        # still point the run at another lab's tag.
+        trigger = self.wired["triggers"][0]
+        schema = trigger["parameters"]["input_schema"]
+        self.assertIn("lab_tag", schema["required"])
+        self.assertEqual(schema["properties"]["lab_tag"]["type"], "string")
+        self.assertEqual(trigger["type"], "manual_trigger")
+
+    def test_only_the_bound_input_is_prefilled(self):
+        # Choosing the host and the CVE is the exercise; prefilling
+        # either would hand the student the answer.
+        properties = self._trigger_properties()
+        self.assertEqual(properties["cve_id"]["default"], "")
+        # host's default ships in the export and must survive untouched.
+        self.assertEqual(properties["host"]["default"], "node1")
+
+    def test_an_unresolved_lab_tag_leaves_the_export_default(self):
+        # guid is undefined outside AgnosticD, where the role default
+        # folds to "". Writing that back is no improvement on the
+        # export and would read as "a value was known".
+        resolved = copy.deepcopy(self.resolved)
+        resolved["trigger_defaults"] = {"lab_tag": ""}
+        wired = ao_wire_definition(self.definition, self.bindings, resolved)
+        self.assertEqual(self._trigger_properties(wired)["lab_tag"]["default"], "")
+
+    def test_prefilling_an_undeclared_input_is_rejected(self):
+        # A re-export that renames an input must rename it in the
+        # binding too, or the prefill silently stops happening.
+        bindings = copy.deepcopy(self.bindings)
+        bindings["triggers"]["trigger_manual"]["input_defaults"] = ["lab_tags"]
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, bindings, self.resolved)
+        self.assertIn("lab_tags", str(caught.exception))
+        self.assertIn("input_schema", str(caught.exception))
+
+    def test_prefill_without_a_resolved_value_is_rejected(self):
+        # Dropping trigger_defaults from the set_fact must fail the
+        # provision, not quietly ship an empty field.
+        resolved = copy.deepcopy(self.resolved)
+        del resolved["trigger_defaults"]
+        with self.assertRaises(AOWiringError) as caught:
+            ao_wire_definition(self.definition, self.bindings, resolved)
+        self.assertIn("lab_tag", str(caught.exception))
 
     def test_every_connection_carries_both_ids(self):
         # AO rejects a bare {integration_id} with "'credential_id' is a
