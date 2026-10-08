@@ -165,6 +165,21 @@ class TestPrepare(unittest.TestCase):
         self.assertIn("system_uuid", prompt)
         self.assertIn("Do NOT pass filter_", prompt)
 
+    def test_triage_handles_both_display_name_shapes(self):
+        # A node registers in Insights as either the bare hostname or
+        # <host>.<guid>.internal, depending on whether the katello.facts
+        # fqdn lands before rhsm-system-profile-bridge creates the
+        # inventory record. display_name is a substring filter, so one
+        # query finds both -- but the prompt has to say how to pick a
+        # row, or "exactly one host" is luck rather than a rule.
+        raw = load_workflow("rhel-cve-remediation.json")
+        prompt = next(
+            n for n in raw["nodes"] if n["id"] == "triage_agent"
+        )["parameters"]["prompt"]
+        self.assertIn("SUBSTRING", prompt)
+        self.assertIn(".internal", prompt)
+        self.assertIn("starts with", prompt)
+
     def test_disk_export_gets_synthesised_metadata(self):
         raw = load_workflow("disk-utilization-remediation.json")
         self.assertNotIn("name", raw)
