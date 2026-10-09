@@ -30,6 +30,7 @@ from ao_workflow import (  # noqa: E402
     ao_name_id_map,
     ao_prepare_definition,
     ao_required_job_templates,
+    ao_student_variant,
     ao_validation_summary,
     ao_wire_definition,
 )
@@ -785,6 +786,159 @@ class TestFailureModes(unittest.TestCase):
         with self.assertRaises(AOWiringError) as caught:
             ao_wire_definition(self.definition, self.bindings, resolved)
         self.assertIn("which exposes: (none)", str(caught.exception))
+
+
+class TestStudentVariant(unittest.TestCase):
+    """The copies that land in the student's `default` project.
+
+    Generated from the same exports `solutions` uses, so these tests
+    are the thing standing between a re-export and an exercise that
+    quietly stopped existing.
+    """
+
+    def setUp(self):
+        path = os.path.join(ROLE_DIR, "files", "student_gaps.yml")
+        with open(path) as handle:
+            self.gaps = yaml.safe_load(handle)["ao_student_gaps"]
+
+    def _variant(self, filename, key, name):
+        definition = ao_prepare_definition(load_workflow(filename), name)
+        return definition, ao_student_variant(definition, self.gaps[key])
+
+    # --- Disk: build the >95% branch --------------------------------
+
+    def test_disk_drops_only_the_over_95_branch(self):
+        full, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        self.assertEqual(len(full["nodes"]), 10)
+        self.assertEqual(len(student["nodes"]), 8)
+        names = {n.get("name") for n in student["nodes"]}
+        # The branch the student builds is gone...
+        self.assertNotIn("Remediate - Expand Disk", names)
+        self.assertNotIn("Critical - Notify Chatroom - Expand Disk", names)
+        # ...and the one they copy from is not.
+        self.assertIn("Remediate  - Clean Disk", names)
+        self.assertIn("Warn - Notify Chatroom - Clean Disk", names)
+
+    def test_disk_leaves_exactly_one_switch_port_empty(self):
+        # Three of four ports wired and one obviously empty is the
+        # whole design: the student sees the shape they are copying one
+        # port above the hole they are filling.
+        _, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        switch = next(n for n in student["nodes"] if n["type"] == "switch")
+        wired = {
+            e.get("from_port") for e in student["edges"]
+            if e.get("from") == switch["id"]
+        }
+        ports = [c["port"] for c in switch["parameters"]["cases"]]
+        ports.append(switch["parameters"]["default_port"])
+        self.assertEqual(set(ports) - wired, {"case_2"})
+
+    def test_dropping_a_node_takes_its_edges(self):
+        _, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        # Triggers are a sibling list of `nodes`, not members of it, so
+        # the trigger -> first node edge points out of the node set by
+        # design and has to be allowed for here.
+        ids = {n["id"] for n in student["nodes"]}
+        ids |= {t["id"] for t in student.get("triggers", [])}
+        for edge in student["edges"]:
+            self.assertIn(edge["from"], ids, edge)
+            self.assertIn(edge["to"], ids, edge)
+
+    # --- CVE: fill in the routing conditions ------------------------
+
+    def test_cve_blanks_conditions_but_keeps_ports_and_labels(self):
+        # Losing the labels would leave the student guessing how many
+        # routes there are and what each one is for.
+        full, student = self._variant(
+            "rhel-cve-remediation.json", "rhel_cve_remediation",
+            "RHEL CVE Remediation",
+        )
+        self.assertEqual(len(student["nodes"]), len(full["nodes"]))
+        self.assertEqual(len(student["edges"]), len(full["edges"]))
+        cases = next(
+            n for n in student["nodes"] if n["type"] == "switch"
+        )["parameters"]["cases"]
+        self.assertEqual(
+            [c["port"] for c in cases], ["case_0", "case_1", "case_2"]
+        )
+        self.assertTrue(all(c["label"] for c in cases))
+        self.assertEqual([c["condition"] for c in cases], ["", "", ""])
+
+    # --- Ticket: service account and tools --------------------------
+
+    def test_ticket_triage_agent_is_none_not_empty_selected(self):
+        # SELECTED with no tools is rejected by AO outright ("[] should
+        # be non-empty"), which would make the workflow invalid for a
+        # reason the student was never asked to fix.
+        _, student = self._variant(
+            "ticket-enrichment.json", "ticket_enrichment",
+            "Ticket Enrichment Demo",
+        )
+        triage = next(n for n in student["nodes"] if n["id"] == "triage_agent")
+        self.assertEqual(
+            triage["parameters"]["tool_selection_strategy"], "NONE"
+        )
+        self.assertNotIn("tool_selections", triage["parameters"])
+
+    def test_ticket_trigger_has_no_authorized_service_account(self):
+        # Confirmed live: this imports HTTP 201 with is_valid false, so
+        # the workflow is present and editable but will not publish
+        # until the student attaches aap-student-webhooks.
+        _, student = self._variant(
+            "ticket-enrichment.json", "ticket_enrichment",
+            "Ticket Enrichment Demo",
+        )
+        params = student["triggers"][0]["parameters"]
+        self.assertNotIn("authorized_service_account_ids", params)
+
+    # --- The gaps file cannot rot quietly ---------------------------
+
+    def test_dropping_an_unknown_node_is_rejected(self):
+        full = ao_prepare_definition(
+            load_workflow("disk-utilization-remediation.json"), "Disk"
+        )
+        with self.assertRaises(AOWiringError) as caught:
+            ao_student_variant(full, {"drop_nodes": ["activity_not_here"]})
+        self.assertIn("activity_not_here", str(caught.exception))
+
+    def test_naming_an_unknown_switch_is_rejected(self):
+        full = ao_prepare_definition(
+            load_workflow("rhel-cve-remediation.json"), "CVE"
+        )
+        with self.assertRaises(AOWiringError) as caught:
+            ao_student_variant(full, {"blank_switch_conditions": ["nope"]})
+        self.assertIn("nope", str(caught.exception))
+
+    def test_the_solutions_definition_is_not_mutated(self):
+        # Both copies are built from one export in the same run. If the
+        # transform mutated in place, solutions would ship with the
+        # student's holes in it.
+        full, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        self.assertEqual(len(full["nodes"]), 10)
+        self.assertEqual(len(full["edges"]), 10)
+        self.assertNotEqual(len(student["nodes"]), len(full["nodes"]))
+
+    def test_every_gap_key_matches_a_real_workflow(self):
+        # A typo'd key here would mean a scenario silently shipping
+        # complete, with the exercise gone and nothing to notice it.
+        known = {
+            "disk_utilization": "disk-utilization-remediation.json",
+            "rhel_cve_remediation": "rhel-cve-remediation.json",
+            "ticket_enrichment": "ticket-enrichment.json",
+        }
+        self.assertEqual(set(self.gaps), set(known))
 
 
 class TestCollection(unittest.TestCase):
