@@ -22,18 +22,23 @@ plane.
 
 === Why Should You Care?
 
-You have already automated the work. What has grown around it is
-everything else: alerts, schedules, approvals, several teams, and a
-dozen decisions about *when* that automation should actually run.
+Ansible Automation Platform already orchestrates. Workflow templates
+chain job templates together, branch on success and failure, and start
+from a schedule or a webhook. That is a lot of orchestration, and none
+of it goes away.
 
-That orchestration layer tends to live in places nobody wants it:
-glue scripts, one-off playbooks, a wiki page, somebody's head. It is
-the part of your automation that is hardest to share, hardest to
-audit, and hardest to hand to another team.
+What has grown is everything around it. An alert arrives as free text
+that someone has to read before anyone knows which automation applies.
+A change to production needs a person to sign off. A monitoring tool,
+a ticketing system and a chat channel all need to take part, and none
+of them is an Ansible target. Those pieces tend to end up outside the
+platform, in glue scripts, one-off playbooks, a wiki page, or
+somebody's head.
 
-Orchestrator makes that layer a first-class artifact: something you
-design on a canvas, govern with RBAC and approval gates, export as
-YAML, and commit to Git alongside everything else.
+Automation Orchestrator gives them somewhere to live: on the same
+canvas as the automation they govern, as one artifact you design
+visually, control with RBAC and approval gates, export as YAML, and
+commit to Git.
 
 === What Changes on the Canvas
 
