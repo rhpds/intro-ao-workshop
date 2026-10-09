@@ -42,6 +42,14 @@ DEFAULT_VIDEO = os.path.join(REPO, "ticket-enrichment-student-scenario.mp4")
 BOX_COLOR = "#EE0000"
 BOX_THICKNESS = 4
 
+# Recordings are made against a live lab, so frames can carry real
+# secrets — the AAP API token reveal dialog shows the token in clear
+# text exactly once, and that frame is the one worth screenshotting.
+# --redact paints a SOLID block over the region rather than blurring
+# it: a blur of a short monospace string is not reliably irreversible,
+# and a filled box obviously reads as "redacted" to the student.
+REDACT_COLOR = "#3C3C3C"
+
 
 def parse_time(value):
     """Accept 125, 2:05 or 1:02:05 and return seconds."""
@@ -98,6 +106,12 @@ def cmd_probe(args):
 
 def cmd_grab(args):
     filters = []
+    # Redactions first, so a callout box drawn around a secret field
+    # still reads as a box around a redacted field rather than being
+    # painted over.
+    for x, y, w, h in args.redact or []:
+        filters.append("drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill"
+                       % (x, y, w, h, REDACT_COLOR))
     for x, y, w, h in args.box or []:
         filters.append(
             "drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=%d"
@@ -171,6 +185,10 @@ def main():
                            "module-02/03-create-credential")
     grab.add_argument("--box", type=parse_box, action="append",
                       metavar="X,Y,W,H")
+    grab.add_argument("--redact", type=parse_box, action="append",
+                      metavar="X,Y,W,H",
+                      help="paint a solid block over a region holding a "
+                           "real secret")
     grab.add_argument("--width", type=int,
                       help="scale output to this width (default: native)")
     grab.set_defaults(func=cmd_grab)
