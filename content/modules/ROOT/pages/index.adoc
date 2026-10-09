@@ -2,25 +2,44 @@
 
 == Introduction
 
-Ansible Automation Platform is very good at running automation. You give
-it a job template, it runs the playbook, you get a result. What it does
-not do on its own is decide *which* automation to run, read an incident
-and work out what it is about, or hold a change at an approval gate until
-a human says go.
+You have already automated the work. What has grown around it is
+everything else: alerts, schedules, approvals, several teams, and a
+dozen decisions about *when* that automation should actually run.
 
-That is what Ansible Automation Orchestrator adds. An Orchestrator
-workflow is a canvas of connected nodes: a trigger fires it, AI agents
-reason over whatever the trigger brought in, switch nodes route on what
-the agents concluded, and AAP job templates do the actual work. The
-non-deterministic part — reading an alert, classifying it, summarizing it
-— sits next to the deterministic part — patch this host, extend this
-filesystem, post this message — in one picture.
+Ansible Automation Orchestrator extends Red Hat Ansible Automation
+Platform with a composable canvas for designing, deploying and governing
+exactly that. It does not replace the playbooks, job templates and
+collections you already have — it connects them. Every certified job
+template, role and collection becomes a reusable workflow step
+immediately, without modification.
 
-In this lab you build that picture yourself. You will wire up your own
-integrations and credentials, build a workflow from an empty canvas, then
-complete three real scenarios that are shipped to you half-finished:
-disk remediation, incident ticket enrichment, and CVE remediation. Every
-one of them ends in a live run you can watch node by node.
+Three things change on an Orchestrator canvas:
+
+*Triggers all live in one place.* Manual, scheduled, webhook and
+Event-Driven Ansible triggers can all start the *same* workflow. A
+monitoring alert and a nightly scan that find the same problem feed one
+remediation workflow instead of two. And the finished workflow exports
+as a single YAML file — triggers, logic, approvals, job templates and
+all — so it can go into Git and be handed to another team.
+
+*Logic steps route on real values, not just success or failure.* The
+switch step reads a value from earlier in the workflow and takes the
+first path that matches. Disk at 60% does nothing, at 75% cleans up, at
+85% expands, at 95% gets a human involved — one metric, four paths.
+
+*AI steps handle the reasoning, AAP still does the work.* A task agent
+step can read an alert, a log dump or the text of an incident ticket,
+summarize it, classify it and recommend what to run. Then an approval
+step can put a human in front of that recommendation before Ansible
+Automation Platform executes the job template you already trust. The
+reasoning is non-deterministic; the change to your infrastructure is
+not.
+
+In this lab you build all three. You will wire up your own integrations
+and credentials, build a workflow from an empty canvas, then complete
+three real scenarios that are shipped to you half-finished: disk
+remediation, incident ticket enrichment, and CVE remediation. Every one
+of them ends in a live run you can watch step by step.
 
 == Red Hat Products Included
 
@@ -39,15 +58,17 @@ Supporting applications in the environment:
 == Who Will Benefit
 
 This lab is for anyone who already automates with Ansible and is now
-being asked to make that automation *decide* something:
+being asked to orchestrate around it:
 
 * Automation engineers and platform teams who run AAP today and want to
-  know where Orchestrator fits alongside it
-* SREs and operations teams building event-driven remediation
+  compose the job templates they already have into larger, shareable
+  workflows
+* SREs and operations teams wiring alerts, schedules and events into a
+  single remediation path
+* Anyone who has hit the limits of pass/fail routing and needs a
+  workflow to branch on what the automation actually discovered
 * Security and compliance teams looking at AI-assisted triage with a
-  human approval step in the path
-* Anyone evaluating what "agentic automation" means in practice, with
-  real job templates on the other end of it
+  human approval step in front of the change
 
 You do not need any prior Orchestrator experience. You should be
 comfortable with what an Ansible playbook and an AAP job template are.
@@ -70,7 +91,7 @@ hand, with your own credentials.
 |15 min
 
 |*03* — Your First Workflow: Hello World
-|Build a three-node workflow from an empty canvas: a trigger, an AI
+|Build a three-step workflow from an empty canvas: a trigger, a task
 agent, and an AAP job template that posts the agent's answer to chat.
 |15 min
 
@@ -80,7 +101,7 @@ watch AAP actually clean it up.
 |15 min
 
 |*05* — Ticket Enrichment Workflow
-|Wire an AI agent to MCP tools so it can read an OpenFlake incident,
+|Wire a task agent to MCP tools so it can read an OpenFlake incident,
 decide what it is, and either fix it, escalate it for approval, or
 enrich the ticket for a human. Three runs, three different outcomes.
 |20 min
@@ -107,7 +128,7 @@ Everything you need runs in this browser. There is nothing to install.
 Every module ends in a workflow that works. If one of yours does not,
 you are not stuck — the *solutions* project in Automation Orchestrator
 holds a complete, published, working copy of every workflow in this lab.
-Open the solutions copy side by side with yours, compare the node you
+Open the solutions copy side by side with yours, compare the step you
 are on, and carry on. Each module tells you exactly which workflow to
 look at.
 ====
