@@ -12,8 +12,14 @@ itself once the shape is settled.
 
     export AO_URL=https://aap-orchestrator.apps.cluster-xxxxx...
     export AO_PASSWORD=...
+    export AO_CA_BUNDLE=/path/to/cluster-ca.pem   # or see below
     python3 tests/import_student_variant.py ticket_enrichment
     python3 tests/import_student_variant.py ticket_enrichment --delete
+
+Lab Routes usually carry a self-signed certificate. Prefer pointing
+AO_CA_BUNDLE at the cluster CA; AO_INSECURE_SKIP_VERIFY=1 turns
+verification off instead, with a warning, and should be kept to
+throwaway environments.
 
 Requires PyYAML.
 """
@@ -71,9 +77,21 @@ SERVICE_ACCOUNT_NAMES = {
     "student_webhooks": "aap-student-webhooks",
 }
 
-CONTEXT = ssl.create_default_context()
-CONTEXT.check_hostname = False
-CONTEXT.verify_mode = ssl.CERT_NONE
+# AO serves a self-signed certificate on its Route in most lab builds,
+# so verification has to be dealt with one way or the other. Point
+# AO_CA_BUNDLE at the cluster CA to keep it on. Turning it off is a
+# deliberate, noisy opt-in rather than the default: this script sends
+# the AO admin password and reads back bearer tokens, and all of that
+# is readable to anyone able to intercept the connection.
+CONTEXT = ssl.create_default_context(
+    cafile=os.environ.get("AO_CA_BUNDLE") or None)
+if os.environ.get("AO_INSECURE_SKIP_VERIFY") == "1":
+    print("WARNING: TLS verification disabled. The AO admin password and "
+          "every bearer token this reads are exposed to anyone who can "
+          "intercept this connection. Use AO_CA_BUNDLE instead where you "
+          "can.", file=sys.stderr)
+    CONTEXT.check_hostname = False
+    CONTEXT.verify_mode = ssl.CERT_NONE
 
 
 class AO(object):
