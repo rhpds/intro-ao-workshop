@@ -4,6 +4,12 @@ version: ~
 nav:
   - modules/ROOT/nav.adoc
 
+# Every key AgnosticD publishes through agnosticd_user_info `data:`
+# arrives here as an AsciiDoc attribute of the same name, so the
+# values below are only what a local `podman-compose up` renders.
+# Keeping them realistic rather than `example.com` matters: a
+# placeholder that looks like a hostname is the one students
+# copy-paste by accident.
 asciidoc:
   attributes:
     experimental: true
@@ -11,5 +17,42 @@ asciidoc:
     guid: '%GUID%'
     ssh_user: lab-user
     ssh_password: changeme
-    openshift_console_url: 'https://console-openshift-console.apps.cluster-%GUID%.example.com'
-    openshift_cluster_ingress_domain: 'apps.cluster-%GUID%.example.com'
+    openshift_console_url: 'https://console-openshift-console.apps.cluster-%GUID%.dyn.redhatworkshops.io'
+    openshift_cluster_ingress_domain: 'apps.cluster-%GUID%.dyn.redhatworkshops.io'
+
+    # Automation Orchestrator — ocp4_workload_automation_orchestrator
+    ao_url: 'https://aap-orchestrator.apps.cluster-%GUID%.dyn.redhatworkshops.io'
+    ao_admin_user: admin
+    ao_admin_password: changeme
+
+    # Ansible Automation Platform.
+    # TODO: the admin user/password key names are the AgnosticD
+    # convention, not yet confirmed against a provision of this
+    # catalog item. aap_controller_web_url is confirmed — the config
+    # role reads it.
+    aap_controller_web_url: 'https://aap-aap.apps.cluster-%GUID%.dyn.redhatworkshops.io'
+    aap_controller_admin_user: admin
+    aap_controller_admin_password: changeme
+
+    # The AAP MCP server the student points their own integration at
+    # in module 02. Published by
+    # ocp4_workload_automation_orchestrator_config; the /mcp suffix is
+    # part of the value, not something the student appends.
+    aap_mcp_url: 'https://aap-mcp-aap.apps.cluster-%GUID%.dyn.redhatworkshops.io/mcp'
+
+    # OpenFlake — the ITSM the Ticket Enrichment scenario enriches
+    openflake_url: 'https://openflake.apps.cluster-%GUID%.dyn.redhatworkshops.io'
+    openflake_admin_username: admin
+    openflake_admin_password: changeme
+
+    # LiteLLM, published by rhpds.litellm_virtual_keys.
+    # litellm_api_base_url already carries the trailing /v1.
+    litellm_api_base_url: 'https://maas-rhdp.apps.maas.redhatworkshops.io/v1'
+    litellm_virtual_key: changeme
+    litellm_available_models: qwen3-235b
+
+    # Mattermost — where the Hello World and Disk Utilization
+    # notifications land
+    mattermost_url: 'https://mattermost-mattermost.apps.cluster-%GUID%.dyn.redhatworkshops.io'
+    mattermost_username: admin
+    mattermost_password: changeme

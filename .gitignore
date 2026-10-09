@@ -12,3 +12,4 @@ __pycache__/
 # Provision logs pasted in for analysis — never ours to commit.
 job_*.txt
 shots-review/
+.DS_Store

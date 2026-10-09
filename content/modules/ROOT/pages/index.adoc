@@ -1,5 +1,190 @@
-= My Lab Title
+= Introduction to Ansible Automation Orchestrator
 
-This project was created with the RHDP Publishing House template.
+== Introduction
 
-Run `/rhdp-publishing-house` in Claude Code to begin.
+Ansible Automation Platform is very good at running automation. You give
+it a job template, it runs the playbook, you get a result. What it does
+not do on its own is decide *which* automation to run, read an incident
+and work out what it is about, or hold a change at an approval gate until
+a human says go.
+
+That is what Ansible Automation Orchestrator adds. An Orchestrator
+workflow is a canvas of connected nodes: a trigger fires it, AI agents
+reason over whatever the trigger brought in, switch nodes route on what
+the agents concluded, and AAP job templates do the actual work. The
+non-deterministic part — reading an alert, classifying it, summarizing it
+— sits next to the deterministic part — patch this host, extend this
+filesystem, post this message — in one picture.
+
+In this lab you build that picture yourself. You will wire up your own
+integrations and credentials, build a workflow from an empty canvas, then
+complete three real scenarios that are shipped to you half-finished:
+disk remediation, incident ticket enrichment, and CVE remediation. Every
+one of them ends in a live run you can watch node by node.
+
+== Red Hat Products Included
+
+* Red Hat Ansible Automation Platform
+* Ansible Automation Orchestrator
+* Red Hat OpenShift Container Platform
+* Red Hat Enterprise Linux
+* Red Hat Lightspeed
+
+Supporting applications in the environment:
+
+* *OpenFlake* — the IT service management system holding the incident
+  tickets module 05 enriches
+* *Mattermost* — the chat platform your workflows post notifications to
+
+== Who Will Benefit
+
+This lab is for anyone who already automates with Ansible and is now
+being asked to make that automation *decide* something:
+
+* Automation engineers and platform teams who run AAP today and want to
+  know where Orchestrator fits alongside it
+* SREs and operations teams building event-driven remediation
+* Security and compliance teams looking at AI-assisted triage with a
+  human approval step in the path
+* Anyone evaluating what "agentic automation" means in practice, with
+  real job templates on the other end of it
+
+You do not need any prior Orchestrator experience. You should be
+comfortable with what an Ansible playbook and an AAP job template are.
+
+== What Content Is Covered
+
+[cols="1,3,1",options="header"]
+|===
+|Module |What you do |Time
+
+|*01* — Introduction to Automation Orchestrator
+|Tour the product. Projects, integrations, workflows and executions —
+where everything lives and what the two projects in this environment are
+for.
+|10 min
+
+|*02* — Getting Started: Integrations and Credentials
+|Build the LLM and AAP MCP integrations the rest of the lab runs on, by
+hand, with your own credentials.
+|15 min
+
+|*03* — Your First Workflow: Hello World
+|Build a three-node workflow from an empty canvas: a trigger, an AI
+agent, and an AAP job template that posts the agent's answer to chat.
+|15 min
+
+|*04* — Disk Utilization Workflow
+|Complete a workflow that branches on how full a filesystem is, and
+watch AAP actually clean it up.
+|15 min
+
+|*05* — Ticket Enrichment Workflow
+|Wire an AI agent to MCP tools so it can read an OpenFlake incident,
+decide what it is, and either fix it, escalate it for approval, or
+enrich the ticket for a human. Three runs, three different outcomes.
+|20 min
+
+|*06* — CVE Remediation Workflow
+|Configure the routing that sends a CVE to automatic patching or to an
+approval gate, based on what the triage agent found in Red Hat
+Lightspeed.
+|15 min
+|===
+
+== Requirements
+
+Everything you need runs in this browser. There is nothing to install.
+
+* The lab guide you are reading now, on the left
+* Tabs across the top for the OpenShift console, a terminal, Ansible
+  Automation Platform, Ansible Automation Orchestrator, OpenFlake and
+  Mattermost
+* Roughly 90 minutes
+
+[TIP]
+====
+Every module ends in a workflow that works. If one of yours does not,
+you are not stuck — the *solutions* project in Automation Orchestrator
+holds a complete, published, working copy of every workflow in this lab.
+Open the solutions copy side by side with yours, compare the node you
+are on, and carry on. Each module tells you exactly which workflow to
+look at.
+====
+
+== Credentials
+
+Keep this page open in a second tab. Modules 02 and 05 ask you to paste
+several of these values.
+
+=== Ansible Automation Orchestrator
+
+[cols="1,3"]
+|===
+|URL |{ao_url}
+|Username |`{ao_admin_user}`
+|Password |`{ao_admin_password}`
+|===
+
+=== Ansible Automation Platform
+
+[cols="1,3"]
+|===
+|URL |{aap_controller_web_url}
+|Username |`{aap_controller_admin_user}`
+|Password |`{aap_controller_admin_password}`
+|===
+
+=== AAP MCP Server
+
+The Model Context Protocol endpoint that lets an AI agent call Ansible
+Automation Platform. You point your own integration at this in module
+02.
+
+[cols="1,3"]
+|===
+|API URL |`{aap_mcp_url}`
+|===
+
+=== OpenFlake
+
+The ITSM system holding the incident tickets. Module 05 enriches a
+ticket here and you come back to read the result.
+
+[cols="1,3"]
+|===
+|URL |{openflake_url}
+|Username |`{openflake_admin_username}`
+|Password |`{openflake_admin_password}`
+|===
+
+=== Large Language Model
+
+Served by Models-as-a-Service. Module 02 has you create an Orchestrator
+credential holding this key and an integration pointing at this URL.
+
+[cols="1,3"]
+|===
+|API URL |`{litellm_api_base_url}`
+|API Key |`{litellm_virtual_key}`
+|Model |`{litellm_available_models}`
+|===
+
+=== Mattermost
+
+Where your workflows post their notifications.
+
+[cols="1,3"]
+|===
+|URL |{mattermost_url}
+|Username |`{mattermost_username}`
+|Password |`{mattermost_password}`
+|===
+
+== Version Information
+
+[cols="1,3"]
+|===
+|Lab |Introduction to Ansible Automation Orchestrator
+|Environment GUID |`{guid}`
+|===

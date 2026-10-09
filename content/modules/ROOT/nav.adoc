@@ -1,1 +1,2 @@
 * xref:index.adoc[Lab Overview]
+* xref:module-02-integrations-and-credentials.adoc[2. Getting Started: Integrations and Credentials]
