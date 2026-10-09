@@ -200,11 +200,19 @@ def seed_credentials(ao, project_id, bindings, placeholder):
             continue
         env_key = "AO_SEED_" + key.upper()
         secret = os.environ.get(env_key)
-        inputs = dict(source[name].get("inputs") or {})
+        # Read the SINGLE credential, not the entry from the list:
+        # /credentials returns every field the type declares, so the
+        # AAP one comes back with username, password AND oauth_token
+        # all set to "$encrypted$". Copying that shape sends all three
+        # and AO rejects it -- "These field groups are mutually
+        # exclusive: oauth_token and username + password". The detail
+        # endpoint returns only the fields that actually hold a value.
+        detail = ao.get("/credentials/%s" % source[name]["id"])
+        inputs = dict(detail.get("inputs") or {})
         for field, value in inputs.items():
             if value == "$encrypted$":
                 inputs[field] = secret or placeholder
-        body, status = ao.post("/credentials", {
+        payload = {
             "name": name,
             "description": "Created by import_student_variant.py for "
                            "review. %s" % ("real value from %s" % env_key
@@ -212,7 +220,10 @@ def seed_credentials(ao, project_id, bindings, placeholder):
             "credential_type_id": source[name]["credential_type_id"],
             "project_id": project_id,
             "inputs": inputs,
-        })
+        }
+        print("    inputs sent: %s"
+              % {k: ("<set:%d chars>" % len(str(v))) for k, v in inputs.items()})
+        body, status = ao.post("/credentials", payload)
         print("  seed credential %-32s HTTP %s  %s"
               % (name, status, "real" if secret else "PLACEHOLDER"))
         if status >= 300:
