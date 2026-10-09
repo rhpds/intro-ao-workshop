@@ -98,22 +98,20 @@ Supporting applications in the environment:
 
 == Who Will Benefit
 
-This lab is for anyone who wants to orchestrate IT operations work on
-a single canvas: events, decisions, approvals and execution together.
-It assumes no prior Automation Orchestrator experience.
+This is a hands-on introduction to Automation Orchestrator. It assumes
+no prior experience with it, and you will finish every module without
+writing a playbook.
 
-It will be most useful if you are:
+You will get the most out of it if you are:
 
-* Running Ansible Automation Platform today and want to see the job
-  templates you already have running as steps in a larger workflow
-* An SRE or operations engineer who wants one workflow to start from a
-  webhook, a schedule, or an Event-Driven Ansible rule
-* Interested in routing on what the automation discovered, so a single
-  check can lead to several different outcomes
-* Curious how an AI task agent fits into automation you can still
-  govern, with a human approval gate in front of any change
-* Newer to Ansible and looking for a visual way in, since you will
-  finish this lab without writing a playbook
+* An automation engineer or platform team member who wants to see what
+  Orchestrator adds to the Ansible Automation Platform you already run
+* Dealing with alerts, tickets or logs that someone has to read and
+  interpret before anyone knows which automation to run
+* Curious what AI-assisted triage looks like when a human approval
+  gate still sits in front of every change
+* Evaluating Automation Orchestrator and would rather build something
+  real on the canvas than watch a demo
 
 If you know roughly what an Ansible playbook and an AAP job template
 are, you have everything you need to complete every module.
