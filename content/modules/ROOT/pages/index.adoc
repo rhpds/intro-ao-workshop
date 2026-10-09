@@ -2,30 +2,53 @@
 
 == Introduction
 
+=== What Is Automation Orchestrator?
+
+Ansible Automation Orchestrator is an add-on to Red Hat Ansible
+Automation Platform: a composable canvas for designing, deploying and
+governing complex IT operations workflows.
+
+A workflow is a sequence of connected *steps*. A trigger starts it,
+steps do the work, and logic steps decide which step comes next. The
+steps themselves are the pieces you already own. Every certified job
+template, role and collection becomes a reusable workflow step
+immediately, without modification. Alongside them sit approval gates,
+REST API calls, and task agent steps backed by an AI model.
+
+It does not replace the playbooks, job templates and automation you
+already have. It connects them, and it does it inside Ansible
+Automation Platform, under the same governance and the same control
+plane.
+
+=== Why Should You Care?
+
 You have already automated the work. What has grown around it is
 everything else: alerts, schedules, approvals, several teams, and a
 dozen decisions about *when* that automation should actually run.
 
-Ansible Automation Orchestrator extends Red Hat Ansible Automation
-Platform with a composable canvas for designing, deploying and governing
-exactly that. It does not replace the playbooks, job templates and
-collections you already have — it connects them. Every certified job
-template, role and collection becomes a reusable workflow step
-immediately, without modification.
+That orchestration layer tends to live in places nobody wants it:
+glue scripts, runbooks, a wiki page, somebody's head. It is the part of
+your automation that is hardest to share, hardest to audit, and
+hardest to hand to another team.
 
-Three things change on an Orchestrator canvas:
+Orchestrator makes that layer a first-class artifact: something you
+design on a canvas, govern with RBAC and approval gates, export as
+YAML, and commit to Git alongside everything else.
+
+=== What Changes on the Canvas
 
 *Triggers all live in one place.* Manual, scheduled, webhook and
 Event-Driven Ansible triggers can all start the *same* workflow. A
 monitoring alert and a nightly scan that find the same problem feed one
 remediation workflow instead of two. And the finished workflow exports
-as a single YAML file — triggers, logic, approvals, job templates and
-all — so it can go into Git and be handed to another team.
+as a single YAML file. Triggers, logic, approvals and job templates
+all travel as one artifact, so it can go into Git and be handed to
+another team.
 
 *Logic steps route on real values, not just success or failure.* The
 switch step reads a value from earlier in the workflow and takes the
 first path that matches. Disk at 60% does nothing, at 75% cleans up, at
-85% expands, at 95% gets a human involved — one metric, four paths.
+85% expands, at 95% gets a human involved. One metric, four paths.
 
 *AI steps handle the reasoning, AAP still does the work.* A task agent
 step can read an alert, a log dump or the text of an incident ticket,
@@ -35,11 +58,13 @@ Automation Platform executes the job template you already trust. The
 reasoning is non-deterministic; the change to your infrastructure is
 not.
 
-In this lab you build all three. You will wire up your own integrations
-and credentials, build a workflow from an empty canvas, then complete
-three real scenarios that are shipped to you half-finished: disk
-remediation, incident ticket enrichment, and CVE remediation. Every one
-of them ends in a live run you can watch step by step.
+=== What You Will Build
+
+You will wire up your own integrations and credentials, build a
+workflow from an empty canvas, then complete three real scenarios
+relating to disk utilization, incident ticket enrichment, and CVE
+remediation. Every one of them ends in a live run you can watch step by
+step.
 
 == Red Hat Products Included
 
@@ -51,9 +76,9 @@ of them ends in a live run you can watch step by step.
 
 Supporting applications in the environment:
 
-* *OpenFlake* — the IT service management system holding the incident
+* *OpenFlake*: the IT service management system holding the incident
   tickets module 05 enriches
-* *Mattermost* — the chat platform your workflows post notifications to
+* *Mattermost*: the chat platform your workflows post notifications to
 
 == Who Will Benefit
 
@@ -79,34 +104,34 @@ comfortable with what an Ansible playbook and an AAP job template are.
 |===
 |Module |What you do |Time
 
-|*01* — Introduction to Automation Orchestrator
-|Tour the product. Projects, integrations, workflows and executions —
-where everything lives and what the two projects in this environment are
-for.
+|*01.* Introduction to Automation Orchestrator
+|Tour the product. Projects, integrations, workflows and executions:
+where everything lives, and what the two projects in this environment
+are for.
 |10 min
 
-|*02* — Getting Started: Integrations and Credentials
+|*02.* Getting Started: Integrations and Credentials
 |Build the LLM and AAP MCP integrations the rest of the lab runs on, by
 hand, with your own credentials.
 |15 min
 
-|*03* — Your First Workflow: Hello World
+|*03.* Your First Workflow: Hello World
 |Build a three-step workflow from an empty canvas: a trigger, a task
 agent, and an AAP job template that posts the agent's answer to chat.
 |15 min
 
-|*04* — Disk Utilization Workflow
+|*04.* Disk Utilization Workflow
 |Complete a workflow that branches on how full a filesystem is, and
 watch AAP actually clean it up.
 |15 min
 
-|*05* — Ticket Enrichment Workflow
+|*05.* Ticket Enrichment Workflow
 |Wire a task agent to MCP tools so it can read an OpenFlake incident,
 decide what it is, and either fix it, escalate it for approval, or
 enrich the ticket for a human. Three runs, three different outcomes.
 |20 min
 
-|*06* — CVE Remediation Workflow
+|*06.* CVE Remediation Workflow
 |Configure the routing that sends a CVE to automatic patching or to an
 approval gate, based on what the triage agent found in Red Hat
 Lightspeed.
@@ -126,7 +151,7 @@ Everything you need runs in this browser. There is nothing to install.
 [TIP]
 ====
 Every module ends in a workflow that works. If one of yours does not,
-you are not stuck — the *solutions* project in Automation Orchestrator
+you are not stuck. The *solutions* project in Automation Orchestrator
 holds a complete, published, working copy of every workflow in this lab.
 Open the solutions copy side by side with yours, compare the step you
 are on, and carry on. Each module tells you exactly which workflow to

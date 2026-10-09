@@ -20,7 +20,7 @@ asciidoc:
     openshift_console_url: 'https://console-openshift-console.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     openshift_cluster_ingress_domain: 'apps.cluster-%GUID%.dyn.redhatworkshops.io'
 
-    # Automation Orchestrator — ocp4_workload_automation_orchestrator
+    # Automation Orchestrator, published by the install role
     ao_url: 'https://aap-orchestrator.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     ao_admin_user: admin
     ao_admin_password: changeme
@@ -28,7 +28,7 @@ asciidoc:
     # Ansible Automation Platform.
     # TODO: the admin user/password key names are the AgnosticD
     # convention, not yet confirmed against a provision of this
-    # catalog item. aap_controller_web_url is confirmed — the config
+    # catalog item. aap_controller_web_url is confirmed, since the config
     # role reads it.
     aap_controller_web_url: 'https://aap-aap.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     aap_controller_admin_user: admin
@@ -40,7 +40,7 @@ asciidoc:
     # part of the value, not something the student appends.
     aap_mcp_url: 'https://aap-mcp-aap.apps.cluster-%GUID%.dyn.redhatworkshops.io/mcp'
 
-    # OpenFlake — the ITSM the Ticket Enrichment scenario enriches
+    # OpenFlake, the ITSM the Ticket Enrichment scenario enriches
     openflake_url: 'https://openflake.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     openflake_admin_username: admin
     openflake_admin_password: changeme
@@ -51,7 +51,7 @@ asciidoc:
     litellm_virtual_key: changeme
     litellm_available_models: qwen3-235b
 
-    # Mattermost — where the Hello World and Disk Utilization
+    # Mattermost, where the Hello World and Disk Utilization
     # notifications land
     mattermost_url: 'https://mattermost-mattermost.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     mattermost_username: admin
