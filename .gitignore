@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 __pycache__/
 *.pyc
+
+# Provision logs pasted in for analysis — never ours to commit.
+job_*.txt
