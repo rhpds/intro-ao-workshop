@@ -22,45 +22,27 @@ plane.
 
 === Why Should You Care?
 
-Ansible Automation Platform already orchestrates. Workflow templates
-chain job templates together, branch on success and failure, gate on
-human approval, and start from a schedule, a webhook, or an
-Event-Driven Ansible rule. None of that goes away, and this lab ends
-every scenario by handing the work to a job template.
+Three things on an Orchestrator canvas are new.
 
-The piece that is genuinely hard is deciding something you could not
-write down in advance. A rulebook matches an event against conditions
-you defined. A switch compares a value you already have. Both work
-well, right up to the point where the input is a paragraph of free
-text in an incident ticket, a log excerpt, or an alert description,
-and the real question is: what is this, how bad is it, and which
-automation applies?
+*The trigger is part of the workflow.* Manual, scheduled, webhook and
+Event-Driven Ansible triggers are steps you place on the canvas
+itself, not something wired up outside the workflow that launches it.
+The thing that starts your automation and the automation it starts
+are one artifact, and they export to YAML together.
 
-Automation Orchestrator adds a step type for exactly that. A task
-agent reads the unstructured part, classifies it, and recommends what
-to run. Everything around it stays deterministic: a switch routes on
-what the agent concluded, an approval gate puts a person in front of
-the recommendation, and an AAP job template makes the change.
+*Switch steps route on values.* A switch reads a value produced
+earlier in the workflow and takes the first path that matches. Disk at
+60% does nothing, at 75% cleans up, at 85% expands, at 95% gets a
+human involved. One metric, four paths.
 
-=== What Changes on the Canvas
+*Task agents handle what you could not write down in advance.* When
+the input is a paragraph of free text in an incident ticket, a log
+excerpt, or an alert description, a task agent reads it, classifies
+it, and recommends what to run.
 
-*One workflow, several ways to start it.* Manual, scheduled, webhook
-and Event-Driven Ansible triggers all sit on the same canvas, so a
-monitoring alert and a nightly scan that find the same problem can
-feed one remediation workflow instead of two. The finished workflow
-exports as a single YAML file: triggers, logic, approvals and job
-templates travel as one artifact you can commit to Git and hand to
-another team.
-
-*Switch steps route on values, not just on success or failure.* A
-switch reads a value from earlier in the workflow and takes the first
-path that matches. Disk at 60% does nothing, at 75% cleans up, at 85%
-expands, at 95% gets a human involved. One metric, four paths.
-
-*AI provides recommendations, AAP is still your trusted execution
-layer.* The reasoning is non-deterministic. The change to your
-infrastructure is not, and you decide whether a person signs off in
-between.
+That last one is why the approval gate matters. AI provides the
+recommendation; AAP is still your trusted execution layer, and you
+decide whether a person signs off in between.
 
 === What You Will Build
 
