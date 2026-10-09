@@ -1,0 +1,92 @@
+---
+# What each scenario is MISSING when it lands in the student's `default`
+# project. Declarative on purpose: the student copies are generated from
+# the same exports `solutions` uses, so a fix to a prompt or a node is
+# picked up by both. Forking the JSON would have meant the student copy
+# silently missing every correction made to the real one.
+#
+# Keyed by the workflow `key` in ..._config_workflows.
+
+# True of all three, and not about the exercises: it is just who owns
+# which asset. Merged into each entry below before the filters run.
+#
+# The student builds the LLM and the AAP MCP integrations by hand —
+# that is module 02 — so provisioning has nothing to wire into any node
+# that uses them. Those nodes ship unconfigured and the student plugs
+# their own in. Everything else (AAP, Lightspeed MCP, OpenFlake MCP) IS
+# pre-wired, which is what keeps the scenarios down to a few pieces:
+# Disk in particular has no agentic nodes at all, so none of this
+# touches it.
+#
+# Those three are `scope: global` integrations, but their CREDENTIALS
+# are not — AO hard-scopes credentials to a project and 422s a workflow
+# citing one from another ("belong to a different project"), so the
+# role creates a second copy of each in `default`. Without them Disk,
+# which is nine AAP nodes and nothing else, would not import at all.
+ao_student_common:
+  student_credentials:
+    - llm
+  student_integrations:
+    - aap_mcp
+  # A webhook path is unique instance-wide, not per project, so the
+  # student copies cannot reuse `disk-utilization` /
+  # `openflake-incident` — the import fails outright.
+  webhook_path_prefix: "student-"
+  # A trigger must authorize an account in its own project.
+  service_account_remap:
+    solutions_webhooks: student_webhooks
+
+ao_student_gaps:
+
+  # Build the >95% branch off the switch. One branch, not two.
+  #
+  # The 80-95% branch is left intact on purpose, and it is the close
+  # worked example: remediate then notify, the same two-node shape the
+  # student is asked to build, sitting on the same canvas one port
+  # above. They are copying a pattern they can see rather than working
+  # from a description. <80% and default stay too, so three of the four
+  # ports are wired and only one is obviously empty.
+  disk_utilization:
+    summary: >-
+      The >95% branch is missing. Build it, using the 80-95% branch
+      beside it as the model.
+    drop_nodes:
+      - activity_e18d67ef_1f99_4553_9807_81710484a424   # Remediate - Expand Disk
+      - activity_e31726ba_d2bc_41c2_96e0_3d00c4a175cf   # Critical - Notify Chatroom - Expand Disk
+
+  # Fill in the routing conditions.
+  #
+  # Ports and labels stay, so the student can see there are three routes
+  # and what each is for; only the expression that selects them is gone.
+  # In the UI this is the field / operator / value row.
+  rhel_cve_remediation:
+    summary: >-
+      The Route Decision switch has its routes but no conditions. Fill
+      them in.
+    blank_switch_conditions:
+      - route_switch
+
+  # One declared gap. The agent work is not listed here because it
+  # falls out of ao_student_common above: both agents lose their LLM,
+  # and the triage agent loses the AAP MCP connection and the one tool
+  # pinned from it (job_templates_list). OpenFlake stays connected on
+  # both with perform_query pinned, so the student sees a working
+  # server next to the empty one rather than two empty ones.
+  #
+  # An earlier version also forced the triage agent to NONE. That was
+  # wrong: it took OpenFlake's perform_query down with it, and a
+  # strategy of NONE makes the UI draw the OpenFlake connection as
+  # disabled, so the student was shown a server that looked broken and
+  # was never asked to fix it.
+  #
+  # The trigger ships with no authorized service account, which is what
+  # makes the workflow import but refuse to publish -- confirmed
+  # 2026-10-08: HTTP 201, is_valid false,
+  # "'authorized_service_account_ids' is a required property". The
+  # account itself already exists in `default` as `aap-student-webhooks`;
+  # the student selects it, they do not create it.
+  ticket_enrichment:
+    summary: >-
+      The webhook trigger has no authorized service account, and both
+      agents need the LLM and AAP MCP integrations you built.
+    unauthorized_trigger: true

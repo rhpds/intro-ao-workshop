@@ -37,7 +37,13 @@
   when: ocp4_workload_automation_orchestrator_config_manage_service_account | bool
   ansible.builtin.include_tasks: setup_service_account.yml
 
-- name: Import, wire, validate and publish the solutions workflows
+- name: Copy the shared credentials into the student project
+  # After setup_credentials.yml, which resolves the Lightspeed token
+  # this reuses, and before the workflows, which cite these ids.
+  when: ocp4_workload_automation_orchestrator_config_import_student_workflows | bool
+  ansible.builtin.include_tasks: setup_student_credentials.yml
+
+- name: Import and wire the solutions and student workflows
   ansible.builtin.include_tasks: setup_workflows.yml
 
 - name: Show the configured Automation Orchestrator assets
@@ -49,3 +55,9 @@
       {{ _ao_credential_ids | length }} credential(s),
       {{ _ao_integration_ids | length }} integration(s) and
       {{ _ao_enabled_workflows | length }} workflow(s).
+      {% if ocp4_workload_automation_orchestrator_config_import_student_workflows | bool %}
+      Project '{{ ocp4_workload_automation_orchestrator_config_student_project }}'
+      has {{ _ao_student_credential_ids | default({}) | length }} credential(s)
+      and {{ _ao_enabled_workflows | length }} unpublished student
+      copy/copies waiting to be completed.
+      {% endif %}

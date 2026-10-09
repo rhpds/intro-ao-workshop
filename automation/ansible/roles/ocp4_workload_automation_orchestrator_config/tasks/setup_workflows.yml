@@ -24,11 +24,16 @@
     _ao_required_job_templates: []
 
 - name: Warn about workflows skipped for want of a service account
-  # A webhook-triggered workflow cannot be imported at all without an
-  # authorized service account — AO rejects the definition — so the
-  # choice is skip it or fail the provision. Skipping keeps
-  # ..._manage_service_account: false a usable setting, which is what
-  # it is documented to be.
+  # These workflows are skipped because they would be UNUSABLE, not
+  # because AO refuses them. An earlier version of this comment said
+  # the import fails outright; that is wrong, and the student copies
+  # depend on it being wrong — posting a webhook workflow with no
+  # authorized_service_account_ids returns HTTP 201 with is_valid
+  # false and "'authorized_service_account_ids' is a required
+  # property", which is exactly the Ticket Enrichment exercise
+  # (confirmed live 2026-10-08). What it cannot do is publish, and a
+  # webhook workflow that cannot publish cannot be fired by AAP, so
+  # shipping one into `solutions` would be worse than leaving it out.
   vars:
     _ao_skipped_workflows: >-
       {{ ocp4_workload_automation_orchestrator_config_workflows
@@ -41,10 +46,11 @@
     msg: |
       WARNING: skipping {{ _ao_skipped_workflows | join(', ') }}.
 
-      These are triggered by webhook, and AO requires a non-empty
-      authorized_service_account_ids on a webhook trigger — so they
-      cannot be imported at all while
-      ..._manage_service_account is false.
+      These are triggered by webhook, and AO will not publish a
+      workflow whose webhook trigger authorizes no service account.
+      An unpublished workflow cannot be fired, so with
+      ..._manage_service_account false there is nothing useful to
+      import.
 
 - name: Collect the AAP job templates every workflow needs
   ansible.builtin.include_tasks: ao_collect_job_templates.yml
@@ -56,9 +62,48 @@
 - name: Resolve AAP job template names to ids
   ansible.builtin.include_tasks: resolve_job_templates.yml
 
-- name: Import and wire each workflow
+- name: Import and wire each workflow into solutions
   ansible.builtin.include_tasks: ao_import_workflow.yml
   loop: "{{ _ao_enabled_workflows }}"
   loop_control:
     loop_var: _wf
     label: "{{ _wf.name }}"
+
+# --- Student copies -------------------------------------------------
+#
+# The same exports, wired against `default`'s own credentials and
+# then cut back to leave the exercises. Generated rather than forked
+# so a fix to a prompt or a node reaches both copies.
+#
+# Note these are NOT filtered by requires_service_account the way the
+# solutions pass is. Ticket's student copy is supposed to arrive with
+# no authorized service account — that is its exercise — and Disk's
+# cites the student account, which exists whenever
+# ..._manage_service_account is true. With it false there is no
+# student account either, so the whole pass is skipped below.
+
+- name: Load the student gaps
+  when: ocp4_workload_automation_orchestrator_config_import_student_workflows | bool
+  ansible.builtin.set_fact:
+    # lookup('file') resolves against the role's files/ directory;
+    # include_vars would look in vars/ instead. The filter merges
+    # ao_student_common into each entry, per-workflow keys winning.
+    _ao_student_gaps: >-
+      {{ lookup('ansible.builtin.file', 'student_gaps.yml')
+         | from_yaml
+         | intro_ao_workshop.automation.ao_student_gaps }}
+
+- name: Import and wire each workflow into the student project
+  when:
+    - ocp4_workload_automation_orchestrator_config_import_student_workflows | bool
+    - ocp4_workload_automation_orchestrator_config_manage_service_account | bool
+  ansible.builtin.include_tasks: ao_import_workflow.yml
+  loop: "{{ _ao_enabled_workflows }}"
+  loop_control:
+    loop_var: _wf
+    label: "{{ _wf.name }} (student)"
+  vars:
+    _wf_student: true
+    _wf_project_id: "{{ _ao_student_project_id }}"
+    _wf_credentials: "{{ _ao_student_credential_ids }}"
+    _wf_gaps: "{{ _ao_student_gaps[_wf.key] }}"

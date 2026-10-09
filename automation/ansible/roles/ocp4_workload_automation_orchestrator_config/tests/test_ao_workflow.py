@@ -30,6 +30,9 @@ from ao_workflow import (  # noqa: E402
     ao_name_id_map,
     ao_prepare_definition,
     ao_required_job_templates,
+    ao_student_bindings,
+    ao_student_gaps,
+    ao_student_variant,
     ao_validation_summary,
     ao_wire_definition,
 )
@@ -785,6 +788,310 @@ class TestFailureModes(unittest.TestCase):
         with self.assertRaises(AOWiringError) as caught:
             ao_wire_definition(self.definition, self.bindings, resolved)
         self.assertIn("which exposes: (none)", str(caught.exception))
+
+
+class TestStudentGapsFile(unittest.TestCase):
+    """files/student_gaps.yml, as the role and the harnesses read it."""
+
+    def setUp(self):
+        path = os.path.join(ROLE_DIR, "files", "student_gaps.yml")
+        with open(path) as handle:
+            self.document = yaml.safe_load(handle)
+        self.merged = ao_student_gaps(self.document)
+
+    def test_every_workflow_in_defaults_has_a_gap(self):
+        # A workflow with no entry would import into `default` fully
+        # wired — a finished workflow handed over as an exercise, and
+        # nothing would say so.
+        path = os.path.join(ROLE_DIR, "defaults", "main.yml")
+        with open(path) as handle:
+            defaults = yaml.safe_load(handle)
+        keys = {w["key"] for w in defaults[
+            "ocp4_workload_automation_orchestrator_config_workflows"]}
+        self.assertEqual(keys, set(self.merged))
+
+    def test_common_settings_reach_every_entry(self):
+        for key, gap in self.merged.items():
+            self.assertEqual(gap["student_credentials"], ["llm"],
+                             "%s lost student_credentials" % key)
+            self.assertEqual(gap["student_integrations"], ["aap_mcp"],
+                             "%s lost student_integrations" % key)
+            self.assertEqual(gap["webhook_path_prefix"], "student-",
+                             "%s lost webhook_path_prefix" % key)
+
+    def test_a_per_workflow_key_beats_the_common_one(self):
+        # The merge got this backwards once in Jinja, which is why it
+        # lives in the filter now. Common must not clobber an entry.
+        merged = ao_student_gaps({
+            "ao_student_common": {"webhook_path_prefix": "student-"},
+            "ao_student_gaps": {"x": {"webhook_path_prefix": "other-"}},
+        })
+        self.assertEqual(merged["x"]["webhook_path_prefix"], "other-")
+
+    def test_missing_common_block_is_not_an_error(self):
+        merged = ao_student_gaps({"ao_student_gaps": {"x": None}})
+        self.assertEqual(merged, {"x": {}})
+
+
+class TestStudentVariant(unittest.TestCase):
+    """The copies that land in the student's `default` project.
+
+    Generated from the same exports `solutions` uses, so these tests
+    are the thing standing between a re-export and an exercise that
+    quietly stopped existing.
+    """
+
+    # Which credentials provisioning creates in `default`. The LLM and
+    # AAP MCP ones are the student's own work, so they are absent —
+    # that absence is what blanks the agents, and a test that wires
+    # against the full set would not be testing the student copy.
+    STUDENT_PROJECT_CREDENTIALS = ("aap", "lightspeed_mcp", "openflake_mcp")
+
+    def setUp(self):
+        path = os.path.join(ROLE_DIR, "files", "student_gaps.yml")
+        with open(path) as handle:
+            self.gaps = ao_student_gaps(yaml.safe_load(handle))
+
+    def _variant(self, filename, key, name):
+        """Run the pipeline the role runs, both ways round.
+
+        Returns (solutions, student). Both come off the same export,
+        wired by the same pass; they differ only in the asset map and
+        the gaps. Checking the student copy against a raw export would
+        miss everything the wiring itself decides — which is most of
+        it, now that the blank agents come from a missing credential
+        rather than from an explicit gap.
+        """
+        definition = ao_prepare_definition(load_workflow(filename), name)
+        bindings = load_bindings(key)
+        gaps = self.gaps[key]
+        tools = {}
+        for fixture in (CVE_TOOLS, TICKET_TOOLS):
+            for integration, listing in fixture.items():
+                tools.setdefault(integration, {}).update(listing)
+
+        solutions = ao_wire_definition(
+            definition, bindings,
+            fake_resolved(ao_required_job_templates(definition, bindings),
+                          tools))
+
+        student_bindings = ao_student_bindings(bindings, gaps)
+        resolved = fake_resolved(
+            ao_required_job_templates(definition, student_bindings), tools)
+        resolved["credentials"] = {
+            key_: value for key_, value in resolved["credentials"].items()
+            if key_ in self.STUDENT_PROJECT_CREDENTIALS
+        }
+        student = ao_wire_definition(definition, student_bindings, resolved)
+        return solutions, ao_student_variant(student, gaps)
+
+    # --- Disk: build the >95% branch --------------------------------
+
+    def test_disk_drops_only_the_over_95_branch(self):
+        full, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        self.assertEqual(len(full["nodes"]), 10)
+        self.assertEqual(len(student["nodes"]), 8)
+        names = {n.get("name") for n in student["nodes"]}
+        # The branch the student builds is gone...
+        self.assertNotIn("Remediate - Expand Disk", names)
+        self.assertNotIn("Critical - Notify Chatroom - Expand Disk", names)
+        # ...and the one they copy from is not.
+        self.assertIn("Remediate  - Clean Disk", names)
+        self.assertIn("Warn - Notify Chatroom - Clean Disk", names)
+
+    def test_disk_leaves_exactly_one_switch_port_empty(self):
+        # Three of four ports wired and one obviously empty is the
+        # whole design: the student sees the shape they are copying one
+        # port above the hole they are filling.
+        _, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        switch = next(n for n in student["nodes"] if n["type"] == "switch")
+        wired = {
+            e.get("from_port") for e in student["edges"]
+            if e.get("from") == switch["id"]
+        }
+        ports = [c["port"] for c in switch["parameters"]["cases"]]
+        ports.append(switch["parameters"]["default_port"])
+        self.assertEqual(set(ports) - wired, {"case_2"})
+
+    def test_dropping_a_node_takes_its_edges(self):
+        _, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        # Triggers are a sibling list of `nodes`, not members of it, so
+        # the trigger -> first node edge points out of the node set by
+        # design and has to be allowed for here.
+        ids = {n["id"] for n in student["nodes"]}
+        ids |= {t["id"] for t in student.get("triggers", [])}
+        for edge in student["edges"]:
+            self.assertIn(edge["from"], ids, edge)
+            self.assertIn(edge["to"], ids, edge)
+
+    # --- CVE: fill in the routing conditions ------------------------
+
+    def test_cve_blanks_conditions_but_keeps_ports_and_labels(self):
+        # Losing the labels would leave the student guessing how many
+        # routes there are and what each one is for.
+        full, student = self._variant(
+            "rhel-cve-remediation.json", "rhel_cve_remediation",
+            "RHEL CVE Remediation",
+        )
+        self.assertEqual(len(student["nodes"]), len(full["nodes"]))
+        self.assertEqual(len(student["edges"]), len(full["edges"]))
+        cases = next(
+            n for n in student["nodes"] if n["type"] == "switch"
+        )["parameters"]["cases"]
+        self.assertEqual(
+            [c["port"] for c in cases], ["case_0", "case_1", "case_2"]
+        )
+        self.assertTrue(all(c["label"] for c in cases))
+        self.assertEqual([c["condition"] for c in cases], ["", "", ""])
+
+    # --- Ticket: service account and tools --------------------------
+
+    def test_ticket_triage_agent_keeps_openflake_and_loses_aap_mcp(self):
+        # Reviewed in the UI on 2026-10-08: forcing this agent to NONE
+        # was wrong. It took OpenFlake's perform_query down with the
+        # AAP MCP tool, and NONE makes the UI draw the OpenFlake
+        # connection as disabled — so the student was shown a server
+        # that looked broken and was never asked to fix it. OpenFlake
+        # is provisioning's, so it stays wired and pinned; only the
+        # AAP MCP connection and its tool are the student's to add.
+        solutions, student = self._variant(
+            "ticket-enrichment.json", "ticket_enrichment",
+            "Ticket Enrichment Demo",
+        )
+        triage = next(n for n in student["nodes"] if n["id"] == "triage_agent")
+        params = triage["parameters"]
+        self.assertEqual(params["tool_selection_strategy"], "SELECTED")
+
+        openflake = UUID % 13
+        aap_mcp = UUID % 12
+        connected = {c["integration_id"]
+                     for c in params["integration_connections"]}
+        self.assertIn(openflake, connected)
+        self.assertNotIn(aap_mcp, connected)
+
+        # perform_query survives; job_templates_list goes with AAP MCP.
+        self.assertEqual(params["tool_selections"], [UUID % 40])
+        before = next(n for n in solutions["nodes"]
+                      if n["id"] == "triage_agent")["parameters"]
+        self.assertEqual(len(before["tool_selections"]), 2)
+
+    def test_ticket_agents_have_no_llm_for_the_student_to_find(self):
+        # Both agents, not just the one carrying the declared gap: the
+        # LLM is the student's own credential and provisioning has no
+        # copy of it to wire.
+        _, student = self._variant(
+            "ticket-enrichment.json", "ticket_enrichment",
+            "Ticket Enrichment Demo",
+        )
+        agents = [n for n in student["nodes"] if n["type"] == "agentic"]
+        self.assertEqual(len(agents), 2)
+        for agent in agents:
+            self.assertIsNone(agent["parameters"]["credential_id"])
+            self.assertIsNone(agent["parameters"]["llm_model_id"])
+
+    def test_ticket_job_template_nodes_are_fully_wired(self):
+        # The six AAP nodes are not an exercise. They are also the
+        # reason `default` needs its own AAP credential: AO 422s a
+        # workflow citing one from another project.
+        _, student = self._variant(
+            "ticket-enrichment.json", "ticket_enrichment",
+            "Ticket Enrichment Demo",
+        )
+        jobs = [n for n in student["nodes"]
+                if n["type"] == "aap_job_template"]
+        self.assertEqual(len(jobs), 6)
+        for job in jobs:
+            self.assertEqual(job["parameters"]["credential_id"], UUID % 2)
+            self.assertEqual(job["parameters"]["integration_id"], UUID % 11)
+
+    def test_student_webhook_paths_do_not_collide_with_solutions(self):
+        # Paths are unique instance-wide, not per project, so an
+        # unprefixed copy is "The requested webhook path is already in
+        # use by another trigger" and never imports.
+        for filename, key, name in (
+            ("ticket-enrichment.json", "ticket_enrichment",
+             "Ticket Enrichment Demo"),
+            ("disk-utilization-remediation.json", "disk_utilization",
+             "Disk Utilization Remediation"),
+        ):
+            solutions, student = self._variant(filename, key, name)
+            theirs = student["triggers"][0]["parameters"]["webhook_path"]
+            ours = solutions["triggers"][0]["parameters"]["webhook_path"]
+            self.assertNotEqual(theirs, ours)
+            self.assertEqual(theirs, "student-" + ours)
+
+    def test_disk_student_trigger_authorizes_the_student_account(self):
+        # Disk's trigger is NOT a declared gap — it has to work out of
+        # the box — but it cannot cite the solutions account, because
+        # AO 422s a trigger whose account is outside the workflow's
+        # project.
+        _, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        params = student["triggers"][0]["parameters"]
+        self.assertEqual(params["authorized_service_account_ids"],
+                         [UUID % 51])
+
+    def test_ticket_trigger_has_no_authorized_service_account(self):
+        # Confirmed live: this imports HTTP 201 with is_valid false, so
+        # the workflow is present and editable but will not publish
+        # until the student attaches aap-student-webhooks.
+        _, student = self._variant(
+            "ticket-enrichment.json", "ticket_enrichment",
+            "Ticket Enrichment Demo",
+        )
+        params = student["triggers"][0]["parameters"]
+        self.assertNotIn("authorized_service_account_ids", params)
+
+    # --- The gaps file cannot rot quietly ---------------------------
+
+    def test_dropping_an_unknown_node_is_rejected(self):
+        full = ao_prepare_definition(
+            load_workflow("disk-utilization-remediation.json"), "Disk"
+        )
+        with self.assertRaises(AOWiringError) as caught:
+            ao_student_variant(full, {"drop_nodes": ["activity_not_here"]})
+        self.assertIn("activity_not_here", str(caught.exception))
+
+    def test_naming_an_unknown_switch_is_rejected(self):
+        full = ao_prepare_definition(
+            load_workflow("rhel-cve-remediation.json"), "CVE"
+        )
+        with self.assertRaises(AOWiringError) as caught:
+            ao_student_variant(full, {"blank_switch_conditions": ["nope"]})
+        self.assertIn("nope", str(caught.exception))
+
+    def test_the_solutions_definition_is_not_mutated(self):
+        # Both copies are built from one export in the same run. If the
+        # transform mutated in place, solutions would ship with the
+        # student's holes in it.
+        full, student = self._variant(
+            "disk-utilization-remediation.json", "disk_utilization",
+            "Disk Utilization Remediation",
+        )
+        self.assertEqual(len(full["nodes"]), 10)
+        self.assertEqual(len(full["edges"]), 10)
+        self.assertNotEqual(len(student["nodes"]), len(full["nodes"]))
+
+    def test_every_gap_key_matches_a_real_workflow(self):
+        # A typo'd key here would mean a scenario silently shipping
+        # complete, with the exercise gone and nothing to notice it.
+        known = {
+            "disk_utilization": "disk-utilization-remediation.json",
+            "rhel_cve_remediation": "rhel-cve-remediation.json",
+            "ticket_enrichment": "ticket-enrichment.json",
+        }
+        self.assertEqual(set(self.gaps), set(known))
 
 
 class TestCollection(unittest.TestCase):

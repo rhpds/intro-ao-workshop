@@ -2,10 +2,35 @@
 # Import one workflow, wire its nodes, confirm it validates, publish.
 # The wiring itself is in the ao_wire_definition filter, unit-tested
 # offline against these exact exports (tests/test_ao_workflow.py).
+#
+# Runs twice per workflow — once for `solutions` and once for the
+# student copy in `default`. The caller sets:
+#
+#   _wf_student      false (default) or true
+#   _wf_project_id   defaults to the solutions project
+#   _wf_credentials  defaults to _ao_credential_ids
+#   _wf_gaps         the entry from student_gaps.yml, student pass only
+#
+# The student pass differs only in its asset map and its bindings.
+# The definition comes off the SAME export, so a correction to a
+# prompt or a node reaches both copies and cannot land in one and not
+# the other.
 
 - name: "Load the binding file for {{ _wf.name }}"
   ansible.builtin.include_vars:
     file: "bindings_{{ _wf.key }}.yml"
+
+- name: "Select the bindings for {{ _wf.name }}"
+  ansible.builtin.set_fact:
+    # Student copies drop every reference to an asset the student owns
+    # (the LLM credential, the AAP MCP integration and the tools pinned
+    # from it) and re-point the webhook trigger at the student service
+    # account, which must share the workflow's project or AO 422s.
+    _wf_bindings: >-
+      {{ ao_workflow_bindings
+         | intro_ao_workshop.automation.ao_student_bindings(_wf_gaps | default({}, true))
+         if _wf_student | default(false) | bool
+         else ao_workflow_bindings }}
 
 - name: "Re-authenticate before importing {{ _wf.name }}"
   # Refresh polling can run for minutes; start each import with a
@@ -14,12 +39,12 @@
 
 - name: "Build the wired definition for {{ _wf.name }}"
   ansible.builtin.set_fact:
-    _ao_workflow_definition: >-
+    _ao_wired_definition: >-
       {{ lookup('ansible.builtin.file', 'workflows/' ~ _wf.file)
          | from_json
          | intro_ao_workshop.automation.ao_prepare_definition(_wf.name, _wf.description | default(''))
-         | intro_ao_workshop.automation.ao_wire_definition(ao_workflow_bindings, {
-             'credentials': _ao_credential_ids,
+         | intro_ao_workshop.automation.ao_wire_definition(_wf_bindings, {
+             'credentials': _wf_credentials | default(_ao_credential_ids, true),
              'integrations': _ao_integration_ids,
              'integration_credentials': _ao_integration_credentials,
              'tools': _ao_integration_tools,
@@ -32,15 +57,31 @@
              },
            }) }}
 
+- name: "Apply the student gaps to {{ _wf.name }}"
+  # Last, and only on the student pass: take out the parts the student
+  # is meant to supply. After wiring rather than before, because a gap
+  # like "this trigger authorizes nobody" is the removal of something
+  # the wiring pass insists on putting there.
+  ansible.builtin.set_fact:
+    _ao_workflow_definition: >-
+      {{ _ao_wired_definition
+         | intro_ao_workshop.automation.ao_student_variant(_wf_gaps | default({}, true))
+         if _wf_student | default(false) | bool
+         else _ao_wired_definition }}
+
 - name: "Create or update workflow: {{ _wf.name }}"
   ansible.builtin.include_tasks: ao_find_or_create.yml
   vars:
     _fc_kind: workflows
     _fc_name: "{{ _wf.name }}"
+    # Both copies carry the same name, one per project, so the lookup
+    # has to be narrowed — otherwise the student pass finds the
+    # solutions workflow and overwrites it.
+    _fc_project_id: "{{ _wf_project_id | default(_ao_project_id) }}"
     _fc_body:
       name: "{{ _wf.name }}"
       description: "{{ _wf.description | default('') }}"
-      project_id: "{{ _ao_project_id }}"
+      project_id: "{{ _wf_project_id | default(_ao_project_id) }}"
       workflow_definition: "{{ _ao_workflow_definition }}"
     # Re-push the definition on re-runs so a corrected binding file
     # actually lands instead of being skipped as "already present".
@@ -91,11 +132,26 @@
 
       {{ _ao_workflow_validation | intro_ao_workshop.automation.ao_validation_summary }}
 
+      {% if _wf_student | default(false) | bool %}
+      This is the STUDENT copy, so findings are expected — they are
+      the exercise. Ticket Enrichment's missing
+      authorized_service_account_ids and the agentic nodes' null
+      credential_id are what the student fills in. See
+      files/student_gaps.yml.
+      {% else %}
       Each finding names the node_id and field_path to correct in
       vars/bindings_{{ _wf.key }}.yml.
+      {% endif %}
 
 - name: "Fail on an invalid workflow: {{ _wf.name }}"
+  # Never on the student pass. Those copies are invalid BY DESIGN —
+  # an agent with no LLM credential reports "None is not of type
+  # 'string'", and a webhook trigger with no service account reports
+  # "'authorized_service_account_ids' is a required property". Both
+  # are the exercise. Gating them on the role-level flag would abort
+  # every provision.
   when:
+    - not _wf_student | default(false) | bool
     - not _ao_workflow_is_valid | bool
     - ocp4_workload_automation_orchestrator_config_fail_on_invalid_workflow | bool
   ansible.builtin.fail:
@@ -107,7 +163,14 @@
   # Version-scoped: /workflows/{id}/versions/{n}/publish with an empty
   # body; /workflows/{id}/publish is a 404. 409 means either "does not
   # validate" or "already published", so it is accepted here.
+  #
+  # Student copies are never published. Disk's actually would —
+  # AO does not treat a dangling switch port as an error, so it
+  # validates clean — but publishing it would hand the student a
+  # finished-looking workflow, and leaving all three unpublished keeps
+  # "publish it yourself" as the last step of every scenario.
   when:
+    - not _wf_student | default(false) | bool
     - ocp4_workload_automation_orchestrator_config_publish_workflows | bool
     - _ao_workflow_is_valid | bool
   ansible.builtin.uri:
@@ -125,6 +188,12 @@
   ansible.builtin.debug:
     msg: >-
       Workflow '{{ _wf.name }}' ({{ _ao_workflow_id }}) version
-      {{ _ao_workflow_version }} is
+      {{ _ao_workflow_version }} in
+      {{ ocp4_workload_automation_orchestrator_config_student_project
+         if _wf_student | default(false) | bool
+         else ocp4_workload_automation_orchestrator_config_solutions_project }}
+      is
       {{ 'valid' if _ao_workflow_is_valid | bool else 'INVALID' }} and
-      {{ 'published' if r_wf_publish is not skipped else 'not published' }}.
+      {{ 'published' if r_wf_publish is not skipped else 'not published' }}{{
+         ' (both expected for a student copy)'
+         if _wf_student | default(false) | bool else '' }}.

@@ -12,9 +12,18 @@
 #               `uri` echoes its request body into the task result, so
 #               a failure or -vvv would print it. Default false keeps
 #               non-secret assets debuggable.
+#   _fc_project_id — optional; narrow the match to one project. Names
+#               are unique per project, not per instance, and the
+#               student copies deliberately reuse the solutions names:
+#               there is an "Ansible Automation Platform" credential
+#               and a "RHEL CVE Remediation" workflow in each. Without
+#               this the second pass matches the first pass's object,
+#               skips the create, and records an id from the wrong
+#               project — which then fails the import with "credential
+#               references ... belong to a different project".
 #
-# Matching is on NAME ONLY. The reference implementation deletes and
-# recreates any integration whose validation_status is not
+# Matching is otherwise on NAME ONLY. The reference implementation
+# deletes and recreates any integration whose validation_status is not
 # "available" — but this lab's MCP integrations routinely report a
 # failed validation while the protocol works, so that rule reissues
 # UUIDs every run and breaks the nodes pointing at the old ones.
@@ -33,10 +42,20 @@
     # ao_collection accepts both a bare list and an envelope. Doing
     # that unwrap in Jinja does not work: `json.items` resolves to the
     # dict's built-in items() method rather than a missing key.
-    _fc_existing: >-
+    _fc_by_name: >-
       {{ r_fc_list.json | intro_ao_workshop.automation.ao_collection
          | selectattr('name', 'equalto', _fc_name)
          | list }}
+
+- name: "Narrow the match to one project: {{ _fc_kind ~ '/' ~ _fc_name }}"
+  ansible.builtin.set_fact:
+    # Only when the caller asked for it. Projects and integrations
+    # carry a null project_id, so an unconditional filter here would
+    # match nothing for them.
+    _fc_existing: >-
+      {{ _fc_by_name | selectattr('project_id', 'equalto', _fc_project_id) | list
+         if _fc_project_id | default('', true) | length > 0
+         else _fc_by_name }}
 
 - name: "Create object: {{ _fc_kind ~ '/' ~ _fc_name }}"
   when: _fc_existing | length == 0
