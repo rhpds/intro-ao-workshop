@@ -7,6 +7,35 @@
 #
 # Keyed by the workflow `key` in ..._config_workflows.
 
+# True of all three, and not about the exercises: it is just who owns
+# which asset. Merged into each entry below before the filters run.
+#
+# The student builds the LLM and the AAP MCP integrations by hand —
+# that is module 02 — so provisioning has nothing to wire into any node
+# that uses them. Those nodes ship unconfigured and the student plugs
+# their own in. Everything else (AAP, Lightspeed MCP, OpenFlake MCP) IS
+# pre-wired, which is what keeps the scenarios down to a few pieces:
+# Disk in particular has no agentic nodes at all, so none of this
+# touches it.
+#
+# Those three are `scope: global` integrations, but their CREDENTIALS
+# are not — AO hard-scopes credentials to a project and 422s a workflow
+# citing one from another ("belong to a different project"), so the
+# role creates a second copy of each in `default`. Without them Disk,
+# which is nine AAP nodes and nothing else, would not import at all.
+ao_student_common:
+  student_credentials:
+    - llm
+  student_integrations:
+    - aap_mcp
+  # A webhook path is unique instance-wide, not per project, so the
+  # student copies cannot reuse `disk-utilization` /
+  # `openflake-incident` — the import fails outright.
+  webhook_path_prefix: "student-"
+  # A trigger must authorize an account in its own project.
+  service_account_remap:
+    solutions_webhooks: student_webhooks
+
 ao_student_gaps:
 
   # Build the >95% branch off the switch. One branch, not two.
@@ -46,8 +75,12 @@ ao_student_gaps:
   # account itself already exists in `default` as `aap-student-webhooks`;
   # the student selects it, they do not create it.
   #
-  # The triage agent ships as NONE rather than SELECTED-with-no-tools,
-  # because AO rejects an empty SELECTED list outright ("[] should be
+  # The triage agent would otherwise arrive with OpenFlake's
+  # perform_query already pinned (its other tool, job_templates_list,
+  # is AAP MCP and goes with the student-owned integration above). This
+  # clears it: the student sets the strategy to SELECTED and picks the
+  # tools themselves. NONE rather than SELECTED-with-no-tools because
+  # AO rejects an empty SELECTED list outright ("[] should be
   # non-empty") and that would make the workflow invalid for a reason
   # the student is not being asked to fix.
   ticket_enrichment:

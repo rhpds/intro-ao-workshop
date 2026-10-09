@@ -184,16 +184,25 @@ def _wire_agentic(node, binding, resolved):
     params = node.setdefault("parameters", {})
     node_id = node.get("id")
 
-    model_id = binding.get("llm_model_id") or resolved.get("llm_model_id")
-    if not model_id:
-        raise AOWiringError(
-            "agentic node '%s' has no llm_model_id; the LLM integration "
-            "probably returned no models after refresh" % node_id
-        )
-    params["llm_model_id"] = model_id
-
+    # Credential and model are one decision, not two: the model id is
+    # only addressable through the LLM integration the credential
+    # belongs to. So a binding with no `credential` is an agent left
+    # deliberately unconfigured — the student copies, where the LLM is
+    # the student's own to create — and it gets the shape AO's own UI
+    # produces for a fresh agent node: both fields present and null.
+    # (That is exactly what the three raw exports ship.)
     cred_key = binding.get("credential")
-    if cred_key:
+    if not cred_key:
+        params["credential_id"] = None
+        params["llm_model_id"] = None
+    else:
+        model_id = binding.get("llm_model_id") or resolved.get("llm_model_id")
+        if not model_id:
+            raise AOWiringError(
+                "agentic node '%s' has no llm_model_id; the LLM integration "
+                "probably returned no models after refresh" % node_id
+            )
+        params["llm_model_id"] = model_id
         params["credential_id"] = _lookup(resolved, "credentials", cred_key, node_id)
 
     # Each connection needs a credential as well as an integration: AO
@@ -499,6 +508,73 @@ def ao_wire_definition(definition, bindings, resolved):
     return wired
 
 
+def ao_student_bindings(bindings, gaps):
+    """Rewrite a binding file for the student copy in `default`.
+
+    The student copies are wired by the same pass as `solutions`, just
+    against the asset maps for a different project. Two things make
+    them differ, and both are about WHO OWNS AN ASSET rather than about
+    the exercise:
+
+        student_credentials:  credential keys the student creates, so
+                              provisioning has none to wire. A node
+                              citing one loses the reference; an
+                              agentic node left with no `credential`
+                              gets a null credential_id and model, the
+                              shape AO's UI gives a fresh agent.
+        student_integrations: integration keys the student creates.
+                              The connection goes, and so does every
+                              tool pinned from it — a tool id is issued
+                              by the integration that exposes it, so it
+                              cannot outlive the connection.
+        service_account_remap: a webhook trigger must authorize an
+                              account in its OWN project (AO 422s
+                              otherwise), so `solutions_webhooks`
+                              becomes `student_webhooks` here.
+
+    Everything else — the gaps proper — is applied to the definition by
+    ao_student_variant, not here.
+    """
+    out = copy.deepcopy(bindings or {})
+    gaps = gaps or {}
+
+    drop_credentials = set(gaps.get("student_credentials") or [])
+    drop_integrations = set(gaps.get("student_integrations") or [])
+    remap = gaps.get("service_account_remap") or {}
+
+    for binding in (out.get("nodes") or {}).values():
+        if binding.get("credential") in drop_credentials:
+            binding.pop("credential", None)
+        if binding.get("integration") in drop_integrations:
+            binding.pop("integration", None)
+        if binding.get("integrations"):
+            binding["integrations"] = [
+                key for key in binding["integrations"]
+                if key not in drop_integrations
+            ]
+        for tool_key in ("tools", "tools_all"):
+            value = binding.get(tool_key)
+            if not value:
+                continue
+            if tool_key == "tools":
+                binding[tool_key] = {
+                    key: names for key, names in value.items()
+                    if key not in drop_integrations
+                }
+            else:
+                binding[tool_key] = [
+                    key for key in value if key not in drop_integrations
+                ]
+
+    for binding in (out.get("triggers") or {}).values():
+        if binding.get("service_accounts"):
+            binding["service_accounts"] = [
+                remap.get(key, key) for key in binding["service_accounts"]
+            ]
+
+    return out
+
+
 def ao_student_variant(definition, gaps):
     """Remove from a workflow the parts the student is meant to supply.
 
@@ -513,7 +589,8 @@ def ao_student_variant(definition, gaps):
         blank_switch_conditions:  switch ids whose cases keep their port
                                   and label but lose the condition
         agent_tools_none:         agentic node ids forced to NONE
-        unauthorized_trigger:     leave authorized_service_account_ids off
+        unauthorized_trigger:     strip authorized_service_account_ids
+        webhook_path_prefix:      prepended to every webhook_path
 
     Deleting a node takes its edges with it, which is what leaves a
     switch port dangling — exactly the state the student is asked to
@@ -554,6 +631,41 @@ def ao_student_variant(definition, gaps):
         # invalid for a reason the student was not asked to fix.
         params["tool_selection_strategy"] = "NONE"
         params.pop("tool_selections", None)
+
+    # A webhook path is unique across the WHOLE instance, not per
+    # project — reusing `disk-utilization` here is "The requested
+    # webhook path is already in use by another trigger" and the
+    # student copy never imports. So every student copy is prefixed,
+    # including Ticket's, whose trigger is unauthorized but still
+    # claims a path.
+    prefix = gaps.get("webhook_path_prefix")
+    if prefix:
+        for trigger in out.get("triggers", []):
+            path = (trigger.get("parameters") or {}).get("webhook_path")
+            if path and not path.startswith(prefix):
+                trigger["parameters"]["webhook_path"] = prefix + path
+
+    if gaps.get("unauthorized_trigger"):
+        stripped = 0
+        for trigger in out.get("triggers", []):
+            if trigger.get("type") not in AUTHORIZED_TRIGGER_TYPES:
+                continue
+            # The wiring pass put a real account here, because it is
+            # the same pass that builds solutions and it refuses to
+            # leave the field empty. Removing it afterwards is what
+            # makes this the exercise: AO still imports the workflow
+            # (HTTP 201) and reports it invalid, with
+            # "'authorized_service_account_ids' is a required
+            # property" — confirmed live 2026-10-08.
+            trigger.get("parameters", {}).pop(
+                "authorized_service_account_ids", None)
+            stripped += 1
+        if not stripped:
+            raise AOWiringError(
+                "student gap sets unauthorized_trigger, but this workflow "
+                "has no webhook or EDA trigger to strip it from. The gap "
+                "would silently not exist."
+            )
 
     return out
 
@@ -635,6 +747,7 @@ class FilterModule(object):
         return {
             "ao_prepare_definition": ao_prepare_definition,
             "ao_wire_definition": ao_wire_definition,
+            "ao_student_bindings": ao_student_bindings,
             "ao_student_variant": ao_student_variant,
             "ao_required_job_templates": ao_required_job_templates,
             "ao_collection": ao_collection,
