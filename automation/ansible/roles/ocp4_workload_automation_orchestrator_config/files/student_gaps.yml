@@ -9,18 +9,19 @@
 
 ao_student_gaps:
 
-  # Build the two middle branches off the switch.
+  # Build the >95% branch off the switch. One branch, not two.
   #
-  # The <80% and default branches are left intact deliberately: the
-  # student has a worked example of the exact shape they are being asked
-  # to build, on the same canvas, rather than a blank area and a
-  # description.
+  # The 80-95% branch is left intact on purpose, and it is the close
+  # worked example: remediate then notify, the same two-node shape the
+  # student is asked to build, sitting on the same canvas one port
+  # above. They are copying a pattern they can see rather than working
+  # from a description. <80% and default stay too, so three of the four
+  # ports are wired and only one is obviously empty.
   disk_utilization:
     summary: >-
-      The 80-95% and >95% branches are missing. Build them.
+      The >95% branch is missing. Build it, using the 80-95% branch
+      beside it as the model.
     drop_nodes:
-      - activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59   # Remediate  - Clean Disk
-      - activity_b1aa86c0_001a_4240_b7fb_99f2d0b4ba2d   # Warn - Notify Chatroom - Clean Disk
       - activity_e18d67ef_1f99_4553_9807_81710484a424   # Remediate - Expand Disk
       - activity_e31726ba_d2bc_41c2_96e0_3d00c4a175cf   # Critical - Notify Chatroom - Expand Disk
 
