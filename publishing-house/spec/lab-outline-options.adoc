@@ -1,0 +1,305 @@
+= Intro to AO — 90 Minute Lab Outline (two options for review)
+:toc: left
+:toclevels: 3
+:icons: font
+
+STATUS: draft for review, 2026-10-08. Not lab content — a planning document.
+Two options differ *only* in the order of the three scenario modules (M4–M6).
+Everything in <<shared>> is identical in both.
+
+[[budget]]
+== The budget this is working against
+
+90 minutes wall clock. After logins, intro and wrap-up, assume
+*75–80 minutes of hands-on time* for the median student, and plan so the
+slowest third still leave having seen something work.
+
+Measured in the live env this week (not estimates):
+
+[cols="3,1,4"]
+|===
+|Thing |Time |Note
+
+|CVE workflow, end to end
+|~2m 40s
+|three runs: 2m46s, 2m33s, 2m41s
+
+|└─ of which, the AAP remediation job
+|~110s
+|`ok=7 changed=3`, real patching
+
+|CVE, investigate branch (no patching)
+|24s
+|
+
+|Triage agent alone
+|~12s
+|5 tool calls
+
+|Disk / Ticket end to end
+|unknown
+|*TODO: measure before committing timings*
+|===
+
+The implication: any module ending in a CVE run spends ~3 minutes watching a
+spinner. Budget it, or shorten it.
+
+[[shared]]
+== Shared across both options
+
+=== Environment decisions (provisioning must do these)
+
+[cols="4,2,6"]
+|===
+|Item |Where |Why
+
+|5 integrations + 5 credentials
+|`default`
+|Credentials are hard project-scoped in AO. Every scenario imported into
+`default` needs *its own* credentials there — the `solutions` ones will not
+work. Union across the three scenarios: AAP, LLM, AAP MCP, OpenFlake MCP,
+Lightspeed MCP. (Lightspeed needs a credential even though it ignores the
+header — AO rejects a connection without `credential_id`.)
+
+|Student-built integrations
+|`default`
+|LLM + AAP MCP, under their own names, used *only* by Hello World. Keeping
+them separate from the pre-seeded five means a botched M2 does not cascade
+into M4–M6.
+
+|`student_webhooks` service account
+|`default`
+|Already created by the config role.
+
+|Three incomplete workflows
+|`default`
+|Imported but *not published*. Verified 2026-10-08: a workflow missing
+`authorized_service_account_ids` imports with *HTTP 201* and
+`is_valid: false`. It is editable; it just cannot be published or run.
+
+|`fail_on_invalid` / `publish` per workflow
+|role change
+|Currently role-level only. Needs to be a per-workflow key so the guardrail
+stays on for `solutions` while the `default` copies import unpublished.
+
+|`Lab - Hello World Notify` job template
+|AAP
+|~15-line Mattermost post. Must run in *seconds*, not the ~110s the real
+remediation takes — this is the module where students iterate most.
+|===
+
+=== Standing escape hatch
+
+`showroom_type` is `classic`, so there are *no nookbag solve/validate
+buttons*. The "run the working solutions" section replaces them. It must be
+linked from *every* module, not parked at the end — it only helps someone
+stuck at minute 40 if they know it exists then.
+
+=== M1 — Tour (10 min)
+
+Narrow and kinetic. Orientation, not a lecture.
+
+* Projects: `solutions` vs `default`, and why credentials are scoped to one
+* Integrations and credentials lists
+* Workflow list; open *one* canvas only — Disk Utilization
+* Executions view: node states, skipped vs completed
+
+Deliberately *not* shown: the CVE and Ticket canvases, and any finished run
+output. Those stay unspoiled for the hands-on modules.
+
+=== M2 — Integrations and credentials (13 min)
+
+Student builds, in `default`, under their own names:
+
+. LLM integration + credential
+. AAP MCP integration + credential
+
+The other five are pre-seeded and visible — worth one line of text saying so,
+or they will wonder why some exist and some do not.
+
+Done when: both appear in the list and the LLM integration lists at least one
+model.
+
+=== M3 — Hello World (15 min)
+
+Build from an empty canvas. Three nodes, two edges:
+
+[source]
+----
+manual trigger          AI agent                  AAP job template
+(alert_text)      ->    classify severity   ->    post to Mattermost
+                        + one-line summary
+----
+
+* *Trigger:* one input, `alert_text`, pre-filled with e.g.
+  "disk /var at 94% on node2, growing 2%/hr"
+* *Agent:* uses the LLM integration from M2. Response schema with `severity`
+  and `summary`
+* *Job template:* `Lab - Hello World Notify`, with
+  `${agent.result.content.severity}` and `.summary` mapped into extra_vars
+
+Why this shape:
+
+* It is a miniature of all three scenarios — trigger, agent, act. Recognizing
+  that silhouette is most of what makes the complex workflows legible.
+* It teaches the one skill every scenario depends on: wiring an agent's
+  structured output into a downstream node's inputs.
+* No MCP tools, so it stays fast and leaves tool selection as Ticket's unique
+  contribution.
+* Payoff is visible — their own AI-written message lands in a chat channel.
+
+Difficulty dial: students create and wire all three nodes themselves (that is
+the canvas experience), but *every text field is copy-paste*, including the
+response schema. Writing a JSON schema from scratch is where a first-timer
+loses eight minutes.
+
+Done when: they Save, *Publish*, Run, and see the message in Mattermost.
+Publishing is the lesson — executions run the published version, not the
+saved draft, and it is the most common gotcha in this product.
+
+[[option-a]]
+== OPTION A — Disk first (Disk → Ticket → CVE)
+
+Scenario order follows conceptual complexity: familiar ops, then event-driven
++ MCP, then AI security triage.
+
+=== M4 — Disk Utilization (14 min + run)
+
+Ships with the switch in place and *nothing after the 80–95% and >95% ports*.
+Student builds both branches: add the nodes, configure them, wire the edges.
+
+Teaches: creating nodes on an existing canvas, wiring switch ports to
+branches.
+
+=== M5 — Ticket Enrichment (14 min + run)
+
+Three separate edits:
+
+. Add the authorized service account to the webhook trigger
+. Switch the triage agent from `NONE` to `SELECTED` and pick the two MCP
+  tools + their connections
+. Use *Run Step* on Run Auto Remediation to fill in job template and limit
+  (ship this node with *no* `job_template` key in its binding — a
+  `REPLACE_ME` name would fail the provision's job-template preflight)
+
+Teaches: webhook/EDA triggers, service accounts, attaching MCP tools to an
+agent. This module carries the EDA learning objective — nothing else does.
+
+=== M6 — CVE Remediation (10 min + 3 min run)
+
+Switch node ships with the three case *labels* present but `field`, `operator`
+and `value` blank. Student fills in all three.
+
+Teaches: switch field/operator/value semantics.
+
+=== Option A assessment
+
+[cols="1,6"]
+|===
+|👍
+|Difficulty ramp matches scenario complexity. Students meet the most
+impressive scenario at the peak of their confidence.
+
+|👎
+|*The flagship is last and behind the heaviest module.* Whoever runs out of
+time runs out before reaching CVE — the one with real Insights data, real AI
+triage and real patching, and the one they will describe to colleagues.
+
+|👎
+|The effort ramp is inverted: CVE's edit is the *lightest* of the three
+(3 fields), Ticket's is the heaviest (3 separate edits).
+
+|⚠️
+|Only viable if Ticket sheds one of its three edits, or M6 is explicitly
+"if time permits" — which means planning to skip the best module.
+|===
+
+[[option-b]]
+== OPTION B — CVE first (CVE → Disk → Ticket)
+
+Scenario order follows student effort: lightest edit first. "Fix one before
+you build one."
+
+=== M4 — CVE Remediation (10 min + 3 min run)
+
+Same exercise as Option A's M6: fill in `field`, `operator`, `value` on the
+Route Decision switch.
+
+Placed here, it does extra work:
+
+* An early, cheap win on a genuinely impressive workflow, inside the first
+  forty minutes
+* They *see* a configured switch before being asked to build branches off one
+  in Disk — M5 then lands on prepared ground
+* Reinforces M3 immediately: the agent output they just learned to wire is
+  exactly what this switch reads
+
+=== M5 — Disk Utilization (14 min + run)
+
+Same exercise as Option A's M4 — build the two branches off the switch.
+
+=== M6 — Ticket Enrichment (14 min + run) — STRETCH
+
+Same three edits as Option A's M5, but explicitly marked optional.
+
+=== Option B assessment
+
+[cols="1,6"]
+|===
+|👍
+|The flagship is safe. Everyone sees the CVE scenario work.
+
+|👍
+|Effort ramps correctly, and the module at risk of being cut is the fiddliest
+rather than the best.
+
+|👍
+|Early win. Confidence at minute 35 instead of minute 75.
+
+|👎
+|Scenario complexity no longer ramps — they meet the most conceptually
+involved scenario second.
+
+|👎
+|Losing Ticket means losing the EDA/webhook learning objective entirely.
+*If Option B is chosen, that objective has to move or be dropped from the
+spec.* This is the real cost of this option.
+|===
+
+== Side by side
+
+[cols="1,3,3"]
+|===
+| |*Option A — Disk first* |*Option B — CVE first*
+
+|M4 |Disk (14) |CVE (10 + 3 run)
+|M5 |Ticket (14) |Disk (14)
+|M6 |CVE (10 + 3 run) |Ticket (14) — stretch
+|Total |~76 min + ~6 run |~76 min + ~6 run
+|At risk if time runs out |*CVE — the flagship* |Ticket — and the EDA objective
+|Ramps by |scenario complexity |student effort
+|===
+
+Both land in the same place on time. The decision is *what you are willing to
+lose* when a room of thirty runs 15% slow:
+
+* Option A risks losing the best thing in the lab.
+* Option B risks losing a learning objective.
+
+Option B is the safer room. Option A is the better story *if* it finishes.
+
+== Open decisions
+
+. *Which option.*
+. If Option B: does the EDA/webhook objective move to Disk (which also has a
+  webhook trigger), get demoted to "seen in the solutions section", or come
+  out of the spec?
+. If Option A: which of Ticket's three edits gets cut?
+. Measure Disk and Ticket run times before any of these timings are trusted.
+. Per-workflow `fail_on_invalid` / `publish` keys — small role change, blocks
+  the incomplete imports.
+. Build `Lab - Hello World Notify` and confirm it runs in seconds.
+. Correct the stale comment in `setup_workflows.yml` claiming a webhook
+  workflow cannot import without a service account. Verified false.
+. Rewrite `publishing-house/spec.yaml` once the above settle — it currently
+  lists four modules at 20/20/40/20 with titles matching none of this.

@@ -499,6 +499,77 @@ def ao_wire_definition(definition, bindings, resolved):
     return wired
 
 
+def ao_student_variant(definition, gaps):
+    """Remove from a workflow the parts the student is meant to supply.
+
+    The student copies that land in `default` are generated from the
+    same exports `solutions` is built from, not forked. A fork would
+    have meant every correction to a prompt or a node landing in one
+    copy and not the other, with nothing to catch it.
+
+    `gaps` is one entry from files/student_gaps.yml:
+
+        drop_nodes:               node ids to delete, with their edges
+        blank_switch_conditions:  switch ids whose cases keep their port
+                                  and label but lose the condition
+        agent_tools_none:         agentic node ids forced to NONE
+        unauthorized_trigger:     leave authorized_service_account_ids off
+
+    Deleting a node takes its edges with it, which is what leaves a
+    switch port dangling — exactly the state the student is asked to
+    fill. AO accepts an unwired port; that is how `default` ships.
+    """
+    out = copy.deepcopy(definition)
+    gaps = gaps or {}
+
+    drop = set(gaps.get("drop_nodes") or [])
+    if drop:
+        present = {n.get("id") for n in out.get("nodes", [])}
+        missing = drop - present
+        if missing:
+            raise AOWiringError(
+                "student gap drops node(s) %s, which the export does not "
+                "contain. A re-export that renames a node must rename it in "
+                "student_gaps.yml too, or the gap silently stops existing."
+                % ", ".join(sorted(missing))
+            )
+        out["nodes"] = [n for n in out["nodes"] if n.get("id") not in drop]
+        out["edges"] = [
+            e for e in out.get("edges", [])
+            if e.get("from") not in drop and e.get("to") not in drop
+        ]
+
+    for switch_id in gaps.get("blank_switch_conditions") or []:
+        node = _require_node(out, switch_id, "blank_switch_conditions")
+        for case in node.get("parameters", {}).get("cases", []):
+            # Port and label stay: the student must still be able to see
+            # how many routes there are and what each one is for.
+            case["condition"] = ""
+
+    for node_id in gaps.get("agent_tools_none") or []:
+        node = _require_node(out, node_id, "agent_tools_none")
+        params = node.setdefault("parameters", {})
+        # NONE, not SELECTED-with-nothing: AO rejects an empty SELECTED
+        # list ("[] should be non-empty"), which would make the workflow
+        # invalid for a reason the student was not asked to fix.
+        params["tool_selection_strategy"] = "NONE"
+        params.pop("tool_selections", None)
+
+    return out
+
+
+def _require_node(definition, node_id, gap_name):
+    for node in definition.get("nodes", []):
+        if node.get("id") == node_id:
+            return node
+    raise AOWiringError(
+        "student gap '%s' names node '%s', which the export does not "
+        "contain (have: %s)"
+        % (gap_name, node_id,
+           ", ".join(sorted(n.get("id", "?") for n in definition.get("nodes", []))))
+    )
+
+
 def ao_collection(payload):
     """Return the list of objects from an AO collection response.
 
@@ -564,6 +635,7 @@ class FilterModule(object):
         return {
             "ao_prepare_definition": ao_prepare_definition,
             "ao_wire_definition": ao_wire_definition,
+            "ao_student_variant": ao_student_variant,
             "ao_required_job_templates": ao_required_job_templates,
             "ao_collection": ao_collection,
             "ao_name_id_map": ao_name_id_map,

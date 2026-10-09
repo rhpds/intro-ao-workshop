@@ -1,0 +1,58 @@
+---
+# What each scenario is MISSING when it lands in the student's `default`
+# project. Declarative on purpose: the student copies are generated from
+# the same exports `solutions` uses, so a fix to a prompt or a node is
+# picked up by both. Forking the JSON would have meant the student copy
+# silently missing every correction made to the real one.
+#
+# Keyed by the workflow `key` in ..._config_workflows.
+
+ao_student_gaps:
+
+  # Build the two middle branches off the switch.
+  #
+  # The <80% and default branches are left intact deliberately: the
+  # student has a worked example of the exact shape they are being asked
+  # to build, on the same canvas, rather than a blank area and a
+  # description.
+  disk_utilization:
+    summary: >-
+      The 80-95% and >95% branches are missing. Build them.
+    drop_nodes:
+      - activity_5f6d0c2e_a677_4517_b013_ab2a9f8c2d59   # Remediate  - Clean Disk
+      - activity_b1aa86c0_001a_4240_b7fb_99f2d0b4ba2d   # Warn - Notify Chatroom - Clean Disk
+      - activity_e18d67ef_1f99_4553_9807_81710484a424   # Remediate - Expand Disk
+      - activity_e31726ba_d2bc_41c2_96e0_3d00c4a175cf   # Critical - Notify Chatroom - Expand Disk
+
+  # Fill in the routing conditions.
+  #
+  # Ports and labels stay, so the student can see there are three routes
+  # and what each is for; only the expression that selects them is gone.
+  # In the UI this is the field / operator / value row.
+  rhel_cve_remediation:
+    summary: >-
+      The Route Decision switch has its routes but no conditions. Fill
+      them in.
+    blank_switch_conditions:
+      - route_switch
+
+  # Two gaps, both on things the student made or was given.
+  #
+  # The trigger ships with no authorized service account, which is what
+  # makes the workflow import but refuse to publish -- confirmed
+  # 2026-10-08: HTTP 201, is_valid false,
+  # "'authorized_service_account_ids' is a required property". The
+  # account itself already exists in `default` as `aap-student-webhooks`;
+  # the student selects it, they do not create it.
+  #
+  # The triage agent ships as NONE rather than SELECTED-with-no-tools,
+  # because AO rejects an empty SELECTED list outright ("[] should be
+  # non-empty") and that would make the workflow invalid for a reason
+  # the student is not being asked to fix.
+  ticket_enrichment:
+    summary: >-
+      The webhook trigger has no authorized service account, and the
+      triage agent selects no tools.
+    unauthorized_trigger: true
+    agent_tools_none:
+      - triage_agent
