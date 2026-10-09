@@ -16,9 +16,7 @@ immediately, without modification. Alongside them sit approval gates,
 REST API calls, and task agent steps backed by an AI model.
 
 It does not replace the playbooks, job templates and automation you
-already have. It connects them, and it does it inside Ansible
-Automation Platform, under the same governance and the same control
-plane.
+already have. It connects them using Ansible Automation Platform.
 
 === Why Should You Care?
 
