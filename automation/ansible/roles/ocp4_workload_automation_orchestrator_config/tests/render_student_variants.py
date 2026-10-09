@@ -26,6 +26,7 @@ import yaml  # noqa: E402
 from ao_workflow import (  # noqa: E402
     ao_prepare_definition,
     ao_student_bindings,
+    ao_student_gaps,
     ao_student_variant,
     ao_wire_definition,
 )
@@ -49,10 +50,7 @@ STUDENT_PROJECT_CREDENTIALS = ("aap", "lightspeed_mcp", "openflake_mcp")
 
 def load_gaps():
     with open(os.path.join(ROLE_DIR, "files", "student_gaps.yml")) as handle:
-        doc = yaml.safe_load(handle)
-    common = doc.get("ao_student_common") or {}
-    return {key: dict(common, **(gap or {}))
-            for key, gap in doc["ao_student_gaps"].items()}
+        return ao_student_gaps(yaml.safe_load(handle))
 
 
 def load_bindings(key):

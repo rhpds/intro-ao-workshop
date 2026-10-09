@@ -162,9 +162,19 @@ ocp4_workload_automation_orchestrator_config_workflows:
       handling. Triggered by webhook, not manually.
     enabled: true
 
+# A second copy of each workflow in `default`, cut back to leave the
+# student something to build. See files/student_gaps.yml for what
+# each one is missing and why.
+#
+# These are imported but never published, and they do not validate —
+# that is the point. The import loop knows not to treat either as a
+# failure on this pass.
+ocp4_workload_automation_orchestrator_config_import_student_workflows: true
+
 # AO 409s on publishing a workflow that does not validate, so this
 # doubles as a gate — a weak one, since validation is structural and a
-# workflow with no asset IDs still passes.
+# workflow with no asset IDs still passes. Applies to `solutions`
+# only; student copies are never published.
 ocp4_workload_automation_orchestrator_config_publish_workflows: true
 
 # Off downgrades a post-wiring validation error to a warning, which

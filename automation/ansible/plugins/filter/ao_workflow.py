@@ -508,6 +508,26 @@ def ao_wire_definition(definition, bindings, resolved):
     return wired
 
 
+def ao_student_gaps(document):
+    """Flatten files/student_gaps.yml into workflow key -> merged gap.
+
+    The file is split in two: `ao_student_common` for what is true of
+    every scenario (which assets the student owns, the webhook path
+    prefix, the service account remap) and `ao_student_gaps` for the
+    exercises themselves. Callers want them merged, with the
+    per-workflow entry winning, and doing that in Jinja reads badly
+    enough that it got the precedence backwards once already.
+    """
+    document = document or {}
+    common = document.get("ao_student_common") or {}
+    merged = {}
+    for key, gap in (document.get("ao_student_gaps") or {}).items():
+        entry = dict(common)
+        entry.update(gap or {})
+        merged[key] = entry
+    return merged
+
+
 def ao_student_bindings(bindings, gaps):
     """Rewrite a binding file for the student copy in `default`.
 
@@ -747,6 +767,7 @@ class FilterModule(object):
         return {
             "ao_prepare_definition": ao_prepare_definition,
             "ao_wire_definition": ao_wire_definition,
+            "ao_student_gaps": ao_student_gaps,
             "ao_student_bindings": ao_student_bindings,
             "ao_student_variant": ao_student_variant,
             "ao_required_job_templates": ao_required_job_templates,

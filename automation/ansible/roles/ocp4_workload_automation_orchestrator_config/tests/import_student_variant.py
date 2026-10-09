@@ -43,6 +43,7 @@ import yaml  # noqa: E402
 from ao_workflow import (  # noqa: E402
     ao_prepare_definition,
     ao_student_bindings,
+    ao_student_gaps,
     ao_student_variant,
     ao_wire_definition,
 )
@@ -235,9 +236,7 @@ def seed_credentials(ao, project_id, bindings, placeholder):
 
 def load_gaps(key):
     with open(os.path.join(ROLE_DIR, "files", "student_gaps.yml")) as handle:
-        doc = yaml.safe_load(handle)
-    return dict(doc.get("ao_student_common") or {},
-                **(doc["ao_student_gaps"][key] or {}))
+        return ao_student_gaps(yaml.safe_load(handle))[key]
 
 
 def load_bindings(key):
@@ -280,6 +279,14 @@ def resolve(ao, bindings, solutions_name, project_id):
         if node["type"] == "agentic" and params.get("llm_model_id"):
             model_id = params["llm_model_id"]
 
+    lab_tag = ""
+    for trigger in wired.get("triggers", []):
+        schema = (trigger.get("parameters") or {}).get("input_schema") or {}
+        default = (schema.get("properties") or {}).get("lab_tag", {}).get(
+            "default")
+        if default:
+            lab_tag = default
+
     needed = set()
     for binding in (bindings.get("nodes") or {}).values():
         needed.update(binding.get("integrations") or [])
@@ -308,7 +315,12 @@ def resolve(ao, bindings, solutions_name, project_id):
                              if accounts.get(v)},
         "llm_model_id": model_id,
         "organization": "Default",
-        "trigger_defaults": {"lab_tag": os.environ.get("AO_LAB_TAG", "")},
+        # The guid, which the role takes from `guid` at provision time.
+        # Here it is read back off whatever the last provision already
+        # prefilled into the solutions copy, so the student copy shows
+        # the same value instead of an empty field.
+        "trigger_defaults": {"lab_tag": os.environ.get("AO_LAB_TAG")
+                             or lab_tag},
     }
 
 

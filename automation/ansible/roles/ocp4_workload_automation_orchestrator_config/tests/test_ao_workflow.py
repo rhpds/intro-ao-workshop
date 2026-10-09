@@ -31,6 +31,7 @@ from ao_workflow import (  # noqa: E402
     ao_prepare_definition,
     ao_required_job_templates,
     ao_student_bindings,
+    ao_student_gaps,
     ao_student_variant,
     ao_validation_summary,
     ao_wire_definition,
@@ -789,6 +790,49 @@ class TestFailureModes(unittest.TestCase):
         self.assertIn("which exposes: (none)", str(caught.exception))
 
 
+class TestStudentGapsFile(unittest.TestCase):
+    """files/student_gaps.yml, as the role and the harnesses read it."""
+
+    def setUp(self):
+        path = os.path.join(ROLE_DIR, "files", "student_gaps.yml")
+        with open(path) as handle:
+            self.document = yaml.safe_load(handle)
+        self.merged = ao_student_gaps(self.document)
+
+    def test_every_workflow_in_defaults_has_a_gap(self):
+        # A workflow with no entry would import into `default` fully
+        # wired — a finished workflow handed over as an exercise, and
+        # nothing would say so.
+        path = os.path.join(ROLE_DIR, "defaults", "main.yml")
+        with open(path) as handle:
+            defaults = yaml.safe_load(handle)
+        keys = {w["key"] for w in defaults[
+            "ocp4_workload_automation_orchestrator_config_workflows"]}
+        self.assertEqual(keys, set(self.merged))
+
+    def test_common_settings_reach_every_entry(self):
+        for key, gap in self.merged.items():
+            self.assertEqual(gap["student_credentials"], ["llm"],
+                             "%s lost student_credentials" % key)
+            self.assertEqual(gap["student_integrations"], ["aap_mcp"],
+                             "%s lost student_integrations" % key)
+            self.assertEqual(gap["webhook_path_prefix"], "student-",
+                             "%s lost webhook_path_prefix" % key)
+
+    def test_a_per_workflow_key_beats_the_common_one(self):
+        # The merge got this backwards once in Jinja, which is why it
+        # lives in the filter now. Common must not clobber an entry.
+        merged = ao_student_gaps({
+            "ao_student_common": {"webhook_path_prefix": "student-"},
+            "ao_student_gaps": {"x": {"webhook_path_prefix": "other-"}},
+        })
+        self.assertEqual(merged["x"]["webhook_path_prefix"], "other-")
+
+    def test_missing_common_block_is_not_an_error(self):
+        merged = ao_student_gaps({"ao_student_gaps": {"x": None}})
+        self.assertEqual(merged, {"x": {}})
+
+
 class TestStudentVariant(unittest.TestCase):
     """The copies that land in the student's `default` project.
 
@@ -806,10 +850,7 @@ class TestStudentVariant(unittest.TestCase):
     def setUp(self):
         path = os.path.join(ROLE_DIR, "files", "student_gaps.yml")
         with open(path) as handle:
-            document = yaml.safe_load(handle)
-        common = document.get("ao_student_common") or {}
-        self.gaps = {key: dict(common, **(gap or {}))
-                     for key, gap in document["ao_student_gaps"].items()}
+            self.gaps = ao_student_gaps(yaml.safe_load(handle))
 
     def _variant(self, filename, key, name):
         """Run the pipeline the role runs, both ways round.
