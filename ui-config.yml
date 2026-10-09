@@ -15,13 +15,13 @@ tabs:
     path: /wetty
   - name: AAP
     url: "https://aap-aap.${DOMAIN}"
-  - name: Ansible Automation Orchestrator
+  - name: Automation orchestrator
     url: "https://aap-orchestrator.${DOMAIN}"
   # Module 05 sends students back and forth between AO and the ticket
   # the workflow is enriching; modules 03 and 04 end in a chat message.
   - name: OpenFlake
     url: "https://openflake.${DOMAIN}"
   # Mattermost takes the hostname OpenShift generates for the Route the
-  # workload creates — <route>-<namespace> — which is why it repeats.
+  # workload creates, <route>-<namespace>, which is why it repeats.
   - name: Mattermost
     url: "https://mattermost-mattermost.${DOMAIN}"
