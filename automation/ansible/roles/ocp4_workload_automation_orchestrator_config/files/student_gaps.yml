@@ -66,7 +66,18 @@ ao_student_gaps:
     blank_switch_conditions:
       - route_switch
 
-  # Two gaps, both on things the student made or was given.
+  # One declared gap. The agent work is not listed here because it
+  # falls out of ao_student_common above: both agents lose their LLM,
+  # and the triage agent loses the AAP MCP connection and the one tool
+  # pinned from it (job_templates_list). OpenFlake stays connected on
+  # both with perform_query pinned, so the student sees a working
+  # server next to the empty one rather than two empty ones.
+  #
+  # An earlier version also forced the triage agent to NONE. That was
+  # wrong: it took OpenFlake's perform_query down with it, and a
+  # strategy of NONE makes the UI draw the OpenFlake connection as
+  # disabled, so the student was shown a server that looked broken and
+  # was never asked to fix it.
   #
   # The trigger ships with no authorized service account, which is what
   # makes the workflow import but refuse to publish -- confirmed
@@ -74,19 +85,8 @@ ao_student_gaps:
   # "'authorized_service_account_ids' is a required property". The
   # account itself already exists in `default` as `aap-student-webhooks`;
   # the student selects it, they do not create it.
-  #
-  # The triage agent would otherwise arrive with OpenFlake's
-  # perform_query already pinned (its other tool, job_templates_list,
-  # is AAP MCP and goes with the student-owned integration above). This
-  # clears it: the student sets the strategy to SELECTED and picks the
-  # tools themselves. NONE rather than SELECTED-with-no-tools because
-  # AO rejects an empty SELECTED list outright ("[] should be
-  # non-empty") and that would make the workflow invalid for a reason
-  # the student is not being asked to fix.
   ticket_enrichment:
     summary: >-
-      The webhook trigger has no authorized service account, and the
-      triage agent selects no tools.
+      The webhook trigger has no authorized service account, and both
+      agents need the LLM and AAP MCP integrations you built.
     unauthorized_trigger: true
-    agent_tools_none:
-      - triage_agent
