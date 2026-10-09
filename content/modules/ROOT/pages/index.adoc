@@ -22,27 +22,28 @@ plane.
 
 === Why Should You Care?
 
-Three things on an Orchestrator canvas are new.
+Here is what is new on an Orchestrator canvas.
 
 *The trigger is part of the workflow.* Manual, scheduled, webhook and
 Event-Driven Ansible triggers are steps you place on the canvas
-itself, not something wired up outside the workflow that launches it.
-The thing that starts your automation and the automation it starts
-are one artifact, and they export to YAML together.
+itself. The thing that starts your automation and the automation it
+starts are one artifact, and they export to YAML together.
 
 *Switch steps route on values.* A switch reads a value produced
 earlier in the workflow and takes the first path that matches. Disk at
 60% does nothing, at 75% cleans up, at 85% expands, at 95% gets a
 human involved. One metric, four paths.
 
-*Task agents handle what you could not write down in advance.* When
-the input is a paragraph of free text in an incident ticket, a log
-excerpt, or an alert description, a task agent reads it, classifies
-it, and recommends what to run.
+*Task agents handle input you could not predict.* An incident ticket,
+a log excerpt or an alert description arrives as free text that no
+rule written in advance could cover. A task agent reads it,
+classifies it, and recommends what to run, giving you a path through
+the workflow for input you could not plan for.
 
-That last one is why the approval gate matters. AI provides the
-recommendation; AAP is still your trusted execution layer, and you
-decide whether a person signs off in between.
+*AI provides recommendations, AAP is still your trusted execution
+layer.* The reasoning is non-deterministic. The change to your
+infrastructure is not, and you decide whether an approval gate puts a
+person in between.
 
 === What You Will Build
 
