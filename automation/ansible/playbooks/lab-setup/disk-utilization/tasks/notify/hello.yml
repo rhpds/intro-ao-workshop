@@ -8,6 +8,10 @@
 - name: Build Mattermost attachment (hello world)
   ansible.builtin.set_fact:
     mattermost_attachments:
-      - text: "{{ notify_text }}"
+      # notify_text is whatever the model said, so it has no length
+      # the student can predict: a chatty answer to "say hello" runs to
+      # paragraphs and turns the card into a wall. The title stays the
+      # student's own, set in extra_vars rather than by the agent.
+      - text: "{{ notify_text | truncate(600) }}"
         color: '#3498db'
         title: "{{ notify_title }}"
