@@ -1,0 +1,31 @@
+# Module 05, Ticket Enrichment: the auto_remediate path.
+#
+# One line per screenshot: <seconds> <name> <x,y,w,h callout boxes...>
+# Source recording is tools/shot.py's DEFAULT_VIDEO. Re-cut the lot with
+#
+#     python3 tools/shot.py batch tools/module-05.shots --prefix module-05
+#
+# Every box here was measured off the pixels with `shot.py fit` or off a
+# gridded zoom, not read by eye off a contact sheet. Check any change
+# with the proof image `shot.py grab` writes to $TMPDIR before keeping it.
+
+167 01-workflows-list              269,30,347,53  104,262,168,33
+171 02-webhook-service-account     94,561,562,79  110,670,1038,57
+174 03-service-account-selected    94,561,562,103 1812,119,91,41
+184 04-triage-model                711,256,537,77 1096,388,130,30
+186 05-triage-credential           728,415,503,49 748,579,166,27
+221 06-triage-tools                711,568,537,77 782,683,150,31
+224 07-triage-tools-selected       711,568,538,77 746,735,241,30 1112,735,132,30
+229 08-triage-connection-credential 742,769,505,78 762,1035,200,29
+258 09-enrich-credential           711,256,537,77 728,414,502,50 748,578,166,30
+260 10-enrich-done                 711,256,537,77 728,387,498,31 1812,119,91,41
+266 11-save-workflow               1472,40,131,31
+276 12-publish-workflow            1604,30,232,53 376,40,81,31
+286 13-aap-template                420,592,220,32
+296 14-aap-survey                  580,172,433,78 1012,172,436,78 602,312,133,32
+350 15-aap-job-output              365,505,795,103
+361 16-openflake-new               395,10,146,27  286,386,1351,109
+381 17-ao-run-overview             94,900,1634,142
+411 18-ao-run-details              331,612,88,43  494,690,265,48
+431 19-ao-run-complete             426,43,107,32
+441 20-openflake-resolved          395,10,173,27  329,523,320,241 344,866,245,76
