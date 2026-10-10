@@ -3,8 +3,8 @@
   ansible.builtin.set_fact:
     mattermost_attachments:
       - text: >-
-          Could not build a notification card: disk_tier is not hello,
-          ok, warn, or critical. Manual review required.
+          Could not build a notification card: no template matched
+          the requested card. Manual review required.
         color: '#e74c3c'
         title: Unsupported Disk Tier
         fields:

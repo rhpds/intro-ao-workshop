@@ -9,7 +9,14 @@
         notify_host: "{{ notify_host | default('unknown') | string }}"
         disk_mount: "{{ disk_mount | default('unknown') | string }}"
         disk_use_percent: "{{ disk_use_percent | default('unknown') | string }}"
-        disk_tier: "{{ disk_tier | default('unknown') | string | trim | lower }}"
+        # Which card to build. notify_card is the name to use from a
+        # workflow that is not about disks: module 03 sets it to
+        # `hello` rather than making a student's first workflow talk
+        # about disk tiers. The disk workflow passes disk_tier and
+        # never sets notify_card, so it falls through unchanged.
+        disk_tier: >-
+          {{ notify_card | default(disk_tier | default('unknown'), true)
+          | string | trim | lower }}
         remediation_action: "{{ remediation_action | default('unknown') | string }}"
         dnf_cache_removed: "{{ dnf_cache_removed | default('unknown') | string }}"
         log_archives_removed: "{{ log_archives_removed | default('unknown') | string }}"
