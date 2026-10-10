@@ -1,0 +1,16 @@
+---
+# Module 03's card. Deliberately carries no disk figures and no fixed
+# wording: title, body and fact all come from the agent, so the module
+# can change topic without touching this file.
+- name: Build Mattermost attachment (hello world)
+  ansible.builtin.set_fact:
+    mattermost_attachments:
+      - title: "{{ notify_title }}"
+        # A model answer has no length the student can predict, and an
+        # unbounded one turns the card into a wall.
+        text: "{{ notify_text | truncate(600) }}"
+        color: '#3498db'
+        fields:
+          - title: Did you know
+            value: "{{ notify_fact | truncate(300) }}"
+            short: false

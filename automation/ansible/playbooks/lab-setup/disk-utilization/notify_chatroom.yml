@@ -30,6 +30,14 @@
         disk_expand_gb: "{{ disk_expand_gb | default('unknown') | string }}"
         volume_size_before_gb: "{{ volume_size_before_gb | default('unknown') | string }}"
         volume_size_after_gb: "{{ volume_size_after_gb | default('unknown') | string }}"
+        # Needed by tasks/notify/hello.yml, where module 03 wires all
+        # three from a task agent's answer. The second argument to
+        # default() matters here and not above: an agent that cannot
+        # produce a field returns "" rather than leaving it undefined,
+        # and a bare default() only fires on undefined.
+        notify_title: "{{ notify_title | default('Hello World', true) | string }}"
+        notify_text: "{{ notify_text | default('The agent returned no answer.', true) | string }}"
+        notify_fact: "{{ notify_fact | default('No fun fact today.', true) | string }}"
 
     - name: Include notification template for disk tier
       block:
