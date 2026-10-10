@@ -1,8 +1,5 @@
 ---
-- name: Notify Mattermost chatroom
-  # Shared by the disk utilization workflow and by the Hello World
-  # workflow in module 03, which is why disk_tier selects the card
-  # rather than the playbook assuming one.
+- name: Notify Mattermost chatroom — disk utilization workflow
   hosts: localhost
   connection: local
   gather_facts: false
@@ -33,13 +30,6 @@
         disk_expand_gb: "{{ disk_expand_gb | default('unknown') | string }}"
         volume_size_before_gb: "{{ volume_size_before_gb | default('unknown') | string }}"
         volume_size_after_gb: "{{ volume_size_after_gb | default('unknown') | string }}"
-        # Needed by tasks/notify/hello.yml, where module 03 wires both
-        # from a task agent's answer. Defaulted for the same reason as
-        # large_logs_removed above: an agent that returns nothing would
-        # otherwise take the include into the rescue and post an
-        # unsupported-tier card over a workflow that ran correctly.
-        notify_title: "{{ notify_title | default('Hello World') | string }}"
-        notify_text: "{{ notify_text | default('The task agent returned no message.') | string }}"
 
     - name: Include notification template for disk tier
       block:

@@ -1,0 +1,83 @@
+---
+- name: Friday Deployment Survival Guide
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  # Module 03's job template. The student builds a three step workflow
+  # from an empty canvas -- a manual trigger, a task agent, this -- and
+  # the whole card is assembled from the agent's structured output.
+  #
+  # Deliberately NOT the disk utilization Notify Chatroom template.
+  # That one dispatches on disk_tier and carries twenty variables a
+  # first workflow has no use for, and sharing it would mean the first
+  # thing a student ever wires is a tier key that has nothing to do
+  # with what they built.
+  #
+  # Everything here runs on localhost with no fact gathering and makes
+  # one HTTP call, because module 03 is where students iterate most and
+  # a slow template is what stops them running it a second time.
+  vars:
+    # An agent leaves a field as "" when it could not produce one, and
+    # a bare default() only fires on undefined, hence the second
+    # argument throughout. Same reasoning as notify_mattermost_cve.yml.
+    _plan: "{{ deploy_plan | default('an unspecified change', true) }}"
+    _verdict: "{{ friday_verdict | default('INCONCLUSIVE', true) }}"
+    _assessment: >-
+      {{ friday_assessment
+      | default('The oracle declined to comment.', true)
+      | truncate(600) }}
+    _tip: >-
+      {{ friday_survival_tip
+      | default('Ship it Tuesday.', true)
+      | truncate(300) }}
+
+    # The model is asked for 1 to 10 and will eventually answer "high",
+    # or 11, or nothing. `| int` turns anything unparseable into 0, so
+    # clamp rather than trust it: the score drives three presentation
+    # choices below and an out of range value breaks all three.
+    _score: "{{ [10, [0, friday_risk_score | default(5, true) | int] | max] | min }}"
+
+    # The one piece of the card the agent does not write. Wiring a
+    # number out of the response schema and watching it change the
+    # colour is the point: structured output drives behaviour, which is
+    # what the switch in module 04 and the route in module 05 do with
+    # the same idea and higher stakes.
+    _colour: >-
+      {{ '#2eb886' if _score | int <= 3
+      else '#f0ad4e' if _score | int <= 6
+      else '#e8703a' if _score | int <= 8
+      else '#d9534f' }}
+    _mood: >-
+      {{ ':sunglasses:' if _score | int <= 3
+      else ':grimacing:' if _score | int <= 6
+      else ':fire:' if _score | int <= 8
+      else ':skull:' }}
+    _meter: "{{ '█' * (_score | int) }}{{ '░' * (10 - _score | int) }}"
+
+  tasks:
+    - name: Post the Friday deployment verdict to Mattermost
+      ansible.builtin.uri:
+        url: "{{ mattermost_url }}/hooks/{{ api_chat_token }}"
+        method: POST
+        body_format: json
+        body:
+          text: ":rotating_light: **Friday Deployment Survival Guide**"
+          attachments:
+            - color: "{{ _colour }}"
+              title: "{{ _mood }} {{ _verdict }}"
+              text: "{{ _assessment }}"
+              fields:
+                - title: "Regret Index"
+                  value: "`{{ _meter }}` {{ _score }}/10"
+                  short: false
+                - title: "What you proposed"
+                  value: "{{ _plan }}"
+                  short: false
+                - title: "How to survive it"
+                  value: "{{ _tip }}"
+                  short: false
+              footer: >-
+                Verdict by a task agent on an automation orchestrator
+                canvas. No deployments were harmed in the making of
+                this card.
+        status_code: [200, 201]
