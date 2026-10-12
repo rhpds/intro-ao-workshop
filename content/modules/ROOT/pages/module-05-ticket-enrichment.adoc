@@ -1,0 +1,392 @@
+= Ticket Enrichment Workflow
+
+== What You Will Do
+
+The previous workflow exercise focused on using manual triggers, a
+switch step and deterministic AAP job templates. The ticket enrichment
+workflow focuses on how to take advantage of webhook triggers, the task
+agent step, along with how to incorporate those details into an ITSM
+ticketing service such as the one provided by OpenFlake. In this
+workflow we see how the task agent can enrich our tickets and make
+recommendations and take the appropriate path based on its findings.
+
+* The *auto remediate* path is taken when a low risk, high priority
+  incident with a pre-approved job template exists to fix the issue.
+* The *needs approval* path is taken when a fix exists but carries risk,
+  thus human approval is required (human in the loop).
+* The *inform only* path is taken when no remediation exists or
+  additional information is needed.
+
+All paths lead to an AAP job template taking the findings and action and
+posting the results back into the OpenFlake ticket automatically.
+
+[TIP]
+====
+Stuck at any point in this lab? Automation orchestrator has a
+*solutions* project containing a complete, working, published copy of
+everything you are asked to build. Switch the *Project* selector to
+`solutions` and compare. For this module, look at the workflow named
+*Ticket Enrichment Demo*. It is the finished version of what you are
+about to create.
+====
+
+== Open the Workflow
+
+. Log in to automation orchestrator at {ao_url} as
+  `{ao_admin_user}` / `{ao_admin_password}` and open *Workflows* in the
+  left navigation. Confirm the *Project* selector reads `default`, then
+  click *Ticket Enrichment Demo*.
++
+image::module-05/01-workflows-list.png[title="", link=self, window=blank, width=100%]
+
+== Authorize the Webhook Trigger
+
+This workflow does not start with somebody clicking *Run*. It starts
+when Ansible Automation Platform posts to a URL. A webhook trigger will
+not accept that post from just anyone, so it needs to be told which
+service account is allowed to call it. This is what keeps an endpoint
+that can launch real automation from being something anyone who finds
+the URL can fire.
+
+. Click the *OpenFlake Trigger* step. Open the *Authorized service
+  accounts* dropdown and tick *aap-student-webhooks*.
++
+image::module-05/02-webhook-service-account.png[title="", link=self, window=blank, width=100%]
+
+. The dropdown now reads *1 selected* with the account listed beneath
+  it. Click *Update*.
++
+image::module-05/03-service-account-selected.png[title="", link=self, window=blank, width=100%]
+
+[NOTE]
+====
+The *Webhook path* field above it reads `student-openflake-incident`.
+That path is what makes the endpoint yours. The copy in the `solutions`
+project answers on `openflake-incident`, and a webhook path has to be
+unique across the whole instance, so the two cannot collide.
+====
+
+== Finish the Triage Agent
+
+The *AI Triage Agent* is the step that decides which route the incident
+takes. It needs three things from you: a model, the credential that
+model authenticates with, and a connection to your AAP MCP server.
+
+. Click the *AI Triage Agent* step. Open the *Model* dropdown and choose
+  *Student LLM / qwen3-235b*. Underneath it, *Credential* reads
+  *LLM credential not configured*, so click *Set up connection*.
++
+image::module-05/04-triage-model.png[title="", link=self, window=blank, width=100%]
+
+. Open *Select a credential* and choose *Student LLM Credential*.
++
+image::module-05/05-triage-credential.png[title="", link=self, window=blank, width=100%]
+
+Now the tools. Look at the *Connections* section further down: the agent
+is already connected to *OpenFlake MCP* with one tool. That connection
+was provisioned for you. The one it is missing is the AAP MCP server you
+built by hand.
+
+. Open the *Tools* dropdown and type `job_templates_list`. Your
+  *Student AAP MCP Server* appears as a heading with three matching
+  tools underneath. Tick *job_templates_list*.
++
+image::module-05/06-triage-tools.png[title="", link=self, window=blank, width=100%]
+
+. *Tools* now reads *2 of 200 tools selected*, and a
+  *Student AAP MCP Server* entry has appeared under *Connections* with a
+  warning beside it. Once the tool has been selected, click
+  *Set up connection*.
++
+image::module-05/07-triage-tools-selected.png[title="", link=self, window=blank, width=100%]
+
+. Open *Select execution credential* and choose
+  *Student AAP MCP Credential*, then click *Update*.
++
+image::module-05/08-triage-connection-credential.png[title="", link=self, window=blank, width=100%]
+
+The agent's prompt walks it through exactly two lookups: read the
+incident out of OpenFlake with `perform_query`, then list what AAP can
+run with `job_templates_list`. Narrowing a task agent's list of tools
+enables it to focus on specific tools needed to complete a task versus
+attempting to use additional non-relevant tools.
+
+[NOTE]
+====
+`job_templates_list` is what turns this from a guess into a
+recommendation. The agent does not invent a remediation. It reads the
+real list of job templates out of Ansible Automation Platform and picks
+one by name, and if nothing
+on that list genuinely fixes the incident it is required to route to
+*Inform Only*.
+====
+
+== Finish the Enrich and Assign Agent
+
+The second agent only runs on the *Inform Only* route. It is already
+connected to the OpenFlake MCP server and just requires the appropriate
+LLM model for its recommendation.
+
+. Click the *Enrich and Assign* step. Set *Model* to
+  *Student LLM / qwen3-235b*, click *Set up connection*, and choose
+  *Student LLM Credential*.
++
+image::module-05/09-enrich-credential.png[title="", link=self, window=blank, width=100%]
+
+. *Credential* now reads *Student LLM Credential* with a green tick.
+  Click *Update*.
++
+image::module-05/10-enrich-done.png[title="", link=self, window=blank, width=100%]
+
+== Save and Publish
+
+. Click *Save workflow*. With the step panel closed you can see the
+  whole shape of it: the trigger, the triage agent, a ticket update,
+  then the *Route Decision* switch fanning out into three branches that
+  each end in another ticket update.
++
+image::module-05/11-save-workflow.png[title="", link=self, window=blank, width=100%]
+
+. Click *Publish workflow*. The *Draft* badge beside the workflow name
+  becomes *Published*.
++
+image::module-05/12-publish-workflow.png[title="", link=self, window=blank, width=100%]
+
+[IMPORTANT]
+====
+Publishing is not optional here. A webhook trigger only starts answering
+once the workflow is published. An unpublished workflow simply will not
+fire.
+====
+
+== Fire It from Ansible Automation Platform
+
+Nothing so far has created an incident. A job template in AAP does that:
+it writes a ticket into OpenFlake and then posts to your webhook.
+
+. Switch to the *AAP* tab and log in as `{aap_controller_admin_user}` /
+  `{aap_controller_admin_password}`. Open *Automation Execution* ->
+  *Templates* and find *Ticket Enrichment Simulate Alert*.
++
+image::module-05/13-aap-template.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+*Ticket Enrichment Simulate Alert* is on the second page of the
+template list.
+====
+
+. Launch it. The survey asks two questions. Set *What scenario to run?*
+  to *auto_remediate*, and *Which workflow should this fire?* to
+  *student - the workflow I built*. Click *Next*, then *Finish*.
++
+image::module-05/14-aap-survey.png[title="", link=self, window=blank, width=100%]
++
+[WARNING]
+====
+Please ensure you are running on the student workflow as seen on the
+image.
+====
+
+. In the output, *Show created
+  tickets* names the incident it raised, and a few tasks later
+  *Fire AO webhook for each incident* is the post that starts your
+  workflow.
++
+image::module-05/15-aap-job-output.png[title="", link=self, window=blank, width=100%]
+
+. Switch to the *OpenFlake* tab, open *Incidents*, and open the ticket
+  that job just created. It is *New*, priority 1, and the description is
+  what the agent is about to read.
++
+image::module-05/16-openflake-new.png[title="", link=self, window=blank, width=100%]
+
+== Watch the Run
+
+. Back in automation orchestrator, open *Executions* in the left
+  navigation and open the newest run of *Ticket Enrichment Demo*. The
+  canvas ticks each step green as it finishes, and the *Current run
+  details* table at the bottom lists them with timings.
++
+image::module-05/17-ao-run-overview.png[title="", link=self, window=blank, width=100%]
+
+. Click the *Details* tab and select *AI Triage Agent* in the list on
+  the left. *Tools used* records exactly what it called:
+  `job_templates_list (1), perform_query (1)`. One call each, as the
+  prompt asked. The *Output* panel on the right is the structured
+  classification it produced, including the `job_template_name` it chose
+  off the real AAP list.
++
+image::module-05/18-ao-run-details.png[title="", link=self, window=blank, width=100%]
+
+. After the workflow has completed, notice that the path taken was the
+  *Auto Remediate* which then ran the *Run Auto Remediation* and
+  *Update OpenFlake Ticket* job templates within Ansible Automation
+  Platform.
++
+image::module-05/19-ao-run-complete.png[title="", link=self, window=blank, width=100%]
+
+== Read the Result in OpenFlake
+
+. Go back to the OpenFlake tab and reload the incident. It is now
+  *Resolved*, and the *Activity* trail reads like a handover: a triage
+  work note explaining what the agent found and why it chose automated
+  remediation, then a remediation work note with the actual numbers from
+  the playbook run, a close note, and the state change.
++
+image::module-05/20-openflake-resolved.png[title="", link=self, window=blank, width=100%]
+
+== Try the Other Two Routes
+
+The same job template drives all three outcomes. You have seen
+*auto remediate*. The other two routes come from the same workflow, the
+same agent and the same job template, with nothing to change in
+automation orchestrator.
+
+=== Needs Approval
+
+*needs_approval* is triggered when an AAP job template exists but the
+recommendation requires human approval. The run reaches the
+*Approve Remediation Change* step and waits for a human to approve
+prior to continuing.
+
+. Relaunch *Ticket Enrichment Simulate Alert* in Ansible Automation
+  Platform. Set *What scenario to run?* to *needs_approval*, leave
+  *Which workflow should this fire?* on
+  *student - the workflow I built*, and launch it.
++
+image::module-05/21-approval-survey.png[title="", link=self, window=blank, width=100%]
+
+. Back in automation orchestrator, open the new run. This time it does
+  not finish. The badges at the top read *Paused* and
+  *Pending approval*, and a *Review approval* button has appeared
+  beside them. Click it, then click *Approve* in the panel that opens
+  on the right.
++
+image::module-05/22-pending-approval.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+The panel tells you what you are being asked to approve before you
+decide: the approval step, the workflow it belongs to, when the request
+was raised, and the full payload underneath, including the
+`Run Approved Remediation` step that your decision releases.
+====
+
+. The button becomes an *Approved* chip and an *Approval notes* box
+  appears. Type a reason if you want one on the record, then click
+  *Submit decision*.
++
+image::module-05/23-approve-decision.png[title="", link=self, window=blank, width=100%]
+
+. *Approval submitted* confirms the decision was recorded, and the run
+  picks up where it paused.
++
+image::module-05/24-approval-submitted.png[title="", link=self, window=blank, width=100%]
+
+. When the run completes, the canvas shows a different path lit up.
+  *Route Decision* took the *Needs Approval* port into
+  *Approve Remediation Change*, out of its *Approved* port, and on to
+  *Run Approved Remediation*.
++
+image::module-05/25-approval-run-complete.png[title="", link=self, window=blank, width=100%]
+
+. In OpenFlake, the ticket records both halves of the story. The first
+  work note explains that a matching playbook was found but the
+  description carried risk language, so the workflow was waiting on a
+  human. The second reports the remediation that ran once you approved
+  it, and the ticket is *Resolved*.
++
+image::module-05/26-openflake-approved.png[title="", link=self, window=blank, width=100%]
+
+=== Inform Only
+
+*inform_only* raises an incident that nothing in AAP remediates. The
+triage agent routes it to the *Enrich and Assign* agent, which is why
+that second agent needed a model. The ticket ends up annotated and
+*In Progress* rather than resolved, waiting for a person.
+
+. Relaunch *Ticket Enrichment Simulate Alert* one more time. Set
+  *What scenario to run?* to *inform_only*, leave
+  *Which workflow should this fire?* on
+  *student - the workflow I built*, and launch it.
++
+image::module-05/27-inform-only-survey.png[title="", link=self, window=blank, width=100%]
+
+. Open the new incident in OpenFlake. This one is a security incident:
+  repeated failed SSH logins from multiple external addresses. There is
+  no job template in Ansible Automation Platform that remediates a
+  brute force attack, and the description says so outright.
++
+image::module-05/28-openflake-security.png[title="", link=self, window=blank, width=100%]
+
+. Follow the run in automation orchestrator. It completes without
+  pausing, and the path through the canvas is different again:
+  *Route Decision* took the *Inform Only* port into *Enrich and Assign*,
+  the second task agent, and then into a final ticket update. No
+  remediation job ran at all.
++
+image::module-05/29-inform-only-run-complete.png[title="", link=self, window=blank, width=100%]
+
+. Back in OpenFlake, the ticket is *In Progress* rather than
+  *Resolved*. The triage agent's work note says why it chose this route:
+  no automated remediation template matches, so no automated actions
+  will be taken. Underneath it, the *Enrich and Assign* agent has left a
+  handoff for the security team with concrete investigation steps, and a
+  customer-facing comment at the bottom.
++
+image::module-05/30-openflake-handoff.png[title="", link=self, window=blank, width=100%]
+
+[NOTE]
+====
+Nothing was fixed here, and that is the correct outcome. The agent was
+required to route to *inform only* the moment it could not name a real
+job template, no matter how serious the incident looked. What it did
+instead was provide detailed analysis on how the issue should be
+addressed.
+====
+
+== Check Your Work
+
+[cols="3,2"]
+|===
+|Where |What you should see
+
+|*Workflows*, project `default`
+|`Ticket Enrichment Demo`, *Published*
+
+|*AI Triage Agent*
+|A model, a credential, and two connections: *OpenFlake MCP* and
+*Student AAP MCP Server*, one tool each
+
+|*Executions*
+|A run marked *Completed*, with *Approve Remediation Change* skipped
+
+|*OpenFlake*
+|The incident *Resolved*, with three entries in its activity trail
+|===
+
+[TIP]
+====
+If anything in that table does not match, switch the *Project* selector
+to `solutions` and compare your workflow against the published
+*Ticket Enrichment Demo* there.
+====
+
+== What You Learned
+
+* A task agent is only as useful as the *tools* you connect it to.
+  Selecting a tool and authenticating to the server that provides it are
+  two separate actions, and the agent is not usable until you have done
+  both.
+* Pinning an agent to the exact tools its prompt names is a design
+  choice, not a limitation. Two tools, two calls, one decision.
+* A *webhook trigger* makes a workflow something other systems can
+  start. It needs an authorized service account, and it only goes live
+  when the workflow is published.
+* A *switch* turns one agent's answer into three different paths through
+  the same workflow, and an *approval gate* on one of those paths is how
+  you keep a person in front of the changes that warrant one.
+* Automation orchestrator *recommends*, Ansible Automation Platform
+  *executes*. The agent chose the job template by name. AAP ran it, and
+  AAP wrote the result back to the ticket.
