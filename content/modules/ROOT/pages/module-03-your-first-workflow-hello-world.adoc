@@ -1,0 +1,379 @@
+= Your First Workflow: Hello World
+
+== What You Will Do
+
+In module 02 you built the two connections automation orchestrator
+needs. Now you use them. Starting from an empty canvas you build a
+workflow with three steps:
+
+* A *manual trigger* that asks the person running it a question
+* A *task agent* that answers the question with an AI model
+* An *AAP job template* step that posts the answer to a chatroom
+
+The workflow is a vacation recommender. You type something like
+`Somewhere warm in March, not too touristy`, an agent picks a city and
+explains why, and Ansible Automation Platform posts a card about it in
+Mattermost. The topic is deliberately frivolous. The shape is not: a
+trigger collecting input, an agent turning it into structured fields,
+and AAP doing the real work is exactly the shape of every workflow in
+the rest of this lab.
+
+Along the way you will learn the one habit that makes building on this
+canvas easy: *run a step on its own before you wire anything to it.*
+
+[TIP]
+====
+Stuck at any point in this lab? Automation orchestrator has a
+*solutions* project containing a complete, working, published copy of
+everything you are asked to build. Switch the *Project* selector to
+`solutions` and compare. For this module, look at the workflow named
+*Vacation Suggestion*. It is the finished version of what you are
+about to create.
+====
+
+== Create the Workflow
+
+. Log in to automation orchestrator at {ao_url} as
+  `{ao_admin_user}` / `{ao_admin_password}`, open *Workflows* in the
+  left navigation, and click *Create workflow*.
+
+. Automation orchestrator does not give you a blank canvas. It goes
+  straight to a trigger picker, because every workflow starts with
+  something that starts it.
++
+image::module-03/01-select-trigger.png[title="", link=self, window=blank, width=100%]
+
+. Before you pick one, name the workflow and give it a home. Click the
+  name field at the top left, replace the generated name with
+  `Vacation Suggestion`, then open the *Project* selector and choose
+  `default`.
++
+image::module-03/02-name-and-project.png[title="", link=self, window=blank, width=100%]
++
+[WARNING]
+====
+Set the project now, before you build anything. A workflow cannot be
+saved without one, and the credentials you created in module 02 live
+in `default`. A workflow in a different project cannot see them.
+====
+
+. Now click *Manual trigger*.
+
+== Configure the Trigger
+
+A manual trigger can collect input from whoever runs the workflow. That
+input is what your agent will answer.
+
+. The trigger step opens with *Input schema* set to *Simple*. Click
+  *Add field* and fill the row in:
++
+--
+* *Field name*: `vacation_request`
+* *Type*: `String`
+* *Required*: ticked
+--
++
+image::module-03/03-trigger-input-field.png[title="", link=self, window=blank, width=100%]
+
+. Click *Create*.
+
+Remember the name `vacation_request`. It is the only thing you type by
+hand later that has to match something else exactly.
+
+== Add the Task Agent
+
+. With the trigger selected on the canvas, click *Add step* at the top
+  right and choose *Task Agent*.
++
+image::module-03/04-add-task-agent.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+Adding a step while another step is selected connects the two for you.
+If your new step lands on the canvas unconnected, drag from the dot on
+the right edge of the trigger to the dot on the left edge of the new
+step.
+====
+
+. Open the *Model* dropdown. Your integration from module 02 appears as
+  a heading with its models underneath. Choose
+  *Student LLM / qwen3-235b*.
++
+image::module-03/05-select-model.png[title="", link=self, window=blank, width=100%]
+
+. Picking a model is not the same as giving the step permission to call
+  it. A *Credential* section appears reading *LLM credential not
+  configured*. Click *Set up connection*.
++
+image::module-03/06-set-up-connection.png[title="", link=self, window=blank, width=100%]
+
+. Open *Select a credential*. Only credentials of type *LLM Provider*
+  are offered, which is why module 02 was fussy about the type. Choose
+  *Student LLM Credential*.
++
+image::module-03/07-llm-credential.png[title="", link=self, window=blank, width=100%]
+
+. Type the *Prompt*:
++
+[source,text]
+----
+You are a well-travelled colleague. Someone asks you:
+
+${trigger.vacation_request}
+
+Recommend one city. Give the city, a short reason, and one
+genuinely surprising fun fact about it.
+----
++
+Leave *Tools* as `No tools selected`, then paste this into
+*Response schema*:
++
+[source,json]
+----
+{
+  "type": "object",
+  "required": ["city", "reason", "fun_fact"],
+  "properties": {
+    "city":     { "type": "string" },
+    "reason":   { "type": "string" },
+    "fun_fact": { "type": "string" }
+  }
+}
+----
++
+image::module-03/08-prompt-and-schema.png[title="", link=self, window=blank, width=100%]
+
+. Click *Create*.
+
+Two things in that step are worth slowing down for.
+
+`${trigger.vacation_request}` is safe to type by hand because `trigger`
+is a reserved word in automation orchestrator, not the name of your
+step. Whatever your trigger ends up called, `${trigger.<field>}`
+reaches its input.
+
+The *Response schema* is the contract. Without it the agent writes a
+paragraph of prose and you have nothing to point at. With it, the agent
+must return exactly three named fields, and those three names are what
+the next step is going to ask for.
+
+== Run the Agent on Its Own
+
+This is the step that makes everything after it easy. Do not skip it.
+
+. Open the *Task Agent* step and click *Run step*. Automation
+  orchestrator asks how you want to supply the input it needs. Click
+  *Set mock data*.
++
+image::module-03/09-run-step-mock-data.png[title="", link=self, window=blank, width=100%]
++
+[WARNING]
+====
+Do not click *Run all previous steps*. That fires your trigger with no
+input at all, and the agent fails with
+`Property "vacation_request" not found`. The trigger collects its
+input from a person, and there is no person in the loop when a single
+step runs.
+====
+
+. Automation orchestrator pre-fills the shape the trigger produces.
+  Fill in a question and click *Run*:
++
+[source,json]
+----
+{
+  "vacation_request": "Somewhere warm in March, not too touristy"
+}
+----
++
+image::module-03/10-mock-input.png[title="", link=self, window=blank, width=100%]
+
+. After twenty seconds or so the *Output* panel on the right fills with
+  the agent's real answer. Find the `final_answer` block.
++
+image::module-03/11-agent-answer.png[title="", link=self, window=blank, width=100%]
+
+Your city will not be Marrakech. That is the point: nothing downstream
+can be hard-coded to a particular answer, only to the three field names
+you put in the schema.
+
+== Add the Chatroom Step
+
+. Click *Add step*, choose *AAP Execution*, then
+  *Launch AAP job template*.
++
+image::module-03/12-add-aap-step.png[title="", link=self, window=blank, width=100%]
+
+. Set *Integration* to `AAP`. The same *credential not configured*
+  warning appears, so click *Set up connection* and choose
+  *Ansible Automation Platform*.
++
+image::module-03/13-aap-credential.png[title="", link=self, window=blank, width=100%]
+
+. Set *Organization* to `Default`, then open *Job template*. The list is
+  read live out of Ansible Automation Platform: these are the real job
+  templates in the controller, not a copy.
++
+image::module-03/14-job-template-list.png[title="", link=self, window=blank, width=100%]
+
+. Type `notify` to filter. Two templates match. Choose
+  *Notify Chatroom*, not *CVE - Notify Mattermost Investigation*.
++
+image::module-03/15-job-template-notify.png[title="", link=self, window=blank, width=100%]
+
+. Scroll down to *Extra variables* and type the skeleton of what you
+  are going to send, leaving three of the values empty:
++
+[source,json]
+----
+{
+  "notify_card": "hello",
+  "notify_title": "",
+  "notify_text": "",
+  "notify_fact": ""
+}
+----
++
+image::module-03/16-extra-vars-skeleton.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+`notify_card` tells the playbook which notification card to build.
+`hello` is this module's card: a title, a body and a single fun fact.
+The disk utilization workflow in module 04 calls the same job template
+and gets a different card.
+====
+
+. Click *Create*.
+
+== Wire the Agent's Answer into the Job
+
+Now open the *Launch AAP job template* step again and look at the
+*Input* panel on the left.
+
+It has changed. Before you ran the agent it showed a description of
+what a task agent *might* return. Now it shows what yours actually
+did: a `result` containing a `content` containing your three fields,
+each with the real value beside it.
+
+. Hover over `city` in the Input panel and click the copy icon beside
+  it. Automation orchestrator shows you the whole expression and copies
+  it to your clipboard.
++
+image::module-03/17-copy-expression.png[title="", link=self, window=blank, width=100%]
+
+. Paste it between the quotes after `"notify_title"`. Then do the same
+  for `reason` into `notify_text` and `fun_fact` into `notify_fact`.
++
+image::module-03/18-extra-vars-filled.png[title="", link=self, window=blank, width=100%]
+
+. Click *Update*, then *Save workflow*.
+
+You did not type a single expression. That matters more than it looks,
+because the step id in the middle of each one is a generated
+identifier nobody could guess:
+
+[source,text]
+----
+${activity_a95925fb_3e9e_4cc0_b8cf_e81f9652614c.result.content.city}
+----
+
+[IMPORTANT]
+====
+The Input panel can only offer you real fields once the step that
+produces them has actually run. This is the whole reason you ran the
+agent on its own a few steps ago, and the habit to carry into the rest
+of the lab: *run a step, then wire what comes after it.*
+====
+
+== Run the Whole Workflow
+
+. Click *Run*, then *Run now*.
++
+image::module-03/19-run-workflow.png[title="", link=self, window=blank, width=100%]
+
+. This time the trigger does ask for input, pre-filled from your last
+  successful run. Edit it if you like, then click *Run*.
++
+image::module-03/20-trigger-input.png[title="", link=self, window=blank, width=100%]
+
+. Watch the run details panel at the bottom. The trigger finishes
+  instantly, the agent takes around twenty seconds, and the AAP job
+  takes about ten more. All three end *Successful*.
++
+image::module-03/21-run-complete.png[title="", link=self, window=blank, width=100%]
++
+[TIP]
+====
+The *View job in AAP* link on the last row opens the actual job in
+Ansible Automation Platform, with its full output. Automation
+orchestrator did not reimplement anything: it launched a job template
+and waited for it.
+====
+
+. Switch to the *Mattermost* tab and open *Town Square*. Your card is
+  there, with the agent's city as the title, its reason as the body and
+  its fun fact underneath.
++
+image::module-03/22-chatroom-card.png[title="", link=self, window=blank, width=100%]
+
+== Publish It
+
+Saving a workflow stores your work. Publishing makes the trigger live,
+so the workflow can be started without the editor open.
+
+. Click *Publish workflow*. Give the version a name you will recognise,
+  or accept the timestamp, and click *Publish workflow*.
++
+image::module-03/23-publish-workflow.png[title="", link=self, window=blank, width=100%]
+
+. The *Draft* badge beside the workflow name becomes *Published*.
+
+== Check Your Work
+
+[cols="3,2"]
+|===
+|Where |What you should see
+
+|*Workflows*, project `default`
+|`Vacation Suggestion`, *Published*
+
+|The canvas
+|Three steps, connected left to right, each with a green tick
+
+|*Run details*
+|Three rows, all *Successful*
+
+|*Mattermost*, Town Square
+|A blue card titled with a city, not a red card titled
+*Unsupported Disk Tier*
+|===
+
+If the chatroom card is red and says *Unsupported Disk Tier*, the job
+template ran but could not build your card. The usual cause is a typo
+in `notify_card`, which has to be exactly `hello`.
+
+If a `notify_*` value came through empty, open the run, click the
+*Launch AAP job template* row and look at what was actually sent. An
+expression that resolved to nothing almost always means it was pasted
+into the wrong pair of quotes.
+
+== What You Learned
+
+* A workflow is a *trigger plus steps*. The trigger is on the canvas
+  with everything else, and `${trigger.<field>}` reaches its input from
+  anywhere in the workflow.
+* A *response schema* turns an agent from something that writes prose
+  into something the next step can consume. The field names you choose
+  there are the contract.
+* *Run a step before you wire what comes after it.* Until a step has
+  produced real output, automation orchestrator can only guess at its
+  shape, and you are left typing expressions by hand. Afterwards it
+  hands them to you.
+* Automation orchestrator *decides*, Ansible Automation Platform
+  *executes*. The agent chose a city; the job template that posted the
+  card is an ordinary AAP job template that any of your existing
+  automation could have been.
+
+In the next module you keep the same shape and add branching: one
+workflow, one measurement, four different outcomes.
