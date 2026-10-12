@@ -35,7 +35,7 @@ asciidoc:
     aap_controller_admin_password: changeme
 
     # The AAP MCP server the student points their own integration at
-    # in module 02. Published by
+    # in Integrations and Credentials. Published by
     # ocp4_workload_automation_orchestrator_config; the /mcp suffix is
     # part of the value, not something the student appends.
     aap_mcp_url: 'https://aap-mcp-aap.apps.cluster-%GUID%.dyn.redhatworkshops.io/mcp'
@@ -51,7 +51,7 @@ asciidoc:
     litellm_virtual_key: changeme
     litellm_available_models: qwen3-235b
 
-    # Mattermost, where the Hello World and Disk Utilization
+    # Mattermost, where the Vacation Suggestion and Disk Utilization
     # notifications land
     mattermost_url: 'https://mattermost-mattermost.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     mattermost_username: admin

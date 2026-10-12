@@ -50,8 +50,8 @@ complete, running workflows:
 
 * Your own *integrations and credentials*, connecting automation
   orchestrator to Ansible Automation Platform and to an AI model
-* A *Hello World workflow* on an empty canvas: a trigger, a task agent,
-  and an AAP job template
+* A *vacation recommender workflow* on an empty canvas: a trigger, a
+  task agent, and an AAP job template
 * A *disk utilization workflow* that branches on how full a filesystem
   is and hands the fix to AAP
 * A *ticket enrichment workflow* where a task agent reads a live
@@ -114,7 +114,7 @@ are for.
 hand, with your own credentials.
 |15 min
 
-|*03.* Your First Workflow: Hello World
+|*03.* Your First Workflow: Vacation Anyone?
 |Build a three-step workflow from an empty canvas: a trigger, a task
 agent, and an AAP job template that posts the agent's answer to chat.
 |15 min
@@ -205,9 +205,9 @@ ticket here and you come back to read the result.
 
 === Large Language Model
 
-Served by Models-as-a-Service. Module 02 has you create an automation
-orchestrator credential holding this key and an integration pointing at
-this URL.
+Served by Models-as-a-Service. Integrations and Credentials has you
+create an automation orchestrator credential holding this key and an
+integration pointing at this URL.
 
 [cols="1,3"]
 |===

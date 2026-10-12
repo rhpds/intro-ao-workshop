@@ -1,0 +1,95 @@
+{
+  "schema_version": "2.0.0",
+  "name": "Vacation Suggestion",
+  "description": "Ask an AI agent for a city to visit, then post its answer to a Mattermost chatroom through an AAP job template. The reference copy of the workflow the student builds by hand in module 03.",
+  "triggers": [
+    {
+      "id": "trigger_manual",
+      "type": "manual_trigger",
+      "name": "Trigger",
+      "parameters": {
+        "input_schema": {
+          "type": "object",
+          "required": [
+            "vacation_request"
+          ],
+          "properties": {
+            "vacation_request": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "position": {
+        "x": 0,
+        "y": 300
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "id": "vacation_agent",
+      "type": "agentic",
+      "name": "Task Agent",
+      "parameters": {
+        "prompt": "You are a well-travelled colleague. Someone asks you:\n\n${trigger.vacation_request}\n\nRecommend one city. Give the city, a short reason, and one\ngenuinely surprising fun fact about it.",
+        "response_schema": {
+          "type": "object",
+          "required": [
+            "city",
+            "reason",
+            "fun_fact"
+          ],
+          "properties": {
+            "city": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "fun_fact": {
+              "type": "string"
+            }
+          }
+        },
+        "tool_selections": [],
+        "integration_connections": [],
+        "tool_selection_strategy": "NONE"
+      },
+      "position": {
+        "x": 400,
+        "y": 300
+      }
+    },
+    {
+      "id": "notify_chatroom",
+      "type": "aap_job_template",
+      "name": "Launch AAP job template",
+      "parameters": {
+        "diff_mode": false,
+        "extra_vars": {
+          "notify_card": "hello",
+          "notify_title": "${vacation_agent.result.content.city}",
+          "notify_text": "${vacation_agent.result.content.reason}",
+          "notify_fact": "${vacation_agent.result.content.fun_fact}"
+        },
+        "job_template_name": "Notify Chatroom",
+        "organization_name": "Default"
+      },
+      "position": {
+        "x": 800,
+        "y": 300
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "trigger_manual",
+      "to": "vacation_agent"
+    },
+    {
+      "from": "vacation_agent",
+      "to": "notify_chatroom"
+    }
+  ]
+}
