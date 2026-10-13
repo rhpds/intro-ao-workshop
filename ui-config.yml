@@ -9,11 +9,17 @@ view_switcher:
   default_mode: split
 
 tabs:
-  - name: OCP Console
-    url: 'https://console-openshift-console.${DOMAIN}'
   - name: ">_ terminal"
     path: /wetty
+  - name: OCP Console
+    url: 'https://console-openshift-console.${DOMAIN}'
   - name: AAP
     url: "https://aap-aap.${DOMAIN}"
-  - name: Ansible Automation Orchestrator
+  - name: AO
     url: "https://aap-orchestrator.${DOMAIN}"
+  - name: Gitea
+    url: "https://gitea.${DOMAIN}"
+  - name: Mattermost
+    url: "https://mattermost-mattermost.${DOMAIN}"
+  - name: Splunk
+    url: "https://splunk-splunk.${DOMAIN}"
