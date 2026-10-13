@@ -21,5 +21,3 @@ tabs:
     url: "https://gitea.${DOMAIN}"
   - name: Mattermost
     url: "https://mattermost-mattermost.${DOMAIN}"
-  - name: Splunk
-    url: "https://splunk-splunk.${DOMAIN}"
