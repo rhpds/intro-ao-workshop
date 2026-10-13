@@ -1,0 +1,434 @@
+= Disk Utilization Remediation
+
+== What You Will Do
+
+The previous module built a workflow from an empty canvas. This one
+hands you a workflow that is almost finished and asks you to complete
+the part that is missing.
+
+*Disk Utilization Remediation* starts when Ansible Automation Platform
+posts a disk alert to a webhook. A job template measures the real disk
+and publishes what it found, a *switch* reads that number, and each
+route runs the remediation that fits the severity and then posts the
+result to a Mattermost chatroom:
+
+* *<80%* is healthy, so it records the check and does nothing else.
+* *80-95%* is a warning, so it reclaims space by cleaning up old logs.
+* *>95%* is critical, so it grows the volume rather than deleting
+  anything.
+* *Fallback* catches anything the three routes above do not match.
+
+Three of those four routes are already wired. The *>95%* route is not.
+You will build its two steps, and the *80-95%* route sitting one port
+above is your worked example: it is the same two step shape, remediate
+then notify, and you can open it and read exactly how it is put
+together.
+
+[TIP]
+====
+Stuck at any point in this lab? Automation orchestrator has a
+*solutions* project containing a complete, working, published copy of
+everything you are asked to build. Switch the *Project* selector to
+`solutions` and compare. For this module, look at the workflow named
+*Disk Utilization Remediation*. It is the finished version of what you
+are about to create.
+====
+
+== Publishing the Current Disk Utilization Draft
+
+The current *Disk Utilization Remediation* workflow contains all the
+steps except for the *>95%* path. In this exercise you will work with
+the existing paths to learn how disk utilization is implemented and
+then add to the use case.
+
+. Log in to automation orchestrator at {ao_url} as
+  `{ao_admin_user}` / `{ao_admin_password}` and open *Workflows* in the
+  left navigation. Confirm the *Project* selector reads `default`, then
+  click *Disk Utilization Remediation*.
++
+image::module-04/01-workflow-missing-branch.png[title="", link=self, window=blank, width=100%]
+
+. Click *Publish workflow*.
++
+[NOTE]
+====
+The *Draft* badge beside the workflow name becomes *Published*.
+====
++
+image::module-04/02-workflow-published.png[title="", link=self, window=blank, width=100%]
+
+[IMPORTANT]
+====
+Publish before you build anything. A webhook trigger only starts
+answering once the workflow is published, and the next thing you do is
+fire that webhook.
+====
+
+== Fire a Healthy Alert First
+
+Prior to doing the exercise, you will first run the existing workflow
+down the healthy path. This allows us to capture the appropriate output
+that will then be displayed as input within the automation
+orchestrator. This is similar to what you saw in the previous module,
+where the task agent ran to display the available wiring for the next
+step.
+
+. Switch to the *AAP* tab and log in as `{aap_controller_admin_user}` /
+  `{aap_controller_admin_password}`. Open *Automation Execution* ->
+  *Templates* and find *Disk Utilization Simulate Alert*.
++
+image::module-04/03-aap-templates-list.png[title="", link=self, window=blank, width=100%]
+
+. Launch it. The survey asks two questions. Set *How full should the
+  disk be?* to *50% - healthy, no remediation*, and *Which workflow
+  should this fire?* to *student - the workflow I built*. Click *Next*,
+  then *Finish*.
++
+image::module-04/04-survey-healthy.png[title="", link=self, window=blank, width=100%]
++
+[WARNING]
+====
+Please ensure you are running against the student workflow as seen in
+the image. The *solutions* choice fires the reference copy instead of
+yours.
+====
+
+. The job puts a real file on the target host, measures the disk, and
+  posts to your webhook. The *Summary* task at the end reports what it
+  filled the disk to, which branch it expects, and the webhook path it
+  fired.
++
+image::module-04/05-aap-job-summary.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+Nothing here is simulated. The job allocates an actual file, so the
+workflow's check step runs a real `df` and the switch routes on a real
+number.
+====
+
+. Back in automation orchestrator, open *Executions* and open the run.
+  It completes down the *<80%* route: *Remediate - Continue* and then
+  *OK - Notify Chatroom - Do nothing*.
++
+image::module-04/06-ao-run-ok-complete.png[title="", link=self, window=blank, width=100%]
+
+. Switch to the *Mattermost* tab and open *Town Square*. The last step
+  of that branch, *OK - Notify Chatroom - Do nothing*, has posted its
+  card: the host it checked, the mount, the percentage it measured and
+  the tier it decided, with *No Action Taken* as the remediation.
+  Nothing needed fixing, and saying so is the outcome.
++
+image::module-04/06b-mattermost-ok.png[title="", link=self, window=blank, width=100%]
+
+== Building the >95% Path
+
+With the healthy path appropriately displaying its results, let's turn
+our focus to building out the new *>95%* path that runs the job
+template that grows the RHEL node's volume to accommodate the volume
+starting to fill up.
+
+. Back in the workflow editor, click the *+* and choose
+  *AAP Execution*.
++
+image::module-04/07-add-step-menu.png[title="", link=self, window=blank, width=100%]
+
+. Choose *Launch AAP job template*.
++
+image::module-04/08-add-step-aap-execution.png[title="", link=self, window=blank, width=100%]
+
+. In the step panel, open *Integration* and choose *AAP*.
++
+image::module-04/09-step-integration.png[title="", link=self, window=blank, width=100%]
+
+. *AAP credential not configured* appears underneath. Click
+  *Set up connection*.
++
+image::module-04/10-step-setup-connection.png[title="", link=self, window=blank, width=100%]
+
+. Open *Select a credential* and choose
+  *Ansible Automation Platform*.
++
+image::module-04/10b-step-select-credential.png[title="", link=self, window=blank, width=100%]
+
+. Set *Organization* to `Default`.
++
+image::module-04/11-step-organization.png[title="", link=self, window=blank, width=100%]
+
+. Open *Job template* and choose *Linux - Remediate - Disk Expand*.
++
+image::module-04/12-job-template-expand.png[title="", link=self, window=blank, width=100%]
+
+. Click *Create*.
+
+=== Adding the Details into the Extra Variables
+
+The existing job template, *Linux - Remediate - Disk Expand*, needs to
+know the values to properly grow the filesystem. Re-open the
+*Linux - Remediate - Disk Expand* job template and enter the variable
+values that are captured at run time.
+
+. Scroll down to *Extra variables* and type the skeleton, leaving the
+  three values empty:
++
+[source,json]
+----
+{
+  "disk_tier": "",
+  "disk_mount": "",
+  "disk_use_percent": ""
+}
+----
+
+. Now fill them in from the *Input* panel on the left. Expand
+  *Launch AAP job template*, then *artifacts*. Because you ran the
+  workflow once already, these are not placeholders: `disk_tier` reads
+  `ok`, `disk_mount` reads `/`, and `disk_use_percent` reads the
+  percentage from that run. Hover each one, click the copy icon, and
+  paste it between the quotes after the matching key. This captures the
+  appropriate value when the run uses the
+  *Linux - Remediate - Disk Expand* job template.
++
+image::module-04/13-extra-vars-skeleton.png[title="", link=self, window=blank, width=100%]
+
+. All three values should be expressed as shown below.
++
+image::module-04/14-extra-vars-filled.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+Look at the shape of what you pasted:
+[source,text]
+----
+${activity_61ac9127_f147_4fa8_9c04_189097e753e9.artifacts.disk_mount}
+----
+The tail, `artifacts.disk_mount`, is the name the check step's playbook
+published. The long `activity_...` in the middle is that step's
+generated id, which is why you copy these rather than type them.
+====
+
+. The step is still called *Launch AAP job template*. Click its name at
+  the top of the panel and rename it to `Remediate - Expand Disk`, then
+  click *Update*.
++
+image::module-04/15-rename-expand-step.png[title="", link=self, window=blank, width=100%]
+
+== Adding the Chatroom Notification Step
+
+The second step posts the outcome to the chatroom, the same way the
+other three branches end.
+
+. Click the *+* on the right edge of *Remediate - Expand Disk* and
+  choose *AAP Execution*.
++
+image::module-04/16-notify-add-step.png[title="", link=self, window=blank, width=100%]
+
+. Choose *Launch AAP job template*.
++
+image::module-04/17-notify-aap-execution.png[title="", link=self, window=blank, width=100%]
+
+. Click the step name at the top of the panel and rename it to
+  `Critical - Notify Chatroom - Expand Disk`. Then open the *Input*
+  panel and expand *Remediate - Expand Disk*. Notice what it says:
+  *Expected output fields (run step to see actual values)*. The
+  remediation step has never run, so automation orchestrator can show
+  you the shape of a job template's output but not the artifacts the
+  playbook will publish.
++
+image::module-04/18-notify-input-panel.png[title="", link=self, window=blank, width=100%]
+
+. Set *Integration* to *AAP* and *Organization* to `Default` as before,
+  then open *Job template* and choose *Notify Chatroom*.
++
+image::module-04/19-job-template-notify.png[title="", link=self, window=blank, width=100%]
+
+. The *Notify Chatroom* requires a large list of variables thus for
+  the purpose of this lab, we have created a small script to capture
+  the appropriate values that you can paste in. Then click *Create*.
++
+image::module-04/20-notify-selected.png[title="", link=self, window=blank, width=100%]
+
+=== Capturing the Extra Vars
+
+The *Notify Chatroom* playbook takes the full set of values every
+remediation branch publishes so that one playbook can render a card
+for any of them. Copying large amounts of expressions out of the
+*Input* panel manually is slow and tedious. The following script reads
+your workflow, finds the step that is wired to the *>95%* route and
+prints the whole block ready for you to copy and paste.
+
+. Switch to the *Terminal* tab on the Showroom and point the script at
+  your automation orchestrator. The last line prompts for the password, so nothing is
+  echoed and nothing lands in your shell history. Paste
+  `{ao_admin_password}` at the prompt and press kbd:[Enter].
++
+[source,bash,role=execute,subs="attributes+"]
+----
+export AO_URL="{ao_url}"
+export AO_USER="{ao_admin_user}"
+read -rsp "AO password: " AO_PASS; export AO_PASS; echo
+----
+
+. Run it.
++
+[source,bash,role=execute]
+----
+./ao-extra-vars
+----
++
+image::module-04/20b-extra-vars-script.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+The two lines beginning with `#` are there to tell you which step the
+script read from. They are not part of the answer. Copy only the JSON,
+from the opening `{` to the closing `}`, as boxed in the image.
+====
+
+. Re-open the *Notify Chatroom* job template and copy that JSON into
+  *Extra variables* on this step. Then click *Update*.
+
+== Publish the Completed Workflow
+
+. Click *Save workflow*.
++
+[NOTE]
+====
+When saving the workflow, if you have any issues with the extra
+variables expression you may see an error like the one shown in the
+banner. Please attempt to re-run the script and re-paste the
+`extra_vars` output, or reach out to one of the assistants if you have
+any issues.
+====
++
+image::module-04/21-verification-failed.png[title="", link=self, window=blank, width=100%]
+
+. With the canvas clean, click *Publish workflow*. The badge returns to
+  *Published* and all four routes now end somewhere.
++
+image::module-04/22-workflow-published-complete.png[title="", link=self, window=blank, width=100%]
++
+[IMPORTANT]
+====
+Editing a published workflow creates a new draft version, and the
+webhook keeps answering on the published one. If you skip this publish,
+your next alert will run the old workflow and your branch will look
+broken.
+====
+
+== Fire the Critical Alert
+
+. Relaunch *Disk Utilization Simulate Alert*. Open
+  *How full should the disk be?* and look at the choices. Each one
+  names the branch it is aiming at.
++
+image::module-04/23-survey-choices.png[title="", link=self, window=blank, width=100%]
+
+. Choose *97% - critical, triggers volume expansion*, leave
+  *Which workflow should this fire?* on
+  *student - the workflow I built*, and launch it.
++
+image::module-04/24-survey-critical.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+You do not need to reset anything between runs. The simulate job clears
+the file left by the previous run before it allocates a new one.
+====
+
+. The summary at the end of the job reports the disk it actually
+  reached and the branch it expects this time.
++
+image::module-04/25-aap-job-critical-summary.png[title="", link=self, window=blank, width=100%]
+
+== Watch the Run
+
+. Open the new run in automation orchestrator. This time the canvas
+  lights a different path: *Switch* takes the *>95%* port into
+  *Remediate - Expand Disk*, and on into
+  *Critical - Notify Chatroom - Expand Disk*. Both of those are yours.
++
+image::module-04/26-ao-run-critical.png[title="", link=self, window=blank, width=100%]
+
+. Switch to the *Mattermost* tab and open *Town Square*. Two cards are
+  waiting: the quiet one from your healthy run earlier, and the
+  critical one your branch just produced. Read what the critical card
+  says it did. It grew the volume and the usage percentage fell,
+  but nothing was deleted. The same data is simply sitting on a larger
+  disk.
++
+image::module-04/27-mattermost-critical.png[title="", link=self, window=blank, width=100%]
+
+== Check Your Work
+
+[cols="3,2"]
+|===
+|Where |What you should see
+
+|*Workflows*, project `default`
+|`Disk Utilization Remediation`, *Published*, with all four switch
+routes connected
+
+|*>95%* route
+|*Remediate - Expand Disk*, job template
+`Linux - Remediate - Disk Expand`, three extra variables
+
+|*Remediate - Expand Disk*
+|Followed by *Critical - Notify Chatroom - Expand Disk*, job template
+`Notify Chatroom`, twenty extra variables
+
+|*Executions*
+|A run marked *Completed* that went down the *>95%* route
+
+|*Mattermost*, Town Square
+|A *Critical* card reporting the volume before, the volume after, and
+how much was added
+|===
+
+[TIP]
+====
+If anything in that table does not match, switch the *Project* selector
+to `solutions` and compare your branch against the published
+*Disk Utilization Remediation* there.
+====
+
+== What You Learned
+
+* A *switch* routes on a value an earlier step produced, and each route
+  is a branch you wire independently. Three working branches beside an
+  empty one is the easiest specification to build against.
+* A step can only address output that an upstream step has actually
+  produced. Running the healthy path first is what made the check
+  step's artifacts real enough to copy.
+* An extra variables expression is a *reference into the graph*, not a
+  string. Automation orchestrator refuses to publish a branch that
+  reads from a step it can never have run, which is a class of mistake
+  you would otherwise find at three in the morning.
+* Publishing is a versioned action. The webhook answers the published
+  version, so an edit you did not publish is an edit that did not
+  happen.
+* Automation orchestrator decided *which* remediation to run. Ansible
+  Automation Platform ran it, measured the result, and reported it.
+  Each did the part it is good at.
+
+== Bonus: Run the 80-95% Path
+
+You have fired the healthy path and the critical path. The warning path
+between them is already wired, and your workflow is published, so you
+can run it without changing anything.
+
+. Relaunch *Disk Utilization Simulate Alert*. Set
+  *How full should the disk be?* to
+  *85% - warning, triggers log cleanup*, leave
+  *Which workflow should this fire?* on
+  *student - the workflow I built*, and launch it.
+
+. Open the new run in automation orchestrator. The *Switch* takes the
+  *80-95%* port this time, into *Remediate - Clean Disk* and then
+  *Warn - Notify Chatroom - Clean Disk*.
+
+. Switch to the *Mattermost* tab and open *Town Square*, then read the
+  new card against the critical one above it. This branch reclaimed
+  space by removing old logs, so it reports what it freed rather than
+  what it added. At 97% there may be nothing safe left to delete, which
+  is why the critical branch grows the volume instead.

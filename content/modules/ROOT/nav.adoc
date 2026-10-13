@@ -1,4 +1,5 @@
 * xref:index.adoc[Lab Overview]
 * xref:module-02-integrations-and-credentials.adoc[2. Getting Started: Integrations and Credentials]
 * xref:module-03-your-first-workflow-hello-world.adoc[3. Your First Workflow: Vacation Anyone?]
+* xref:module-04-disk-utilization.adoc[4. Disk Utilization Remediation]
 * xref:module-05-ticket-enrichment.adoc[5. Ticket Enrichment Workflow]
