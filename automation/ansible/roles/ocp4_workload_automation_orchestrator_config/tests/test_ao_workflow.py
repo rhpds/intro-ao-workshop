@@ -803,11 +803,18 @@ class TestStudentGapsFile(unittest.TestCase):
         # A workflow with no entry would import into `default` fully
         # wired — a finished workflow handed over as an exercise, and
         # nothing would say so.
+        #
+        # Except one: Vacation Suggestion is built from an empty canvas
+        # in module 03 and has no student copy at all, so it carries
+        # `student_copy: false` and must NOT appear here. The two sets
+        # are compared exactly, in both directions, so neither a
+        # missing gap nor an orphaned one passes.
         path = os.path.join(ROLE_DIR, "defaults", "main.yml")
         with open(path) as handle:
             defaults = yaml.safe_load(handle)
         keys = {w["key"] for w in defaults[
-            "ocp4_workload_automation_orchestrator_config_workflows"]}
+            "ocp4_workload_automation_orchestrator_config_workflows"]
+            if w["student_copy"]}
         self.assertEqual(keys, set(self.merged))
 
     def test_common_settings_reach_every_entry(self):
@@ -1128,6 +1135,164 @@ class TestCollection(unittest.TestCase):
             {"id": 3},
         ]}
         self.assertEqual(ao_name_id_map(payload), {"a": 1})
+
+
+class TestWireVacationSuggestion(unittest.TestCase):
+    """The module 03 reference copy: trigger, one agent, one AAP job.
+
+    Small enough to assert on in full, which is worth doing because it
+    is the one workflow a student compares their own hand-built copy
+    against. If this drifts from what module 03 tells them to type,
+    the comparison stops being useful.
+    """
+
+    def setUp(self):
+        self.definition = ao_prepare_definition(
+            load_workflow("vacation-suggestion.json"), "Vacation Suggestion"
+        )
+        self.bindings = load_bindings("vacation_suggestion")
+        self.resolved = fake_resolved(
+            ao_required_job_templates(self.definition, self.bindings)
+        )
+        self.wired = ao_wire_definition(self.definition, self.bindings, self.resolved)
+
+    def test_three_steps_in_a_line(self):
+        self.assertEqual(len(self.wired["triggers"]), 1)
+        self.assertEqual(len(self.wired["nodes"]), 2)
+        self.assertEqual(
+            self.wired["edges"],
+            [
+                {"from": "trigger_manual", "to": "vacation_agent"},
+                {"from": "vacation_agent", "to": "notify_chatroom"},
+            ],
+        )
+
+    def test_manual_trigger_asks_for_one_required_string(self):
+        # module 03 has the student type `vacation_request` by hand into
+        # the Simple input schema, ticked Required. Anything else here
+        # and the prompt's ${trigger.vacation_request} resolves to
+        # nothing.
+        trigger = self.wired["triggers"][0]
+        self.assertEqual(trigger["type"], "manual_trigger")
+        schema = trigger["parameters"]["input_schema"]
+        self.assertEqual(schema["required"], ["vacation_request"])
+        self.assertEqual(
+            schema["properties"], {"vacation_request": {"type": "string"}}
+        )
+        # No service account wiring on a manual trigger, and nothing
+        # prefilled: the question is the student's to type.
+        self.assertNotIn("authorized_service_account_ids", trigger["parameters"])
+        self.assertNotIn("default", schema["properties"]["vacation_request"])
+
+    def test_agent_gets_a_credential_and_a_model(self):
+        agent = self._node("vacation_agent")
+        self.assertEqual(agent["type"], "agentic")
+        self.assertEqual(agent["parameters"]["credential_id"], UUID % 1)
+        self.assertEqual(agent["parameters"]["llm_model_id"], UUID % 20)
+
+    def test_agent_selects_no_tools_at_all(self):
+        # The whole point of the module's "leave Tools as No tools
+        # selected". Strategy NONE rather than SELECTED, because AO
+        # rejects SELECTED with an empty list, and no `tool_selections`
+        # key at all, because that is what AO's own UI sends for NONE.
+        params = self._node("vacation_agent")["parameters"]
+        self.assertEqual(params["tool_selection_strategy"], "NONE")
+        self.assertNotIn("tool_selections", params)
+        self.assertEqual(params["integration_connections"], [])
+
+    def test_no_mcp_assets_needed(self):
+        # Must wire with nothing but the LLM and AAP resolved. Module 02
+        # is the only prerequisite; a student has not met MCP yet, and
+        # this copy must not quietly depend on one.
+        resolved = fake_resolved(
+            ao_required_job_templates(self.definition, self.bindings)
+        )
+        resolved["integrations"] = {"aap": UUID % 11}
+        resolved["credentials"] = {"llm": UUID % 1, "aap": UUID % 2}
+        resolved["tools"] = {}
+        ao_wire_definition(self.definition, self.bindings, resolved)
+
+    def test_prompt_reaches_the_trigger_input(self):
+        prompt = self._node("vacation_agent")["parameters"]["prompt"]
+        self.assertIn("${trigger.vacation_request}", prompt)
+
+    def test_response_schema_names_the_three_fields(self):
+        # These three names are the contract the module teaches: the
+        # extra_vars below address them, so a rename here breaks the
+        # card and nothing says so until Mattermost shows blanks.
+        schema = self._node("vacation_agent")["parameters"]["response_schema"]
+        self.assertEqual(schema["required"], ["city", "reason", "fun_fact"])
+        self.assertEqual(
+            sorted(schema["properties"]), ["city", "fun_fact", "reason"]
+        )
+
+    def test_job_node_posts_the_hello_card(self):
+        params = self._node("notify_chatroom")["parameters"]
+        self.assertEqual(params["job_template_name"], "Notify Chatroom")
+        self.assertEqual(params["credential_id"], UUID % 2)
+        self.assertEqual(params["integration_id"], UUID % 11)
+        self.assertIn("job_template_id", params)
+        self.assertEqual(params["organization_name"], "Default")
+        # `hello` selects tasks/notify/hello.yml in the shared notifier.
+        # Any other value lands on the red "Unsupported Disk Tier" card.
+        self.assertEqual(params["extra_vars"]["notify_card"], "hello")
+
+    def test_every_agent_field_is_carried_into_the_card(self):
+        # The failure this guards against is silent: an expression that
+        # resolves to nothing posts an empty card rather than erroring,
+        # so assert each notify_* reads a field the schema declares.
+        extra = self._node("notify_chatroom")["parameters"]["extra_vars"]
+        declared = self._node("vacation_agent")["parameters"]["response_schema"][
+            "properties"
+        ]
+        for var, field in (
+            ("notify_title", "city"),
+            ("notify_text", "reason"),
+            ("notify_fact", "fun_fact"),
+        ):
+            self.assertIn(field, declared)
+            self.assertEqual(
+                extra[var], "${vacation_agent.result.content.%s}" % field
+            )
+
+    def test_only_the_notifier_is_required(self):
+        self.assertEqual(
+            ao_required_job_templates(self.definition, self.bindings),
+            ["Notify Chatroom"],
+        )
+
+    def test_it_is_the_one_workflow_with_no_student_copy(self):
+        # module 03 builds this from an empty canvas, so a cut-back
+        # version in `default` would be the answer sheet. Guarded here
+        # because the omission is invisible: the student pass just
+        # silently skips it.
+        defaults = os.path.join(ROLE_DIR, "defaults", "main.yml")
+        with open(defaults) as handle:
+            entries = yaml.safe_load(handle)[
+                "ocp4_workload_automation_orchestrator_config_workflows"
+            ]
+        by_key = {entry["key"]: entry for entry in entries}
+        self.assertIn("vacation_suggestion", by_key)
+        self.assertIs(by_key["vacation_suggestion"]["student_copy"], False)
+
+        # Every other workflow does get one, and `student_copy` is
+        # stated on all of them rather than defaulted, so a new entry
+        # cannot land without the author deciding.
+        gaps_path = os.path.join(ROLE_DIR, "files", "student_gaps.yml")
+        with open(gaps_path) as handle:
+            gaps = ao_student_gaps(yaml.safe_load(handle))
+        for key, entry in by_key.items():
+            self.assertIn("student_copy", entry, key)
+            if entry["student_copy"]:
+                self.assertIn(key, gaps, key)
+            else:
+                self.assertNotIn(key, gaps, key)
+
+    def _node(self, node_id):
+        for node in self.wired["nodes"]:
+            if node["id"] == node_id:
+                return node
+        self.fail("no node %s" % node_id)
 
 
 class TestValidationSummary(unittest.TestCase):

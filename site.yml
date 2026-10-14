@@ -1,6 +1,6 @@
 ---
 site:
-  title: Introduction to Ansible Automation Orchestrator
+  title: Introduction to automation orchestrator
   url: https://github.com/rhpds/intro-ao-workshop
   start_page: modules::index.adoc
 

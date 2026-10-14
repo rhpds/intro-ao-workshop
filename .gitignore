@@ -11,3 +11,17 @@ __pycache__/
 
 # Provision logs pasted in for analysis — never ours to commit.
 job_*.txt
+shots-review/
+.DS_Store
+
+# Screenshot cut lists. tools/shot.py is tracked; the per-module .shots
+# files are not — they are only meaningful next to the recording they
+# measure, and the recordings live in shots-review/, which is ignored
+# above.
+tools/*.shots
+
+# Screen recordings. These are the source the figures are cut from, not
+# anything the build needs, and they run to tens of megabytes each.
+# They belong in shots-review/ alongside the raw screenshots; this rule
+# is the backstop for the ones that land in the repo root instead.
+*.mp4

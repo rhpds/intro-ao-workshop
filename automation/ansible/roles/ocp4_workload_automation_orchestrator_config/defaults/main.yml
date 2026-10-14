@@ -128,10 +128,31 @@ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name: Li
 
 # One import+wire+publish cycle each. `key` selects
 # vars/bindings_<key>.yml.
+#
+# `student_copy` says whether a cut-back second copy also lands in
+# `default` for the student to finish. It is required rather than
+# defaulted, because getting it wrong in either direction is silent:
+# false where it should be true leaves the student an empty project,
+# and true where it should be false hands them the answer. Every entry
+# marked true must have a matching block in files/student_gaps.yml.
 ocp4_workload_automation_orchestrator_config_workflows:
+  - key: vacation_suggestion
+    name: Vacation Suggestion
+    file: vacation-suggestion.json
+    # The one workflow the student builds from an empty canvas, so
+    # there is no student copy at all — not even a cut-back one. It
+    # exists only in `solutions`, as the thing to compare against when
+    # their own build does not behave.
+    student_copy: false
+    description: >-
+      Ask an AI agent for a city to visit, then post its answer to a
+      Mattermost chatroom through an AAP job template. The reference
+      copy of the workflow built by hand in module 03.
+    enabled: true
   - key: rhel_cve_remediation
     name: RHEL CVE Remediation
     file: rhel-cve-remediation.json
+    student_copy: true
     description: >-
       Triage a CVE alert against Red Hat Lightspeed and AAP inventory,
       then auto-patch dev hosts and route production through an
@@ -140,6 +161,7 @@ ocp4_workload_automation_orchestrator_config_workflows:
   - key: disk_utilization
     name: Disk Utilization Remediation
     file: disk-utilization-remediation.json
+    student_copy: true
     # Webhook-triggered since the fill is real: AAP's "Disk Utilization
     # Simulate Alert" fills the node and then calls AO, so the same
     # service account requirement as Ticket Enrichment applies.
@@ -152,6 +174,7 @@ ocp4_workload_automation_orchestrator_config_workflows:
   - key: ticket_enrichment
     name: Ticket Enrichment Demo
     file: ticket-enrichment.json
+    student_copy: true
     # Its webhook trigger must name an authorized service account, and
     # AO rejects the workflow without one. Skipped rather than failed
     # when ..._manage_service_account is false.

@@ -46,6 +46,17 @@
 - name: Import and wire the solutions and student workflows
   ansible.builtin.include_tasks: setup_workflows.yml
 
+- name: Publish the MCP endpoints the student has to type by hand
+  # Module 02 has the student build the AAP MCP integration themselves,
+  # so the URL this role only ever used internally now has to reach the
+  # lab guide. Published from here rather than from the install role
+  # because the host is composed here, and the /mcp suffix is part of
+  # the value the student pastes — not something to make them append.
+  agnosticd.core.agnosticd_user_info:
+    data:
+      aap_mcp_url: >-
+        https://{{ ocp4_workload_automation_orchestrator_config_aap_mcp_host }}/mcp
+
 - name: Show the configured Automation Orchestrator assets
   when: not silent | bool
   ansible.builtin.debug:

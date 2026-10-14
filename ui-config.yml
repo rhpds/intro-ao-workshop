@@ -15,8 +15,10 @@ tabs:
     url: 'https://console-openshift-console.${DOMAIN}'
   - name: AAP
     url: "https://aap-aap.${DOMAIN}"
-  - name: AO
+  - name: Automation orchestrator
     url: "https://aap-orchestrator.${DOMAIN}"
+  - name: OpenFlake
+    url: "https://openflake.${DOMAIN}"
   - name: Gitea
     url: "https://gitea.${DOMAIN}"
   - name: Mattermost
