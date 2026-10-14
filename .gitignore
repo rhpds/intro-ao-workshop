@@ -19,3 +19,9 @@ shots-review/
 # measure, and the recordings live in shots-review/, which is ignored
 # above.
 tools/*.shots
+
+# Screen recordings. These are the source the figures are cut from, not
+# anything the build needs, and they run to tens of megabytes each.
+# They belong in shots-review/ alongside the raw screenshots; this rule
+# is the backstop for the ones that land in the repo root instead.
+*.mp4
