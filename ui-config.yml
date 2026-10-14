@@ -9,19 +9,17 @@ view_switcher:
   default_mode: split
 
 tabs:
-  - name: OCP Console
-    url: 'https://console-openshift-console.${DOMAIN}'
   - name: ">_ terminal"
     path: /wetty
+  - name: OCP Console
+    url: 'https://console-openshift-console.${DOMAIN}'
   - name: AAP
     url: "https://aap-aap.${DOMAIN}"
   - name: Automation orchestrator
     url: "https://aap-orchestrator.${DOMAIN}"
-  # Module 05 sends students back and forth between AO and the ticket
-  # the workflow is enriching; modules 03 and 04 end in a chat message.
   - name: OpenFlake
     url: "https://openflake.${DOMAIN}"
-  # Mattermost takes the hostname OpenShift generates for the Route the
-  # workload creates, <route>-<namespace>, which is why it repeats.
+  - name: Gitea
+    url: "https://gitea.${DOMAIN}"
   - name: Mattermost
     url: "https://mattermost-mattermost.${DOMAIN}"
