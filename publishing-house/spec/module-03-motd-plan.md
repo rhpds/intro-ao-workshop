@@ -1,7 +1,37 @@
 # Module 03 rework: Vacation Anyone? becomes Message of the Day
 
-Status: phase 1 (content) starting 2026-10-14. Written on `main` at
-`261e3cb`.
+## Where this stands, 2026-10-15
+
+**Phase 1 is committed** on branch `module-03-motd` (`3bd186b`), not
+yet merged to `main`. 26 figures and the rewritten page are in it.
+
+**Phase 2 step 11 is written** and waiting to merge, in two repos:
+
+- `agnosticv`, branch `lb1284-ao-dual-service-accounts`:
+  `rh1-2027/lb1284-intro-ao-cnv/common.yaml` gains a
+  `Linux - Set Message of the Day` entry in `controller_templates`.
+- this repo, branch `module-03-motd`: `message_of_the_day` flipped to
+  `enabled: true` in the AO config role defaults, and added to
+  `ao_expected_workflows` in `qa-automation/healthcheck.yml`.
+
+**Merge order matters, see "Landing phase 2" below.** This repo goes
+first, AgnosticV straight after, and nothing is provisioned in
+between.
+
+Verified: 89 unit tests pass, Antora builds with 26 figures all
+resolving and no orphans, 0 em dashes anywhere in the diff, no
+credentials or live URLs anywhere in the repo. Filtering the job
+template list by `Linux` now matches exactly four, which is what the
+module page claims.
+
+Do **not** re-cut the figures. They are correct and reviewed. If a
+figure ever does need recutting, `tools/module-03.shots` carries every
+timestamp and box, and the warning about figure 22 matters.
+
+The live dev GUID these were built against is `j58q7`, which is
+ephemeral and may be gone. Nothing in the repo depends on it.
+
+Written on `main` at `261e3cb`; phase 1 built on top of that.
 
 **Split into two phases deliberately.** Phase 1 is everything that
 lives in this repo and can be built against a hand-made job template on
@@ -339,19 +369,81 @@ node1, over that host's own gathered facts. What the live run taught:
 Steps 3 and 4 must finish before 7, because you record against a
 working environment.
 
-### Phase 2: AgnosticV, later
+### Phase 2: AgnosticV
 
-Blocked on repo access, which Roger will supply after phase 1.
+11. ~~Add `Linux - Set Message of the Day` to
+    `infra.aap_configuration.dispatch`.~~ Done, written against
+    `rh1-2027/lb1284-intro-ao-cnv/common.yaml` on branch
+    `lb1284-ao-dual-service-accounts`:
 
-11. Add `Linux - Set Message of the Day` to
-    `infra.aap_configuration.dispatch`, pointed at
-    `automation/ansible/playbooks/lab-setup/message-of-the-day/set_motd.yml`
-    with an inventory holding the RHEL nodes.
+    ```yaml
+      - name: "Linux - Set Message of the Day"
+        organization: Default
+        job_type: run
+        inventory: "Workshop Inventory"
+        project: "Lab Setup"
+        playbook: "automation/ansible/playbooks/lab-setup/message-of-the-day/set_motd.yml"
+        limit: "node1,node2"
+        ask_variables_on_launch: true
+        credentials:
+          - "Workshop Credential"
+        state: present
+    ```
+
+    Choices worth the sentence each:
+    - `limit: "node1,node2"`. The hand-made template used
+      `node1,node2,localhost`, but the playbook's `all:!localhost`
+      drops localhost anyway, so it was noise. `bastion` and `node3`
+      are in `Workshop Inventory` too and are deliberately left out:
+      the page tells the student to check `node1` and `node2`.
+    - `ask_variables_on_launch: true`. Without it AAP discards the
+      agent's three `motd_*` values and nothing fails.
+    - `Workshop Credential` is the ssh credential every other
+      node-touching template in the catalog uses.
+    - No `execution_environment`. Only `Notify Chatroom` pins one, for
+      Mattermost. This playbook templates a file and calls
+      `set_stats`.
 12. Provision a clean GUID and confirm the template arrives from
     dispatch rather than by hand.
-13. Flip the `message_of_the_day` entry to `enabled: true` and merge.
-14. Provision one more clean GUID end to end, confirming the preflight
-    resolves and all four workflows import.
+13. ~~Flip the `message_of_the_day` entry to `enabled: true`.~~ Done,
+    together with adding `Message of the Day` to
+    `ao_expected_workflows` in `qa-automation/healthcheck.yml`. Both
+    ride in the phase 1 merge rather than waiting, see below.
+14. Provision one clean GUID end to end after AgnosticV merges,
+    confirming the preflight resolves and all four workflows import.
+    This folds step 12 in with it.
+
+### Landing phase 2
+
+**Decided 2026-10-15: two merges, not three.** Phase 1 and the
+`enabled: true` flip go to `main` together, AgnosticV straight after.
+The staged landing described below was offered and declined, since
+nobody else is deploying this catalog item today.
+
+1. Merge `module-03-motd` to `main`. Carries the page, the 26 figures,
+   `set_motd.yml`, `motd.j2`, `enabled: true`, and Message of the Day
+   in `ao_expected_workflows`.
+2. Merge the AgnosticV branch. Provision a clean GUID and confirm the
+   template arrives from dispatch and all four workflows import,
+   steps 12 and 14 in one pass.
+
+**Do not provision between 1 and 2.** In that window `main` asks the
+AO config role to resolve a job template dispatch is not yet
+creating, and the preflight in `tasks/resolve_job_templates.yml` fails
+the whole role, so none of the four workflows import. Not just this
+one.
+
+**AgnosticV cannot go first.** `controller_projects` points
+`Lab Setup` at `scm_branch: main` of `rhpds/intro-ao-workshop`, and
+the controller validates a job template's `playbook` against the
+files the project actually has, so the dispatch entry cannot be
+created until `set_motd.yml` is on `main`. The order above is the only
+one that works.
+
+The three-merge alternative, kept in case this ever needs redoing
+under more traffic: land phase 1 with `enabled: false`, merge
+AgnosticV, then flip as its own change. That has no dangerous window
+at all, at the cost of two extra provisions.
 
 ## Decisions settled 2026-10-14
 
@@ -604,5 +696,8 @@ Carried forward so they are not lost:
 - The terminal tab is named `">_ terminal"` in `ui-config.yml` while
   module 04 line 260 says "Switch to the *Terminal* tab". Pre-existing
   mismatch, worth fixing in one place.
-- The RHDP catalog item's git ref lives in agnosticv, not here. Worth
-  confirming whether it points at `main` now that content has landed.
+- ~~The RHDP catalog item's git ref lives in agnosticv, not here.~~
+  Confirmed: `controller_projects` -> `Lab Setup` is
+  `https://github.com/rhpds/intro-ao-workshop.git` at
+  `scm_branch: main`, with `scm_update_on_launch: false`. The branch
+  is right, and the consequence is the merge ordering above.

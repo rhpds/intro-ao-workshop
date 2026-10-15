@@ -149,14 +149,13 @@ ocp4_workload_automation_orchestrator_config_workflows:
       banner, then have an AAP job template write it onto the RHEL
       nodes alongside their own live facts. The reference copy of the
       workflow built by hand in module 03.
-    # Held back until AgnosticV's infra.aap_configuration.dispatch
-    # creates the `Linux - Set Message of the Day` job template. The
-    # preflight in tasks/resolve_job_templates.yml runs across every
-    # enabled workflow and fails the whole role on a template it cannot
-    # resolve, so leaving this true before dispatch is updated would
-    # stop ALL four workflows importing on a fresh provision, not just
-    # this one. Flip to true in the same change that adds the template.
-    enabled: false
+    # Depends on AgnosticV's infra.aap_configuration.dispatch creating
+    # the `Linux - Set Message of the Day` job template. The preflight
+    # in tasks/resolve_job_templates.yml runs across every enabled
+    # workflow and fails the whole role on a template it cannot
+    # resolve, so if that entry is ever dropped from the catalog this
+    # stops ALL four workflows importing, not just this one.
+    enabled: true
   - key: rhel_cve_remediation
     name: RHEL CVE Remediation
     file: rhel-cve-remediation.json
