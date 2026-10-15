@@ -28,9 +28,13 @@ Requires PyYAML.
 """
 
 import argparse
+import base64
 import json
 import os
+import ssl
 import sys
+import urllib.parse
+import urllib.request
 
 ROLE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COLLECTION_DIR = os.path.dirname(os.path.dirname(ROLE_DIR))
@@ -79,6 +83,75 @@ def workflows_from_defaults():
     }
 
 
+def aap_job_template_ids(names):
+    """Resolve job template names to IDs on the AAP controller.
+
+    resolve() below can only see templates that some workflow already
+    published in the project is using, so a workflow introducing a new
+    one never wires. The role has no such problem: its
+    tasks/resolve_job_templates.yml looks each name up on the
+    controller. This does the same, so the two agree.
+
+    Nothing is written down. In order of preference, export
+
+        AAP_JOB_TEMPLATE_IDS="Linux - Set Message of the Day=23"
+        AAP_URL and AAP_TOKEN         (a scoped, revocable OAuth token)
+        AAP_URL and AAP_PASSWORD      (AAP_USERNAME defaults to admin)
+
+    The first needs no credential at all; read the ID off the job
+    template's URL in the AAP UI.
+
+    TLS is deliberately NOT the AO context. These are different hosts,
+    and AO_INSECURE_SKIP_VERIFY must not quietly decide how a
+    controller admin password travels. Use AAP_CA_BUNDLE, or
+    AAP_INSECURE_SKIP_VERIFY=1 to accept the risk explicitly.
+    """
+    found = {}
+
+    for pair in (os.environ.get("AAP_JOB_TEMPLATE_IDS") or "").split(","):
+        name, sep, value = pair.partition("=")
+        if sep and value.strip().isdigit():
+            found[name.strip()] = int(value.strip())
+
+    url = os.environ.get("AAP_URL")
+    token = os.environ.get("AAP_TOKEN")
+    password = os.environ.get("AAP_PASSWORD")
+    if not url or not (token or password):
+        return found
+
+    if token:
+        authorization = "Bearer " + token
+    else:
+        authorization = "Basic " + base64.b64encode(
+            ("%s:%s" % (os.environ.get("AAP_USERNAME", "admin"),
+                        password)).encode()).decode()
+
+    bundle = os.environ.get("AAP_CA_BUNDLE")
+    context = ssl.create_default_context(cafile=bundle or None)
+    if os.environ.get("AAP_INSECURE_SKIP_VERIFY") == "1":
+        print("WARNING: TLS verification disabled for %s. The controller "
+              "credential is exposed to anyone who can intercept this "
+              "connection. Use AAP_CA_BUNDLE where you can." % url,
+              file=sys.stderr)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+    for name in names:
+        if name in found:
+            continue
+        request = urllib.request.Request(
+            "%s/api/controller/v2/job_templates/?name=%s"
+            % (url.rstrip("/"), urllib.parse.quote(name)))
+        request.add_header("Authorization", authorization)
+        with urllib.request.urlopen(request, context=context,
+                                    timeout=30) as response:
+            results = json.load(response).get("results") or []
+        if results:
+            found[name] = results[0]["id"]
+
+    return found
+
+
 def resolve(ao, bindings, project_id):
     """Build the `resolved` map from what is already on the instance.
 
@@ -116,6 +189,14 @@ def resolve(ao, bindings, project_id):
                 job_templates[params["job_template_name"]] = params["job_template_id"]
             if node["type"] == "agentic" and params.get("llm_model_id"):
                 model_id = params["llm_model_id"]
+
+    missing = [
+        b["job_template"]
+        for b in (bindings.get("nodes") or {}).values()
+        if b.get("job_template") and b["job_template"] not in job_templates
+    ]
+    if missing:
+        job_templates.update(aap_job_template_ids(missing))
 
     needed = set()
     for binding in (bindings.get("nodes") or {}).values():

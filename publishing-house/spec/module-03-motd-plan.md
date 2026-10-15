@@ -260,6 +260,30 @@ Everything here works against a hand-made job template on one dev GUID.
 Nothing here needs AgnosticV. The phase ends with a branch that is safe
 to merge because the new workflow is still `enabled: false`.
 
+**Steps 0 to 4 are done, verified end to end on GUID j58q7 on
+2026-10-15.** A manual trigger with the example note produced
+`WEB TIER PATCHING SCHEDULED` plus a written notice in the banner on
+node1, over that host's own gathered facts. What the live run taught:
+
+- **The job template needs `ask_variables_on_launch: true`.** Without
+  it AAP silently discards the three `motd_*` extra vars and the
+  banner renders the playbook defaults, with nothing failing. Every
+  other template in this lab that takes workflow extra vars already
+  has it set. **Phase 2's dispatch entry must set it**; it is the
+  easiest thing in this whole plan to lose.
+- `limit` is `node1,node2,localhost`. The playbook's `all:!localhost`
+  drops localhost, so both nodes get the banner and each names itself.
+- No IP in the banner. `ansible_default_ipv4` is the NAT gateway and
+  reads 10.0.2.2 on every node, which proved nothing and overflowed
+  the box once a real kernel string was in the line.
+- `debug` must use `splitlines()`. `split("\n")` never matches:
+  YAML keeps the escape literal and the templar does not expand it.
+- Both AO and AAP have valid certificates. No insecure TLS flag is
+  needed against this lab.
+- `import_solutions_workflow.py` could not wire a job template the
+  lab had never used, because it scraped IDs off already-published
+  workflows. It now asks the controller the way the role does.
+
 0. ~~Confirm ssh~~. Done, confirmed working.
 1. **Create `Linux - Set Message of the Day` in AAP by hand** on the dev
    GUID. Needs the playbook path and an inventory holding the RHEL
