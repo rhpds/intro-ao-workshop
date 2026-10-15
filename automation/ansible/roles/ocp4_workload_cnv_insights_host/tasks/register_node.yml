@@ -91,6 +91,29 @@
   delegate_to: "{{ _node }}"
   become: true
 
+- name: "{{ _node }} — Verify Insights registration before upload"
+  block:
+    # RHC can report success before insights-client recognizes registration.
+    - name: "{{ _node }} — Wait for Insights registration"
+      ansible.builtin.command:
+        cmd: insights-client --status
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _insights_status
+      changed_when: false
+      until: _insights_status.rc == 0
+      retries: "{{ ocp4_workload_cnv_insights_host_registration_retries }}"
+      delay: "{{ ocp4_workload_cnv_insights_host_registration_delay }}"
+  rescue:
+    - name: "{{ _node }} — Report Insights registration failure"
+      ansible.builtin.fail:
+        msg: >-
+          Insights registration did not become ready on {{ _node }} after rhc connect.
+          Last status rc: {{ _insights_status.rc | default('unavailable') }}.
+          stdout: {{ _insights_status.stdout | default('') }}.
+          stderr: {{ _insights_status.stderr | default('') }}.
+          Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
+
 - name: "{{ _node }} — Apply group tag and upload to Insights"
   ansible.builtin.command:
     cmd: "insights-client --group={{ guid }}"
