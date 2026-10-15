@@ -51,8 +51,27 @@ asciidoc:
     litellm_virtual_key: changeme
     litellm_available_models: qwen3-235b
 
+    # Gitea, published by agnosticd.core_workloads.ocp4_workload_gitea_operator.
+    # Module 06 sends the student here to see the remediation playbook
+    # the CVE workflow fetched out of Red Hat Lightspeed and committed.
+    # gitea_playbook_repo comes from ocp4_workload_gitea_lab_token.
+    gitea_console_url: 'https://gitea.apps.cluster-%GUID%.dyn.redhatworkshops.io'
+    gitea_user: lab-user
+    gitea_password: changeme
+    gitea_playbook_repo: lab-user/lightspeed_playbooks
+
     # Mattermost, where the Disk Utilization and Ticket Enrichment
     # notifications land
     mattermost_url: 'https://mattermost-mattermost.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     mattermost_username: admin
     mattermost_password: changeme
+
+    # Red Hat Lightspeed, where module 06 has the student pick the CVE
+    # to remediate. Unlike every other system here this one is not in
+    # the cluster, so the URL is fixed and the account is a real Red
+    # Hat login seeded from the catalog's vaulted rhel_lightspeed_*
+    # pair. It opens in a browser tab of its own, not a Showroom tab:
+    # console.redhat.com refuses to be framed.
+    lightspeed_console_url: 'https://console.redhat.com'
+    lightspeed_username: changeme
+    lightspeed_password: changeme

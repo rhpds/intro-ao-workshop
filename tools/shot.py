@@ -369,6 +369,13 @@ def read_shot_list(path):
     a file next to the tool rather than in shell history. Re-cutting
     every image after a new export of the recording is then one
     command, and a diff shows which callouts moved.
+
+    A coordinate prefixed with `!` is a REDACTION rather than a callout.
+    Redactions belong in the list and not in a one-off `grab` command
+    for the same reason the boxes do, only more so: a frame that shows
+    a real password has to come out of every future re-cut with that
+    password still covered, and a rule somebody has to remember is a
+    rule that eventually gets forgotten.
     """
     shots = []
     with open(path) as handle:
@@ -381,25 +388,37 @@ def read_shot_list(path):
                 sys.exit("%s:%d: want `<time> <name> [box ...]`"
                          % (path, number))
             at, name = fields[0], fields[1]
+            boxes, redactions = [], []
             try:
-                boxes = [parse_box(field) for field in fields[2:]]
+                for field in fields[2:]:
+                    if field.startswith("!"):
+                        redactions.append(parse_box(field[1:]))
+                    else:
+                        boxes.append(parse_box(field))
             except argparse.ArgumentTypeError as problem:
                 sys.exit("%s:%d: %s" % (path, number, problem))
-            shots.append((at, name, boxes))
+            shots.append((at, name, boxes, redactions))
     return shots
 
 
 def cmd_batch(args):
     bounds = frame_size(args.video)
-    for at, name, boxes in read_shot_list(args.list):
+    for at, name, boxes, redactions in read_shot_list(args.list):
         for box in boxes:
             check_box(box, bounds, "%s box" % name)
-        filters = ["drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=%d"
-                   % (box + (BOX_COLOR, BOX_THICKNESS)) for box in boxes]
+        for box in redactions:
+            check_box(box, bounds, "%s redaction" % name)
+        # Redactions first, same order as `grab`: a callout drawn around
+        # a redacted field still reads as a callout.
+        filters = ["drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill"
+                   % (box + (REDACT_COLOR,)) for box in redactions]
+        filters += ["drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=%d"
+                    % (box + (BOX_COLOR, BOX_THICKNESS)) for box in boxes]
         destination = os.path.join(IMAGES, args.prefix, name + ".png")
         extract(args.video, parse_time(at), filters, destination)
-        print("%-34s @%-5s %d box%s"
-              % (name, at, len(boxes), "" if len(boxes) == 1 else "es"))
+        print("%-34s @%-5s %d box%s%s"
+              % (name, at, len(boxes), "" if len(boxes) == 1 else "es",
+                 ", %d redacted" % len(redactions) if redactions else ""))
 
 
 def cmd_sheet(args):
@@ -495,7 +514,10 @@ def main():
     grab.set_defaults(func=cmd_grab)
 
     batch = sub.add_parser("batch", help="re-cut a whole module from a list")
-    batch.add_argument("list", help="file of `<time> <name> [x,y,w,h ...]`")
+    batch.add_argument("list",
+                       help="file of `<time> <name> [x,y,w,h ...]`, where a "
+                            "coordinate written !x,y,w,h is redacted rather "
+                            "than boxed")
     batch.add_argument("--prefix", default="",
                        help="image subdirectory, e.g. module-05")
     batch.set_defaults(func=cmd_batch)
