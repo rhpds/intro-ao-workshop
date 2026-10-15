@@ -137,7 +137,7 @@ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name: Li
 # marked true must have a matching block in files/student_gaps.yml.
 ocp4_workload_automation_orchestrator_config_workflows:
   - key: message_of_the_day
-    name: Hello World - Message of the Day
+    name: Message of the Day
     file: message-of-the-day.json
     # The one workflow the student builds from an empty canvas, so
     # there is no student copy at all, not even a cut-back one. It

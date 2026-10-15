@@ -1,6 +1,6 @@
 {
   "schema_version": "2.0.0",
-  "name": "Hello World - Message of the Day",
+  "name": "Message of the Day",
   "description": "Ask an AI agent to turn a scribbled maintenance note into a login banner, then have an AAP job template write it onto the RHEL nodes alongside their own live facts. The reference copy of the workflow the student builds by hand in module 03.",
   "triggers": [
     {

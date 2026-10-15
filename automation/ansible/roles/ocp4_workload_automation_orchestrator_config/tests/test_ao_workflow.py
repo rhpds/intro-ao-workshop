@@ -804,11 +804,11 @@ class TestStudentGapsFile(unittest.TestCase):
         # wired, a finished workflow handed over as an exercise, and
         # nothing would say so.
         #
-        # Except one: Hello World - Message of the Day is built from an
-        # empty canvas in module 03 and has no student copy at all, so
-        # it carries `student_copy: false` and must NOT appear here.
-        # The two sets are compared exactly, in both directions, so
-        # neither a missing gap nor an orphaned one passes.
+        # Except one: Message of the Day is built from an empty canvas
+        # in module 03 and has no student copy at all, so it carries
+        # `student_copy: false` and must NOT appear here. The two sets
+        # are compared exactly, in both directions, so neither a
+        # missing gap nor an orphaned one passes.
         path = os.path.join(ROLE_DIR, "defaults", "main.yml")
         with open(path) as handle:
             defaults = yaml.safe_load(handle)
@@ -1149,7 +1149,7 @@ class TestWireMessageOfTheDay(unittest.TestCase):
     def setUp(self):
         self.definition = ao_prepare_definition(
             load_workflow("message-of-the-day.json"),
-            "Hello World - Message of the Day",
+            "Message of the Day",
         )
         self.bindings = load_bindings("message_of_the_day")
         self.resolved = fake_resolved(

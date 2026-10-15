@@ -34,7 +34,7 @@
     ao_service_account_name: aap-webhooks
     ao_expected_credentials: 4
     ao_expected_integrations: 5
-    # Hello World - Message of the Day is deliberately absent. It ships
+    # Message of the Day is deliberately absent. It ships with
     # `enabled: false` until AgnosticV dispatch creates its job
     # template, so on a fresh provision it is not imported and listing
     # it here would fail every healthcheck. Add it in the same change

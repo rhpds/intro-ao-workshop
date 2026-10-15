@@ -301,9 +301,38 @@ node1, over that host's own gathered facts. What the live run taught:
    automation files, the page filename, and the string edits listed
    above.
 6. Rewrite the module page prose against the real UI.
-7. Record.
-8. Cut shots, fit boxes.
-9. Build, verify figure count and that no em dashes crept in.
+7. ~~Record.~~ Done: `motd-student.mp4`, 1920x1080, 60fps, 319.5s,
+   cursor suppressed.
+8. ~~Cut shots, fit boxes.~~ Done. 26 figures: the 25 carried over
+   plus `22b-back-to-editor`, because the run view is still open after
+   the detour to the host and the student has to click back into the
+   editor before they can publish. Notes worth keeping:
+   - Figure 03 is in-frame this time. The Vacation take had no frame
+     showing the filled field row and *Create* together, so it was a
+     native screenshot; here it is at t=30. Not t=29: *Required* is
+     still unticked a second earlier and the page says to tick it.
+   - **Figure 22 is cut by hand, not by `batch`.** It is the only
+     figure showing the Showroom, whose credential panel is on the
+     left of that screen with the OpenFlake password and the LLM API
+     key both legible. `batch` can only draw boxes, so this one uses
+     `grab --redact`. The command is in `tools/module-03.shots`.
+   - The panel geometry is unchanged from the Vacation recording, so
+     most boxes were carried over rather than remeasured. Four were
+     not and had to be fixed after the first cut: 12 boxed *Task
+     Agent* instead of *AAP Execution*, 15 boxed the wrong row of the
+     job template list, 18 sat on a frame where only one of the three
+     extra vars was filled, and 21 boxed the *View job in AAP* link
+     instead of the Status column.
+   - The page said to filter the job template list by typing
+     `message`. The recording types `Linux`. Prose changed to match.
+   - Roger's review caught four more box errors after that: 04 was not
+     on the `+` handle, 08 clipped the prompt's bottom and the
+     schema's right edge, 18 was offset on both boxes, and 22 wanted
+     the terminal tab boxed as well as the banner. The *Create* and
+     *Update* button box was also too generous at `1822,119,94,45`;
+     the button is `1818,124,82,34`.
+9. ~~Build, verify figure count and no em dashes.~~ Done: 26 figures,
+   all resolving, no orphans, 0 em dashes.
 10. Merge. Safe, because `enabled: false` keeps the missing job
     template out of the preflight.
 
@@ -344,8 +373,14 @@ Blocked on repo access, which Roger will supply after phase 1.
 - **Mattermost as a second destination.** The same playbook could also
   post the rendered banner as a card. Additive, deferrable, and less
   needed now that ssh is confirmed.
-- **Workflow name in AO.** `Message of the Day` proposed.
-- **Module title.** "Your First Workflow: Message of the Day" proposed.
+- ~~**Workflow name in AO.**~~ Settled: `Message of the Day`. Roger
+  first chose `Hello World - Message of the Day`, then recorded the
+  build typing `Message of the Day`. That name is in the title bar of
+  all 25 figures, so the recording won and everything else was renamed
+  to match: the page, `defaults/main.yml`, the export, two tests and
+  the live copy in `solutions`.
+- ~~**Module title.**~~ Settled: "Your First Workflow: Message of the
+  Day".
 
 ## The job template is a merge blocker
 

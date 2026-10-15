@@ -40,7 +40,7 @@ Stuck at any point in this lab? Automation orchestrator has a
 *solutions* project containing a complete, working, published copy of
 everything you are asked to build. Switch the *Project* selector to
 `solutions` and compare. For this module, look at the workflow named
-*Hello World - Message of the Day*. It is the finished version of what
+*Message of the Day*. It is the finished version of what
 you are about to create.
 ====
 
@@ -50,7 +50,7 @@ you are about to create.
   `{ao_admin_user}` / `{ao_admin_password}`, open *Workflows* in the
   left navigation, and click *Create workflow*.
 
-. Name the workflow `Hello World - Message of the Day` and place it in
+. Name the workflow `Message of the Day` and place it in
   the `default` project as shown in the image below.
 +
 image::module-03/01-name-and-project.png[title="", link=self, window=blank, width=100%]
@@ -154,15 +154,6 @@ of a paragraph of prose. Prose you would have to pick apart by hand.
 Named fields you can point at: `headline`, `notice` and `owner` are
 exactly what the next step is going to ask for.
 
-[NOTE]
-====
-The last two sentences of the prompt are doing real work. Asked to
-write a server banner with nothing held back, a model will happily
-state a kernel version and an uptime, and they will be invented. Those
-numbers are the job template's to supply, measured on the host a
-moment before the banner is written.
-====
-
 === Run the Agent on Its Own
 
 . Open the *Task Agent* step and click *Run step*. Automation
@@ -171,36 +162,32 @@ moment before the banner is written.
 +
 image::module-03/09-run-step-mock-data.png[title="", link=self, window=blank, width=100%]
 +
+[NOTE]
+====
+If you have not saved the workflow yet, clicking *Run step* only saves
+it. Click *Run step* again to get the dialog above.
+====
++
 Running the agent once on its own gives you a real answer in the shape
 your schema describes, which is what makes the fields available to
 copy and paste when you wire up the next step.
 
-. Automation orchestrator pre-fills the shape the trigger produces.
-  Fill in your note and click *Run*:
+. Automation orchestrator pre-fills the shape the trigger produces, so
+  the key and the braces are already there. Paste this note between
+  the quotes after `banner_request`, then click *Run*:
 +
-[source,json]
+[source,text]
 ----
-{
-  "banner_request": "lab web tier, patching sat 2am utc, reboot, ping platform team if issues"
-}
+lab web tier, patching sat 2am utc, reboot, ping platform team if issues
 ----
 +
 image::module-03/10-mock-input.png[title="", link=self, window=blank, width=100%]
 
-. After twenty to thirty seconds the *Output* panel on the right fills
-  with the agent's real answer. Find the `final_answer` block, and
-  click *Update* once you have finished reviewing the output.
+. After a few seconds the *Output* panel on the right fills with the
+  agent's real answer. Find the `final_answer` block, and click
+  *Update* once you have finished reviewing the output.
 +
 image::module-03/11-agent-answer.png[title="", link=self, window=blank, width=100%]
-
-[NOTE]
-====
-Compare what went in with what came out. Twelve words of shorthand
-went in; a headline, a properly written notice and an owning team came
-back. Your wording will not match the screenshot. That is the point:
-nothing downstream can be hard-coded to a particular answer, only to
-the three field names you put in the schema.
-====
 
 === Add the Job Template Step
 
@@ -220,8 +207,8 @@ image::module-03/13-aap-credential.png[title="", link=self, window=blank, width=
 +
 image::module-03/14-job-template-list.png[title="", link=self, window=blank, width=100%]
 
-. Type `message` to filter, then choose
-  *Linux - Set Message of the Day*.
+. Type `Linux` to filter. Four templates match, and the other three
+  belong to the next module. Choose *Linux - Set Message of the Day*.
 +
 image::module-03/15-job-template-motd.png[title="", link=self, window=blank, width=100%]
 
@@ -238,16 +225,6 @@ image::module-03/15-job-template-motd.png[title="", link=self, window=blank, wid
 ----
 +
 image::module-03/16-extra-vars-skeleton.png[title="", link=self, window=blank, width=100%]
-+
-[NOTE]
-====
-Three variables, and not one of them says which host to write to. It
-does not need to. The job template carries an inventory, and the
-playbook runs against every machine in it, which is what you want from
-a maintenance notice. Deciding *what to say* is this workflow's job;
-knowing *where the servers are* is already Ansible Automation
-Platform's.
-====
 
 . Click *Create*.
 
@@ -272,28 +249,30 @@ image::module-03/17-copy-expression.png[title="", link=self, window=blank, width
 +
 image::module-03/18-extra-vars-filled.png[title="", link=self, window=blank, width=100%]
 
-. Click *Update*, then *Save workflow*.
-
+. Click *Update*.
++
 Look at the shape of what you pasted:
-
++
 [source,text]
 ----
 ${activity_a95925fb_3e9e_4cc0_b8cf_e81f9652614c.result.content.headline}
 ----
-
++
 The tail of the expression, `result.content.headline`, is the
 `headline` you named in the task agent's *Response schema*. `notice`
 and `owner` read the same way. What you wrote in the schema is what
 you are addressing here. The long `activity_...` in the middle is the
 step's generated id, which is why you copy these rather than type
 them.
-
++
 [IMPORTANT]
 ====
 The Input panel can only offer you real fields once the step that
 produces them has actually run. This is the whole reason you ran the
 agent on its own a few steps ago.
 ====
+
+. Click *Save workflow*.
 
 == Run the Whole Workflow
 
@@ -342,21 +321,26 @@ The banner prints before the prompt does. The headline, the notice and
 the owning team are the agent's words. Everything around them is
 `node1` describing itself: its release, its kernel, how long it has
 been up, and how full its root filesystem is. None of that reached the
-model, and none of it could have been guessed.
+LLM model, and was strictly supplied by Ansible Automation Platform's
+ability to gather facts on the host.
 +
 image::module-03/22-motd-banner.png[title="", link=self, window=blank, width=100%]
 +
 [TIP]
 ====
-Type `exit` to come back. Log in to `node2` the same way and you will
-see the same notice over that host's own numbers, because the job
-template's inventory holds both.
+Type `exit` to come back to the bastion host. Log in to `node2` to see
+the same changes.
 ====
 
-== Publish It
+== Publish the Workflow
 
 Saving a workflow stores your work. Publishing makes the trigger live,
 so the workflow can be started without the editor open.
+
+. You are still looking at the run. Click *Back to editor* at the top
+  right.
++
+image::module-03/22b-back-to-editor.png[title="", link=self, window=blank, width=100%]
 
 . Back on the canvas, with all three steps in front of you, click
   *Publish workflow* at the top right.
@@ -378,7 +362,7 @@ image::module-03/25-published.png[title="", link=self, window=blank, width=100%]
 |Where |What you should see
 
 |*Workflows*, project `default`
-|`Hello World - Message of the Day`, *Published*
+|`Message of the Day`, *Published*
 
 |The canvas
 |Three steps, connected left to right, each with a green tick
@@ -395,7 +379,7 @@ release, kernel, uptime and disk usage
 ====
 If anything in that table does not match, switch the *Project*
 selector to `solutions` and compare your workflow against the
-published *Hello World - Message of the Day* there.
+published *Message of the Day* there.
 ====
 
 == What You Learned
