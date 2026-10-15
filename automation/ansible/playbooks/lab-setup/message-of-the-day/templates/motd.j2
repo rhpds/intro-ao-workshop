@@ -16,7 +16,8 @@
 {% set _ = facts.append((distro ~ ' ' ~ (ansible_distribution_version | default(''))) | trim) -%}
 {% set _ = facts.append('kernel ' ~ (ansible_kernel | default('unknown'))) -%}
 {% set _ = facts.append('up ' ~ up_days ~ 'd ' ~ up_hours ~ 'h') -%}
-{% if ansible_default_ipv4 is defined and ansible_default_ipv4.address is defined %}{% set _ = facts.append(ansible_default_ipv4.address) %}{% endif -%}
+{# No IP. ansible_default_ipv4 is the NAT gateway on these nodes, so it
+   reads 10.0.2.2 on every one of them and proves nothing. -#}
 {% set root = ansible_mounts | default([]) | selectattr('mount', 'equalto', '/') | list -%}
 {% set body = ['  ' ~ motd_text ~ (facts | join('   ')) ~ motd_reset] -%}
 {% if root and (root[0].size_total | default(0) | int) > 0 -%}

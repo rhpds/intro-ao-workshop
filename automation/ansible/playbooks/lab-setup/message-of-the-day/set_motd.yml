@@ -53,8 +53,10 @@
     - name: Show the banner as the student will see it at login
       # Printed as well as written, so the run proves itself in the job
       # output even if nobody logs in to a node afterwards.
+      # splitlines, not split("\n"): YAML keeps the escape literal and
+      # the templar does not expand it, so the split never matches.
       ansible.builtin.debug:
-        msg: '{{ _motd_plain.split("\n") }}'
+        msg: "{{ _motd_plain.splitlines() }}"
 
     - name: Publish the banner back to automation orchestrator
       # The move check_disk.yml makes with notify_host. run_once, so
