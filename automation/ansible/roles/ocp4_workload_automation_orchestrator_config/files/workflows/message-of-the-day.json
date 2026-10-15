@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0.0",
-  "name": "Vacation Suggestion",
-  "description": "Ask an AI agent for a city to visit, then post its answer to a Mattermost chatroom through an AAP job template. The reference copy of the workflow the student builds by hand in module 03.",
+  "name": "Message of the Day",
+  "description": "Ask an AI agent to turn a scribbled maintenance note into a login banner, then have an AAP job template write it onto the RHEL nodes alongside their own live facts. The reference copy of the workflow the student builds by hand in module 03.",
   "triggers": [
     {
       "id": "trigger_manual",
@@ -11,10 +11,10 @@
         "input_schema": {
           "type": "object",
           "required": [
-            "vacation_request"
+            "banner_request"
           ],
           "properties": {
-            "vacation_request": {
+            "banner_request": {
               "type": "string"
             }
           }
@@ -28,26 +28,26 @@
   ],
   "nodes": [
     {
-      "id": "vacation_agent",
+      "id": "motd_agent",
       "type": "agentic",
       "name": "Task Agent",
       "parameters": {
-        "prompt": "You are a well-travelled colleague. Someone asks you:\n\n${trigger.vacation_request}\n\nRecommend one city. Give the city, a short reason, and one\ngenuinely surprising fun fact about it.",
+        "prompt": "You are a RHEL systems administrator writing the login banner for a\nserver. An engineer has given you this note:\n\n${trigger.banner_request}\n\nWrite the banner. Give a short headline in capitals, a notice of two\nor three sentences telling anyone who logs in what to expect and when,\nand the name of the team to contact.\n\nDo not invent facts about the host. The banner already shows its real\nconfiguration, gathered from the host itself.",
         "response_schema": {
           "type": "object",
           "required": [
-            "city",
-            "reason",
-            "fun_fact"
+            "headline",
+            "notice",
+            "owner"
           ],
           "properties": {
-            "city": {
+            "headline": {
               "type": "string"
             },
-            "reason": {
+            "notice": {
               "type": "string"
             },
-            "fun_fact": {
+            "owner": {
               "type": "string"
             }
           }
@@ -62,18 +62,17 @@
       }
     },
     {
-      "id": "notify_chatroom",
+      "id": "set_motd",
       "type": "aap_job_template",
       "name": "Launch AAP job template",
       "parameters": {
         "diff_mode": false,
         "extra_vars": {
-          "notify_card": "hello",
-          "notify_title": "${vacation_agent.result.content.city}",
-          "notify_text": "${vacation_agent.result.content.reason}",
-          "notify_fact": "${vacation_agent.result.content.fun_fact}"
+          "motd_headline": "${motd_agent.result.content.headline}",
+          "motd_notice": "${motd_agent.result.content.notice}",
+          "motd_owner": "${motd_agent.result.content.owner}"
         },
-        "job_template_name": "Notify Chatroom",
+        "job_template_name": "Linux - Set Message of the Day",
         "organization_name": "Default"
       },
       "position": {
@@ -85,11 +84,11 @@
   "edges": [
     {
       "from": "trigger_manual",
-      "to": "vacation_agent"
+      "to": "motd_agent"
     },
     {
-      "from": "vacation_agent",
-      "to": "notify_chatroom"
+      "from": "motd_agent",
+      "to": "set_motd"
     }
   ]
 }

@@ -24,8 +24,8 @@
     _ao_required_job_templates: []
 
 - name: Select the workflows that also get a student copy
-  # Vacation Suggestion is built from an empty canvas in module 03, so
-  # it has no student copy to generate: a cut-back version in `default`
+  # Message of the Day is built from an empty canvas in module 03, so
+  # it has no student copy to generate: a cut-back copy in `default`
   # would be the answer sheet. Every other workflow arrives half-built
   # and the student finishes it.
   ansible.builtin.set_fact:
@@ -88,7 +88,7 @@
 # so a fix to a prompt or a node reaches both copies.
 #
 # The loop is over _ao_student_workflows, not _ao_enabled_workflows:
-# Vacation Suggestion opts out with `student_copy: false` because
+# Message of the Day opts out with `student_copy: false` because
 # module 03 builds it from nothing.
 #
 # Note these are NOT filtered by requires_service_account the way the

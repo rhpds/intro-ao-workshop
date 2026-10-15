@@ -1,16 +1,16 @@
 ---
-# Wiring for files/workflows/vacation-suggestion.json
+# Wiring for files/workflows/message-of-the-day.json
 #
 # The smallest of the four: a manual trigger, one agent, one AAP job
 # template. It is the reference copy of what the student builds by hand
-# in module 03, so it is deliberately the plainest shape in the lab —
-# nothing here should need explaining beyond what that module teaches.
+# in module 03, so it is deliberately the plainest shape in the lab.
+# Nothing here should need explaining beyond what that module teaches.
 #
 # Node IDs are readable rather than `activity_<uuid>` because this
 # export was authored here rather than pulled out of the canvas. The
 # student's own copy will carry generated IDs, which is the whole point
 # of the module's "copy the expression, do not type it" step; the
-# expressions below read `${vacation_agent...}` for the same reason the
+# expressions below read `${motd_agent...}` for the same reason the
 # CVE export reads `${triage_agent...}`.
 
 ao_workflow_bindings:
@@ -18,7 +18,7 @@ ao_workflow_bindings:
   # --- Trigger ------------------------------------------------------
   #
   # A manual trigger needs no asset IDs and nothing to prefill:
-  # `vacation_request` is free text the person running it types, and a
+  # `banner_request` is free text the person running it types, and a
   # default would just be a suggestion they have to clear. Left
   # unbound, so ao_wire_definition passes it through as exported.
 
@@ -35,19 +35,20 @@ ao_workflow_bindings:
     # non-empty") and this node genuinely selects none. The export's
     # empty `tool_selections` list is dropped by the wiring pass, which
     # matches what AO's own UI sends for a NONE agent.
-    vacation_agent:
+    motd_agent:
       type: agentic
       credential: llm
       tool_selection_strategy: NONE
 
     # --- AAP job template node ------------------------------------
     #
-    # The same shared notifier the disk utilization workflow uses. It
-    # picks a card from `notify_card`, which the export pins to
-    # `hello`; the three values beside it come from the agent's
-    # response schema. See the playbook's tasks/notify/hello.yml.
-    notify_chatroom:
+    # Writes /etc/motd on every node in the job template's inventory.
+    # The three extra vars beside it are the agent's whole response
+    # schema; no host is passed, because the inventory already knows
+    # which machines these are. See the playbook at
+    # playbooks/lab-setup/message-of-the-day/set_motd.yml.
+    set_motd:
       type: aap_job_template
       credential: aap
       integration: aap
-      job_template: Notify Chatroom
+      job_template: Linux - Set Message of the Day

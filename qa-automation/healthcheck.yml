@@ -35,6 +35,7 @@
     ao_expected_credentials: 4
     ao_expected_integrations: 5
     ao_expected_workflows:
+      - Message of the Day
       - RHEL CVE Remediation
       - Disk Utilization Remediation
       - Ticket Enrichment Demo
@@ -240,7 +241,7 @@
              | selectattr('project_id', 'equalto', solutions_project.id)
              | list }}
 
-    - name: Assert both solutions workflows are present
+    - name: Assert the expected solutions workflows are present
       vars:
         _found: "{{ solutions_workflows | map(attribute='name') | list }}"
       ansible.builtin.assert:
@@ -249,7 +250,7 @@
           Missing workflow(s):
           {{ ao_expected_workflows | difference(_found) | join(', ') }}.
           Found: {{ _found | join(', ') }}.
-        success_msg: "Both solutions workflows are present."
+        success_msg: "All expected solutions workflows are present."
 
     - name: Fetch each workflow definition
       ansible.builtin.uri:

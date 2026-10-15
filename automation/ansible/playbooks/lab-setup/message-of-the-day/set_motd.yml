@@ -1,0 +1,70 @@
+---
+# Module 03's job template, "Linux - Set Message of the Day". An agent
+# writes the wording, this supplies the facts, the inventory the hosts.
+#
+# The motd_* vars are LLM output and arrive trusted, so Jinja in them
+# executes. Accepted here; module-03-motd-plan.md says why.
+- name: Set the message of the day
+  hosts: "{{ _host | default('all:!localhost') }}"
+  become: true
+  gather_facts: true
+
+  vars:
+    # YAML's \e is a real ESC byte, so these are control codes by the
+    # time Jinja sees them. /etc/motd is cat'd at login, so they render.
+    motd_frame: "\e[38;5;31m"
+    motd_head: "\e[1;33m"
+    motd_label: "\e[38;5;245m"
+    motd_text: "\e[0;37m"
+    motd_reset: "\e[0m"
+
+  tasks:
+    - name: Apply defaults
+      # For launching the job template straight from AAP, which is how
+      # it gets tested before any workflow exists.
+      ansible.builtin.set_fact:
+        motd_headline: "{{ motd_headline | default('MANAGED HOST') }}"
+        motd_notice: >-
+          {{ motd_notice | default('This host is managed by Ansible
+          Automation Platform. Changes made by hand may be overwritten
+          by the next run.') }}
+        motd_owner: "{{ motd_owner | default('platform team') }}"
+
+    - name: Write the banner to /etc/motd
+      ansible.builtin.template:
+        src: motd.j2
+        dest: /etc/motd
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Render a plain copy of the banner
+      # Same template with the colours blanked. Escape codes make the
+      # banner right at a login prompt and unreadable anywhere else.
+      ansible.builtin.set_fact:
+        _motd_plain: "{{ lookup('template', 'motd.j2') }}"
+      vars:
+        motd_frame: ""
+        motd_head: ""
+        motd_label: ""
+        motd_text: ""
+        motd_reset: ""
+
+    - name: Show the banner as the student will see it at login
+      # Printed as well as written, so the run proves itself in the job
+      # output even if nobody logs in to a node afterwards.
+      # splitlines, not split("\n"): YAML keeps the escape literal and
+      # the templar does not expand it, so the split never matches.
+      ansible.builtin.debug:
+        msg: "{{ _motd_plain.splitlines() }}"
+
+    - name: Publish the banner back to automation orchestrator
+      # The move check_disk.yml makes with notify_host. run_once, so
+      # motd_banner is the first host's copy.
+      ansible.builtin.set_stats:
+        data:
+          motd_hosts: "{{ ansible_play_hosts | join(',') }}"
+          motd_banner: "{{ _motd_plain }}"
+        per_host: false
+        aggregate: false
+      run_once: true

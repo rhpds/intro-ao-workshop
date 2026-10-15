@@ -801,10 +801,10 @@ class TestStudentGapsFile(unittest.TestCase):
 
     def test_every_workflow_in_defaults_has_a_gap(self):
         # A workflow with no entry would import into `default` fully
-        # wired — a finished workflow handed over as an exercise, and
+        # wired, a finished workflow handed over as an exercise, and
         # nothing would say so.
         #
-        # Except one: Vacation Suggestion is built from an empty canvas
+        # Except one: Message of the Day is built from an empty canvas
         # in module 03 and has no student copy at all, so it carries
         # `student_copy: false` and must NOT appear here. The two sets
         # are compared exactly, in both directions, so neither a
@@ -1137,7 +1137,7 @@ class TestCollection(unittest.TestCase):
         self.assertEqual(ao_name_id_map(payload), {"a": 1})
 
 
-class TestWireVacationSuggestion(unittest.TestCase):
+class TestWireMessageOfTheDay(unittest.TestCase):
     """The module 03 reference copy: trigger, one agent, one AAP job.
 
     Small enough to assert on in full, which is worth doing because it
@@ -1148,9 +1148,10 @@ class TestWireVacationSuggestion(unittest.TestCase):
 
     def setUp(self):
         self.definition = ao_prepare_definition(
-            load_workflow("vacation-suggestion.json"), "Vacation Suggestion"
+            load_workflow("message-of-the-day.json"),
+            "Message of the Day",
         )
-        self.bindings = load_bindings("vacation_suggestion")
+        self.bindings = load_bindings("message_of_the_day")
         self.resolved = fake_resolved(
             ao_required_job_templates(self.definition, self.bindings)
         )
@@ -1162,30 +1163,30 @@ class TestWireVacationSuggestion(unittest.TestCase):
         self.assertEqual(
             self.wired["edges"],
             [
-                {"from": "trigger_manual", "to": "vacation_agent"},
-                {"from": "vacation_agent", "to": "notify_chatroom"},
+                {"from": "trigger_manual", "to": "motd_agent"},
+                {"from": "motd_agent", "to": "set_motd"},
             ],
         )
 
     def test_manual_trigger_asks_for_one_required_string(self):
-        # module 03 has the student type `vacation_request` by hand into
+        # module 03 has the student type `banner_request` by hand into
         # the Simple input schema, ticked Required. Anything else here
-        # and the prompt's ${trigger.vacation_request} resolves to
+        # and the prompt's ${trigger.banner_request} resolves to
         # nothing.
         trigger = self.wired["triggers"][0]
         self.assertEqual(trigger["type"], "manual_trigger")
         schema = trigger["parameters"]["input_schema"]
-        self.assertEqual(schema["required"], ["vacation_request"])
+        self.assertEqual(schema["required"], ["banner_request"])
         self.assertEqual(
-            schema["properties"], {"vacation_request": {"type": "string"}}
+            schema["properties"], {"banner_request": {"type": "string"}}
         )
         # No service account wiring on a manual trigger, and nothing
-        # prefilled: the question is the student's to type.
+        # prefilled: the note is the student's to type.
         self.assertNotIn("authorized_service_account_ids", trigger["parameters"])
-        self.assertNotIn("default", schema["properties"]["vacation_request"])
+        self.assertNotIn("default", schema["properties"]["banner_request"])
 
     def test_agent_gets_a_credential_and_a_model(self):
-        agent = self._node("vacation_agent")
+        agent = self._node("motd_agent")
         self.assertEqual(agent["type"], "agentic")
         self.assertEqual(agent["parameters"]["credential_id"], UUID % 1)
         self.assertEqual(agent["parameters"]["llm_model_id"], UUID % 20)
@@ -1195,7 +1196,7 @@ class TestWireVacationSuggestion(unittest.TestCase):
         # selected". Strategy NONE rather than SELECTED, because AO
         # rejects SELECTED with an empty list, and no `tool_selections`
         # key at all, because that is what AO's own UI sends for NONE.
-        params = self._node("vacation_agent")["parameters"]
+        params = self._node("motd_agent")["parameters"]
         self.assertEqual(params["tool_selection_strategy"], "NONE")
         self.assertNotIn("tool_selections", params)
         self.assertEqual(params["integration_connections"], [])
@@ -1213,52 +1214,69 @@ class TestWireVacationSuggestion(unittest.TestCase):
         ao_wire_definition(self.definition, self.bindings, resolved)
 
     def test_prompt_reaches_the_trigger_input(self):
-        prompt = self._node("vacation_agent")["parameters"]["prompt"]
-        self.assertIn("${trigger.vacation_request}", prompt)
+        prompt = self._node("motd_agent")["parameters"]["prompt"]
+        self.assertIn("${trigger.banner_request}", prompt)
+
+    def test_prompt_forbids_inventing_host_facts(self):
+        # The banner mixes agent prose with facts set_motd.yml gathers
+        # from the host. A model left to itself writes a plausible
+        # kernel version straight over the real one, and the result
+        # looks right, which is the dangerous kind of wrong.
+        prompt = self._node("motd_agent")["parameters"]["prompt"]
+        self.assertIn("Do not invent facts about the host", prompt)
 
     def test_response_schema_names_the_three_fields(self):
         # These three names are the contract the module teaches: the
-        # extra_vars below address them, so a rename here breaks the
-        # card and nothing says so until Mattermost shows blanks.
-        schema = self._node("vacation_agent")["parameters"]["response_schema"]
-        self.assertEqual(schema["required"], ["city", "reason", "fun_fact"])
+        # extra_vars below address them, so a rename here empties the
+        # banner and nothing says so until someone logs in to a node.
+        schema = self._node("motd_agent")["parameters"]["response_schema"]
+        self.assertEqual(schema["required"], ["headline", "notice", "owner"])
         self.assertEqual(
-            sorted(schema["properties"]), ["city", "fun_fact", "reason"]
+            sorted(schema["properties"]), ["headline", "notice", "owner"]
         )
 
-    def test_job_node_posts_the_hello_card(self):
-        params = self._node("notify_chatroom")["parameters"]
-        self.assertEqual(params["job_template_name"], "Notify Chatroom")
+    def test_job_node_runs_the_motd_template(self):
+        params = self._node("set_motd")["parameters"]
+        self.assertEqual(
+            params["job_template_name"], "Linux - Set Message of the Day"
+        )
         self.assertEqual(params["credential_id"], UUID % 2)
         self.assertEqual(params["integration_id"], UUID % 11)
         self.assertIn("job_template_id", params)
         self.assertEqual(params["organization_name"], "Default")
-        # `hello` selects tasks/notify/hello.yml in the shared notifier.
-        # Any other value lands on the red "Unsupported Disk Tier" card.
-        self.assertEqual(params["extra_vars"]["notify_card"], "hello")
 
-    def test_every_agent_field_is_carried_into_the_card(self):
+    def test_no_host_is_passed_to_the_job_template(self):
+        # The job template carries an inventory and the playbook runs
+        # against it, which is what every other AAP step in this lab
+        # does. A host pinned here would hardcode something the
+        # inventory already knows and would send the whole fleet a
+        # banner naming one machine.
+        extra = self._node("set_motd")["parameters"]["extra_vars"]
+        self.assertEqual(sorted(extra), ["motd_headline", "motd_notice", "motd_owner"])
+
+    def test_every_agent_field_is_carried_into_the_banner(self):
         # The failure this guards against is silent: an expression that
-        # resolves to nothing posts an empty card rather than erroring,
-        # so assert each notify_* reads a field the schema declares.
-        extra = self._node("notify_chatroom")["parameters"]["extra_vars"]
-        declared = self._node("vacation_agent")["parameters"]["response_schema"][
+        # resolves to nothing renders an empty line rather than
+        # erroring, so assert each motd_* reads a field the schema
+        # declares.
+        extra = self._node("set_motd")["parameters"]["extra_vars"]
+        declared = self._node("motd_agent")["parameters"]["response_schema"][
             "properties"
         ]
         for var, field in (
-            ("notify_title", "city"),
-            ("notify_text", "reason"),
-            ("notify_fact", "fun_fact"),
+            ("motd_headline", "headline"),
+            ("motd_notice", "notice"),
+            ("motd_owner", "owner"),
         ):
             self.assertIn(field, declared)
             self.assertEqual(
-                extra[var], "${vacation_agent.result.content.%s}" % field
+                extra[var], "${motd_agent.result.content.%s}" % field
             )
 
-    def test_only_the_notifier_is_required(self):
+    def test_only_the_motd_template_is_required(self):
         self.assertEqual(
             ao_required_job_templates(self.definition, self.bindings),
-            ["Notify Chatroom"],
+            ["Linux - Set Message of the Day"],
         )
 
     def test_it_is_the_one_workflow_with_no_student_copy(self):
@@ -1272,8 +1290,8 @@ class TestWireVacationSuggestion(unittest.TestCase):
                 "ocp4_workload_automation_orchestrator_config_workflows"
             ]
         by_key = {entry["key"]: entry for entry in entries}
-        self.assertIn("vacation_suggestion", by_key)
-        self.assertIs(by_key["vacation_suggestion"]["student_copy"], False)
+        self.assertIn("message_of_the_day", by_key)
+        self.assertIs(by_key["message_of_the_day"]["student_copy"], False)
 
         # Every other workflow does get one, and `student_copy` is
         # stated on all of them rather than defaulted, so a new entry
