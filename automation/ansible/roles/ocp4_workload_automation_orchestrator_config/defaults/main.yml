@@ -136,19 +136,27 @@ ocp4_workload_automation_orchestrator_config_lightspeed_mcp_integration_name: Li
 # and true where it should be false hands them the answer. Every entry
 # marked true must have a matching block in files/student_gaps.yml.
 ocp4_workload_automation_orchestrator_config_workflows:
-  - key: vacation_suggestion
-    name: Vacation Suggestion
-    file: vacation-suggestion.json
+  - key: message_of_the_day
+    name: Hello World - Message of the Day
+    file: message-of-the-day.json
     # The one workflow the student builds from an empty canvas, so
-    # there is no student copy at all — not even a cut-back one. It
+    # there is no student copy at all, not even a cut-back one. It
     # exists only in `solutions`, as the thing to compare against when
     # their own build does not behave.
     student_copy: false
     description: >-
-      Ask an AI agent for a city to visit, then post its answer to a
-      Mattermost chatroom through an AAP job template. The reference
-      copy of the workflow built by hand in module 03.
-    enabled: true
+      Ask an AI agent to turn a scribbled maintenance note into a login
+      banner, then have an AAP job template write it onto the RHEL
+      nodes alongside their own live facts. The reference copy of the
+      workflow built by hand in module 03.
+    # Held back until AgnosticV's infra.aap_configuration.dispatch
+    # creates the `Linux - Set Message of the Day` job template. The
+    # preflight in tasks/resolve_job_templates.yml runs across every
+    # enabled workflow and fails the whole role on a template it cannot
+    # resolve, so leaving this true before dispatch is updated would
+    # stop ALL four workflows importing on a fresh provision, not just
+    # this one. Flip to true in the same change that adds the template.
+    enabled: false
   - key: rhel_cve_remediation
     name: RHEL CVE Remediation
     file: rhel-cve-remediation.json

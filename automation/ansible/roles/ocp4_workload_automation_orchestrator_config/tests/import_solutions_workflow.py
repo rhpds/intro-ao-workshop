@@ -17,9 +17,9 @@ this answers both in one run.
     export AO_URL=https://aap-orchestrator.apps.cluster-xxxxx...
     export AO_PASSWORD=...
     export AO_CA_BUNDLE=/path/to/cluster-ca.pem
-    python3 tests/import_solutions_workflow.py vacation_suggestion
-    python3 tests/import_solutions_workflow.py vacation_suggestion --publish
-    python3 tests/import_solutions_workflow.py vacation_suggestion --delete
+    python3 tests/import_solutions_workflow.py message_of_the_day
+    python3 tests/import_solutions_workflow.py message_of_the_day --publish
+    python3 tests/import_solutions_workflow.py message_of_the_day --delete
 
 Exits non-zero if the POST fails or the workflow does not validate, so
 it can gate a change to an export or a binding file.

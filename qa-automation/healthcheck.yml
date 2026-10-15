@@ -34,6 +34,11 @@
     ao_service_account_name: aap-webhooks
     ao_expected_credentials: 4
     ao_expected_integrations: 5
+    # Hello World - Message of the Day is deliberately absent. It ships
+    # `enabled: false` until AgnosticV dispatch creates its job
+    # template, so on a fresh provision it is not imported and listing
+    # it here would fail every healthcheck. Add it in the same change
+    # that flips the flag.
     ao_expected_workflows:
       - RHEL CVE Remediation
       - Disk Utilization Remediation
@@ -240,7 +245,7 @@
              | selectattr('project_id', 'equalto', solutions_project.id)
              | list }}
 
-    - name: Assert both solutions workflows are present
+    - name: Assert the expected solutions workflows are present
       vars:
         _found: "{{ solutions_workflows | map(attribute='name') | list }}"
       ansible.builtin.assert:
@@ -249,7 +254,7 @@
           Missing workflow(s):
           {{ ao_expected_workflows | difference(_found) | join(', ') }}.
           Found: {{ _found | join(', ') }}.
-        success_msg: "Both solutions workflows are present."
+        success_msg: "All expected solutions workflows are present."
 
     - name: Fetch each workflow definition
       ansible.builtin.uri:

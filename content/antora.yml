@@ -51,7 +51,7 @@ asciidoc:
     litellm_virtual_key: changeme
     litellm_available_models: qwen3-235b
 
-    # Mattermost, where the Vacation Suggestion and Disk Utilization
+    # Mattermost, where the Disk Utilization and Ticket Enrichment
     # notifications land
     mattermost_url: 'https://mattermost-mattermost.apps.cluster-%GUID%.dyn.redhatworkshops.io'
     mattermost_username: admin

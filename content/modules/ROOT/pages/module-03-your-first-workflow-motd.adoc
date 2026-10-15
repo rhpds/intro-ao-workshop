@@ -1,4 +1,4 @@
-= Your First Workflow: Vacation Anyone?
+= Your First Workflow: Message of the Day
 
 == What You Will Do
 
@@ -6,24 +6,33 @@ In Integrations and Credentials you built the two connections
 automation orchestrator needs. Now you use them. Starting from an
 empty canvas you build a workflow with three steps:
 
-* A *manual trigger* that asks the person running it a question
-* A *task agent* that answers the question with an AI model
-* An *AAP job template* step that posts the answer to a chatroom
+* A *manual trigger* that asks the person running it for a note
+* A *task agent* that turns that note into properly worded text
+* An *AAP job template* step that writes it onto a real RHEL host
 
-The workflow is a vacation recommender, because who doesn't need to
-plan their next vacation? In this workflow when you type something
-like `Somewhere warm in March, not too touristy`, an AI agent picks a
-city and explains why. It then uses an existing job template within
-Ansible Automation Platform to post about it in a Mattermost
-chatroom.
+The workflow sets the message of the day. Every time anyone logs in to
+a Linux server, `/etc/motd` is printed to their terminal, and on a
+well-run estate it is where the maintenance windows, the owning team
+and the house rules live. Keeping it current across a fleet is exactly
+the sort of small, constant chore that nobody gets round to.
 
-While we love us a great vacation, what this first workflow is going
-to teach you is how a trigger collects input, how a task agent takes
-your input and turns it into a structured response, and how you can
-leverage AAP to place those insights exactly where you want them.
-Every automation orchestrator workflow you will use today will take
-advantage of these different steps so that you too can take your
-automation to the next level.
+So you type a scribbled note, the kind you would send a colleague:
+
+[source,text]
+----
+lab web tier, patching sat 2am utc, reboot, ping platform team if issues
+----
+
+The agent turns that into a headline, a notice and an owning team. An
+Ansible Automation Platform job template then renders those three
+pieces into a banner on the host, surrounded by what the host reports
+about itself: its release, its kernel, its uptime, its address and how
+full its disk is.
+
+That division is the point. The agent writes the half a person would
+have written and cannot know the rest. AAP gathers the half that has
+to be true and would be tedious to write. Neither produces the banner
+alone.
 
 [TIP]
 ====
@@ -31,8 +40,8 @@ Stuck at any point in this lab? Automation orchestrator has a
 *solutions* project containing a complete, working, published copy of
 everything you are asked to build. Switch the *Project* selector to
 `solutions` and compare. For this module, look at the workflow named
-*Vacation Suggestion*. It is the finished version of what you are
-about to create.
+*Hello World - Message of the Day*. It is the finished version of what
+you are about to create.
 ====
 
 == Create the Workflow
@@ -41,8 +50,8 @@ about to create.
   `{ao_admin_user}` / `{ao_admin_password}`, open *Workflows* in the
   left navigation, and click *Create workflow*.
 
-. Name the workflow `Vacation Suggestion` and place it in the `default`
-  project as shown in the image below.
+. Name the workflow `Hello World - Message of the Day` and place it in
+  the `default` project as shown in the image below.
 +
 image::module-03/01-name-and-project.png[title="", link=self, window=blank, width=100%]
 +
@@ -60,13 +69,13 @@ image::module-03/02-select-trigger.png[title="", link=self, window=blank, width=
 === Configure the Trigger
 
 A manual trigger can collect input from whoever runs the workflow. That
-input is what your agent will answer.
+input is the note your agent will work from.
 
 . The trigger step opens with *Input schema* set to *Simple*. Click
   *Add field* and fill the row in:
 +
 --
-* *Field name*: `vacation_request`
+* *Field name*: `banner_request`
 * *Type*: `String`
 * *Required*: ticked
 --
@@ -101,12 +110,17 @@ image::module-03/07-llm-credential.png[title="", link=self, window=blank, width=
 +
 [source,text]
 ----
-You are a well-travelled colleague. Someone asks you:
+You are a RHEL systems administrator writing the login banner for a
+server. An engineer has given you this note:
 
-${trigger.vacation_request}
+${trigger.banner_request}
 
-Recommend one city. Give the city, a short reason, and one
-genuinely surprising fun fact about it.
+Write the banner. Give a short headline in capitals, a notice of two
+or three sentences telling anyone who logs in what to expect and when,
+and the name of the team to contact.
+
+Do not invent facts about the host. The banner already shows its real
+configuration, gathered from the host itself.
 ----
 +
 Leave *Tools* as `No tools selected`, then paste this into
@@ -116,11 +130,11 @@ Leave *Tools* as `No tools selected`, then paste this into
 ----
 {
   "type": "object",
-  "required": ["city", "reason", "fun_fact"],
+  "required": ["headline", "notice", "owner"],
   "properties": {
-    "city":     { "type": "string" },
-    "reason":   { "type": "string" },
-    "fun_fact": { "type": "string" }
+    "headline": { "type": "string" },
+    "notice":   { "type": "string" },
+    "owner":    { "type": "string" }
   }
 }
 ----
@@ -129,16 +143,25 @@ image::module-03/08-prompt-and-schema.png[title="", link=self, window=blank, wid
 
 . Click *Create*.
 
-`${trigger.vacation_request}` is what pulls the question into the
-prompt. `trigger` is a reserved word in automation orchestrator, so
-the expression works whatever your trigger step is called, and
-`vacation_request` is the field you added to its input schema a moment
+`${trigger.banner_request}` is what pulls the note into the prompt.
+`trigger` is a reserved word in automation orchestrator, so the
+expression works whatever your trigger step is called, and
+`banner_request` is the field you added to its input schema a moment
 ago.
 
 The *Response schema* makes the agent answer in named fields instead
 of a paragraph of prose. Prose you would have to pick apart by hand.
-Named fields you can point at: `city`, `reason` and `fun_fact` are
+Named fields you can point at: `headline`, `notice` and `owner` are
 exactly what the next step is going to ask for.
+
+[NOTE]
+====
+The last two sentences of the prompt are doing real work. Asked to
+write a server banner with nothing held back, a model will happily
+state a kernel version and an uptime, and they will be invented. Those
+numbers are the job template's to supply, measured on the host a
+moment before the banner is written.
+====
 
 === Run the Agent on Its Own
 
@@ -153,12 +176,12 @@ your schema describes, which is what makes the fields available to
 copy and paste when you wire up the next step.
 
 . Automation orchestrator pre-fills the shape the trigger produces.
-  Fill in a question and click *Run*:
+  Fill in your note and click *Run*:
 +
 [source,json]
 ----
 {
-  "vacation_request": "Somewhere warm in March, not too touristy"
+  "banner_request": "lab web tier, patching sat 2am utc, reboot, ping platform team if issues"
 }
 ----
 +
@@ -172,12 +195,14 @@ image::module-03/11-agent-answer.png[title="", link=self, window=blank, width=10
 
 [NOTE]
 ====
-Your city will not be Marrakech. That is the point: nothing downstream
-can be hard-coded to a particular answer, only to the three field
-names you put in the schema.
+Compare what went in with what came out. Twelve words of shorthand
+went in; a headline, a properly written notice and an owning team came
+back. Your wording will not match the screenshot. That is the point:
+nothing downstream can be hard-coded to a particular answer, only to
+the three field names you put in the schema.
 ====
 
-=== Add the Chatroom Step
+=== Add the Job Template Step
 
 . Click the *+* on the right edge of the *Task Agent* step, choose
   *AAP Execution*, then *Launch AAP job template*.
@@ -195,21 +220,20 @@ image::module-03/13-aap-credential.png[title="", link=self, window=blank, width=
 +
 image::module-03/14-job-template-list.png[title="", link=self, window=blank, width=100%]
 
-. Type `notify` to filter. Two templates match. Choose
-  *Notify Chatroom*.
+. Type `message` to filter, then choose
+  *Linux - Set Message of the Day*.
 +
-image::module-03/15-job-template-notify.png[title="", link=self, window=blank, width=100%]
+image::module-03/15-job-template-motd.png[title="", link=self, window=blank, width=100%]
 
 . Scroll down to *Extra variables* and type the skeleton of what you
-  are going to send, leaving three of the values empty:
+  are going to send, leaving the three values empty:
 +
 [source,json]
 ----
 {
-  "notify_card": "hello",
-  "notify_title": "",
-  "notify_text": "",
-  "notify_fact": ""
+  "motd_headline": "",
+  "motd_notice": "",
+  "motd_owner": ""
 }
 ----
 +
@@ -217,8 +241,12 @@ image::module-03/16-extra-vars-skeleton.png[title="", link=self, window=blank, w
 +
 [NOTE]
 ====
-`notify_card` tells the playbook which notification card to build.
-`hello` is this module's card: a title, a body and a single fun fact.
+Three variables, and not one of them says which host to write to. It
+does not need to. The job template carries an inventory, and the
+playbook runs against every machine in it, which is what you want from
+a maintenance notice. Deciding *what to say* is this workflow's job;
+knowing *where the servers are* is already Ansible Automation
+Platform's.
 ====
 
 . Click *Create*.
@@ -233,14 +261,14 @@ what a task agent *might* return. Now it shows what yours actually
 did: a `result` containing a `content` containing your three fields,
 each with the real value beside it.
 
-. Hover over `city` in the Input panel and click the copy icon beside
-  it. Automation orchestrator shows you the whole expression and copies
-  it to your clipboard.
+. Hover over `headline` in the Input panel and click the copy icon
+  beside it. Automation orchestrator shows you the whole expression and
+  copies it to your clipboard.
 +
 image::module-03/17-copy-expression.png[title="", link=self, window=blank, width=100%]
 
-. Paste it between the quotes after `"notify_title"`. Then do the same
-  for `reason` into `notify_text` and `fun_fact` into `notify_fact`.
+. Paste it between the quotes after `"motd_headline"`. Then do the same
+  for `notice` into `motd_notice` and `owner` into `motd_owner`.
 +
 image::module-03/18-extra-vars-filled.png[title="", link=self, window=blank, width=100%]
 
@@ -250,14 +278,15 @@ Look at the shape of what you pasted:
 
 [source,text]
 ----
-${activity_a95925fb_3e9e_4cc0_b8cf_e81f9652614c.result.content.city}
+${activity_a95925fb_3e9e_4cc0_b8cf_e81f9652614c.result.content.headline}
 ----
 
-The tail of the expression, `result.content.city`, is the `city` you
-named in the task agent's *Response schema*. `reason` and `fun_fact`
-read the same way. What you wrote in the schema is what you are
-addressing here. The long `activity_...` in the middle is the step's
-generated id, which is why you copy these rather than type them.
+The tail of the expression, `result.content.headline`, is the
+`headline` you named in the task agent's *Response schema*. `notice`
+and `owner` read the same way. What you wrote in the schema is what
+you are addressing here. The long `activity_...` in the middle is the
+step's generated id, which is why you copy these rather than type
+them.
 
 [IMPORTANT]
 ====
@@ -273,7 +302,7 @@ agent on its own a few steps ago.
 image::module-03/19-run-workflow.png[title="", link=self, window=blank, width=100%]
 
 . This time the trigger does ask for input, pre-filled from your last
-  successful run. Edit it if you like, then click *Run*.
+  successful run. Edit the note if you like, then click *Run*.
 +
 image::module-03/20-trigger-input.png[title="", link=self, window=blank, width=100%]
 
@@ -286,17 +315,40 @@ image::module-03/21-run-complete.png[title="", link=self, window=blank, width=10
 [TIP]
 ====
 The *View job in AAP* link on the last row opens the actual job in
-Ansible Automation Platform, with its full output. Automation
-orchestrator did not reimplement anything: it launched a job template
-and waited for it. This is great for when wanting to troubleshoot an
-error you may have found with one of your AAP job templates.
+Ansible Automation Platform, with its full output, including the
+finished banner printed line by line. Automation orchestrator did not
+reimplement anything: it launched a job template and waited for it.
+This is great for when wanting to troubleshoot an error you may have
+found with one of your AAP job templates.
 ====
 
-. Switch to the *Mattermost* tab and open *Town Square*. Your card is
-  there, with the agent's city as the title, its reason as the body and
-  its fun fact underneath.
+=== See It on the Host
+
+The banner is already in place. The only way to be sure of that is to
+go and look at it.
+
+. Switch to the *Terminal* tab on the Showroom and log in to one of
+  the RHEL nodes.
 +
-image::module-03/22-chatroom-card.png[title="", link=self, window=blank, width=100%]
+[source,bash,role=execute]
+----
+ssh node1
+----
++
+The banner prints before the prompt does. The headline, the notice and
+the owning team are the agent's words. Everything around them is
+`node1` describing itself: its release, its kernel, how long it has
+been up, its address, and how full its root filesystem is. None of
+that reached the model, and none of it could have been guessed.
++
+image::module-03/22-motd-banner.png[title="", link=self, window=blank, width=100%]
++
+[TIP]
+====
+Type `exit` to come back. Log in to `node2` the same way and you will
+see the same notice over that host's own numbers, because the job
+template's inventory holds both.
+====
 
 == Publish It
 
@@ -323,7 +375,7 @@ image::module-03/25-published.png[title="", link=self, window=blank, width=100%]
 |Where |What you should see
 
 |*Workflows*, project `default`
-|`Vacation Suggestion`, *Published*
+|`Hello World - Message of the Day`, *Published*
 
 |The canvas
 |Three steps, connected left to right, each with a green tick
@@ -331,16 +383,16 @@ image::module-03/25-published.png[title="", link=self, window=blank, width=100%]
 |*Run details*
 |Three rows, all *Successful*
 
-|*Mattermost*, Town Square
-|A blue card titled with a city, not a red card titled
-*Unsupported Disk Tier*
+|*Terminal*, after `ssh node1`
+|A boxed banner carrying your headline, your notice and the host's own
+release, kernel, uptime and disk usage
 |===
 
 [TIP]
 ====
 If anything in that table does not match, switch the *Project*
 selector to `solutions` and compare your workflow against the
-published *Vacation Suggestion* there.
+published *Hello World - Message of the Day* there.
 ====
 
 == What You Learned
@@ -355,10 +407,13 @@ published *Vacation Suggestion* there.
   produced real output, automation orchestrator can only guess at its
   shape, and you are left typing expressions by hand. Afterwards it
   hands them to you.
+* *Say less, not more.* Three variables went to AAP. Which hosts to
+  write to, what they are running and how full their disks are were
+  never worth sending, because Ansible Automation Platform already
+  knows all of it.
 * Automation orchestrator *decides*, Ansible Automation Platform
-  *executes*. The agent chose a city; the job template that posted the
-  card is a deterministic AAP job template that any of your existing
-  automation could have been.
+  *executes*. The agent chose the words; a deterministic AAP job
+  template put them on a real server next to facts it measured itself.
 
 In the next module we learn about Disk Utilization using many of the
-same structures from our vacation recommender example.
+same structures from our message of the day example.

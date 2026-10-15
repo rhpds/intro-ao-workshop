@@ -1,0 +1,36 @@
+{# Login banner. The agent supplies headline/notice/owner; the rest is
+   gathered from the host. Colours are variables so a plain copy renders too. -#}
+{# Every block tag is tag-only and strips its own newline, so the blank
+   lines below survive either trim_blocks setting and both renders match. -#}
+{% set width = 62 -%}
+{# Both halves clamped so the header line comes to exactly `width`. The
+   explicit 0 is truncate's leeway, which defaults to 5 and overhangs. -#}
+{% set host = inventory_hostname | truncate(24, true, '', 0) -%}
+{% set head_room = [width - 7 - (host | length), 8] | max -%}
+{% set headline = motd_headline | upper | truncate(head_room, true, '', 0) -%}
+{% set gap = [width - 6 - (headline | length) - (host | length), 1] | max -%}
+{% set distro = (ansible_distribution | default('Linux')) | replace('RedHat', 'RHEL') -%}
+{% set up_days = (ansible_uptime_seconds | default(0) | int) // 86400 -%}
+{% set up_hours = ((ansible_uptime_seconds | default(0) | int) % 86400) // 3600 -%}
+{% set facts = [] -%}
+{% set _ = facts.append((distro ~ ' ' ~ (ansible_distribution_version | default(''))) | trim) -%}
+{% set _ = facts.append('kernel ' ~ (ansible_kernel | default('unknown'))) -%}
+{% set _ = facts.append('up ' ~ up_days ~ 'd ' ~ up_hours ~ 'h') -%}
+{% if ansible_default_ipv4 is defined and ansible_default_ipv4.address is defined %}{% set _ = facts.append(ansible_default_ipv4.address) %}{% endif -%}
+{% set root = ansible_mounts | default([]) | selectattr('mount', 'equalto', '/') | list -%}
+{% set body = ['  ' ~ motd_text ~ (facts | join('   ')) ~ motd_reset] -%}
+{% if root and (root[0].size_total | default(0) | int) > 0 -%}
+{% set used_pct = ((root[0].size_total - root[0].size_available) / root[0].size_total * 100) | round | int -%}
+{% set total_gb = (root[0].size_total / 1073741824) | round | int -%}
+{% set _ = body.append('  ' ~ motd_text ~ '/  ' ~ used_pct ~ '% used of ' ~ total_gb ~ 'G' ~ motd_reset) -%}
+{% endif -%}
+{{ motd_frame }}╔{{ '═' * width }}╗{{ motd_reset }}
+{{ motd_frame }}║{{ motd_reset }}  {{ motd_head }}{{ headline }}{{ motd_reset }}{{ ' ' * gap }}{{ motd_label }}{{ host }}{{ motd_reset }}    {{ motd_frame }}║{{ motd_reset }}
+{{ motd_frame }}╚{{ '═' * width }}╝{{ motd_reset }}
+
+{{ body | join('\n') }}
+
+{{ motd_text }}{{ motd_notice | truncate(400, true, '') | wordwrap(58) | indent(2, true) }}{{ motd_reset }}
+
+  {{ motd_label }}Owner:{{ motd_reset }} {{ motd_text }}{{ motd_owner }}{{ motd_reset }}
+  {{ motd_label }}Written by Ansible Automation Platform at {{ ansible_date_time.date | default('') }} {{ (ansible_date_time.time | default(''))[:5] }} {{ ansible_date_time.tz | default('') }}{{ motd_reset }}
