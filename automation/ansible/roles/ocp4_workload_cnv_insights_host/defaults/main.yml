@@ -22,7 +22,7 @@ ocp4_workload_cnv_insights_host_node_groups:
 ocp4_workload_cnv_insights_host_rh_username: "{{ rh_username | mandatory }}"
 ocp4_workload_cnv_insights_host_rh_password: "{{ rh_password | mandatory }}"
 
-# Check Insights readiness before uploading; retry for roughly one minute
-# plus the time spent running the status checks. No delay when already ready.
-ocp4_workload_cnv_insights_host_registration_retries: 12
-ocp4_workload_cnv_insights_host_registration_delay: 5
+# Poll without changing local registration state. Each readiness stage allows
+# roughly five minutes of retry delays plus bounded HTTP request time.
+ocp4_workload_cnv_insights_host_registration_retries: 30
+ocp4_workload_cnv_insights_host_registration_delay: 10

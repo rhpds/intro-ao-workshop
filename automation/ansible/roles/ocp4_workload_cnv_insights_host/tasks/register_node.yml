@@ -60,17 +60,21 @@
 
 - name: "{{ _node }} — Connect to Red Hat account via RHC"
   ansible.builtin.command:
-    cmd: >-
-      rhc connect
-      --username {{ ocp4_workload_cnv_insights_host_rh_username }}
-      --password {{ ocp4_workload_cnv_insights_host_rh_password }}
+    argv:
+      - rhc
+      - connect
+      - --username
+      - "{{ ocp4_workload_cnv_insights_host_rh_username }}"
+      - --password
+      - "{{ ocp4_workload_cnv_insights_host_rh_password }}"
   delegate_to: "{{ _node }}"
   become: true
   register: _rhc_result
+  no_log: true
 
 - name: "{{ _node }} — Display RHC connection result"
   ansible.builtin.debug:
-    msg: "{{ _rhc_result.stdout_lines }}"
+    msg: "RHC connection completed on {{ _node }}."
 
 - name: "{{ _node }} — Restore original rhsm.conf (keep satellite repo config)"
   ansible.builtin.copy:
@@ -93,25 +97,119 @@
 
 - name: "{{ _node }} — Verify Insights registration before upload"
   block:
-    # RHC can report success before insights-client recognizes registration.
-    - name: "{{ _node }} — Wait for Insights registration"
-      ansible.builtin.command:
-        cmd: insights-client --status
+    - name: "{{ _node }} — Reset inventory check result for this node"
+      ansible.builtin.set_fact:
+        _insights_inventory: {}
+        _insights_legacy_registration: {}
+
+    # Legacy --status can delete machine-id after a transient API 404. Once
+    # absent, later --status calls return locally without querying inventory.
+    - name: "{{ _node }} — Inspect Insights machine ID"
+      ansible.builtin.stat:
+        path: /etc/insights-client/machine-id
       delegate_to: "{{ _node }}"
       become: true
-      register: _insights_status
+      register: _insights_machine_id_stat
+
+    - name: "{{ _node }} — Recover a missing Insights registration once"
+      ansible.builtin.command:
+        cmd: timeout --kill-after=10s 180s insights-client --register
+      delegate_to: "{{ _node }}"
+      become: true
+      when: >-
+        not _insights_machine_id_stat.stat.exists or
+        (_insights_machine_id_stat.stat.size | default(0) | int) == 0
+      changed_when: true
+      no_log: true
+
+    - name: "{{ _node }} — Read Insights machine ID"
+      ansible.builtin.slurp:
+        src: /etc/insights-client/machine-id
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _insights_machine_id
+      no_log: true
+
+    - name: "{{ _node }} — Validate Insights machine ID"
+      ansible.builtin.assert:
+        that:
+          - (_insights_machine_id.content | b64decode | trim) is match('^[0-9a-fA-F-]{36}$')
+        quiet: true
+      no_log: true
+
+    - name: "{{ _node }} — Wait for Insights registration"
+      ansible.builtin.uri:
+        url: >-
+          https://cert.console.redhat.com/api/inventory/v1/hosts?insights_id={{
+          _insights_machine_id.content | b64decode | trim | urlencode }}&per_page=1
+        method: GET
+        client_cert: /etc/pki/consumer/cert.pem
+        client_key: /etc/pki/consumer/key.pem
+        follow_redirects: none
+        use_netrc: false
+        return_content: true
+        timeout: 30
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _insights_inventory
       changed_when: false
-      until: _insights_status.rc == 0
+      # Retry visibility delays and transient transport/server failures. Stop
+      # immediately for permanent errors such as rejected authentication.
+      until: >-
+        (_insights_inventory.status | default(-1) | int) not in
+        [-1, 200, 404, 408, 429, 500, 502, 503, 504] or
+        ((_insights_inventory.json | default({})).get('results', [])
+        | selectattr('insights_id', 'defined')
+        | selectattr('insights_id', 'equalto', _insights_machine_id.content | b64decode | trim)
+        | list | length) == 1
+      failed_when: >-
+        (_insights_inventory.status | default(-1) | int) != 200 or
+        ((_insights_inventory.json | default({})).get('results', [])
+        | selectattr('insights_id', 'defined')
+        | selectattr('insights_id', 'equalto', _insights_machine_id.content | b64decode | trim)
+        | list | length) != 1
       retries: "{{ ocp4_workload_cnv_insights_host_registration_retries }}"
       delay: "{{ ocp4_workload_cnv_insights_host_registration_delay }}"
+      no_log: true
+
+    # The subsequent legacy --group upload checks this endpoint as well.
+    # Query it directly so an early 404 cannot delete the local machine ID.
+    - name: "{{ _node }} — Wait for legacy registration visibility before upload"
+      ansible.builtin.uri:
+        url: >-
+          https://cert-api.access.redhat.com/r/insights/v1/systems/{{
+          _insights_machine_id.content | b64decode | trim | urlencode }}
+        method: GET
+        ca_path: /etc/insights-client/cert-api.access.redhat.com.pem
+        client_cert: /etc/pki/consumer/cert.pem
+        client_key: /etc/pki/consumer/key.pem
+        follow_redirects: none
+        use_netrc: false
+        return_content: true
+        timeout: 30
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _insights_legacy_registration
+      changed_when: false
+      until: >-
+        (_insights_legacy_registration.status | default(-1) | int) not in
+        [-1, 200, 404, 408, 429, 500, 502, 503, 504] or
+        ((_insights_legacy_registration.status | default(-1) | int) == 200 and
+        (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is none)
+      failed_when: >-
+        (_insights_legacy_registration.status | default(-1) | int) != 200 or
+        (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is not none
+      retries: "{{ ocp4_workload_cnv_insights_host_registration_retries }}"
+      delay: "{{ ocp4_workload_cnv_insights_host_registration_delay }}"
+      no_log: true
   rescue:
     - name: "{{ _node }} — Report Insights registration failure"
       ansible.builtin.fail:
         msg: >-
-          Insights registration did not become ready on {{ _node }} after rhc connect.
-          Last status rc: {{ _insights_status.rc | default('unavailable') }}.
-          stdout: {{ _insights_status.stdout | default('') }}.
-          stderr: {{ _insights_status.stderr | default('') }}.
+          Insights registration did not become ready on {{ _node }}.
+          Failed task: {{ ansible_failed_task.name }}.
+          Last inventory HTTP status: {{ _insights_inventory.status | default('unavailable') }}.
+          Last legacy HTTP status: {{ _insights_legacy_registration.status | default('unavailable') }}.
           Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
 
 - name: "{{ _node }} — Apply group tag and upload to Insights"
