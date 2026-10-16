@@ -2,6 +2,16 @@
 # All tasks delegated to the CNV node (_node).
 # Adapted from: ansible-tmm/aiops-summitlab playbooks/register_lightspeed.yml
 
+- name: "{{ _node }} — Wait for Ansible connectivity before registration"
+  ansible.builtin.wait_for_connection:
+    connect_timeout: "{{ ocp4_workload_cnv_insights_host_ssh_connect_timeout }}"
+    sleep: "{{ ocp4_workload_cnv_insights_host_ssh_retry_delay }}"
+    timeout: "{{ ocp4_workload_cnv_insights_host_ssh_wait_timeout }}"
+  delegate_to: "{{ _node }}"
+  become: true
+  vars:
+    ansible_ssh_timeout: "{{ ocp4_workload_cnv_insights_host_ssh_connect_timeout }}"
+
 - name: "{{ _node }} — Save original rhsm.conf before reconfiguring"
   ansible.builtin.copy:
     src: /etc/rhsm/rhsm.conf

@@ -2,6 +2,12 @@
 become_override: false
 silent: false
 
+# Wait for the complete bastion-to-node Ansible path before changing registration.
+# Bound individual SSH attempts as well as the overall readiness window.
+ocp4_workload_cnv_insights_host_ssh_connect_timeout: 10
+ocp4_workload_cnv_insights_host_ssh_retry_delay: 10
+ocp4_workload_cnv_insights_host_ssh_wait_timeout: 300
+
 # -------------------------------------------------------------------
 # Nodes to register — defaults to all rhel9_nodes added by infra_add_nodes
 # -------------------------------------------------------------------

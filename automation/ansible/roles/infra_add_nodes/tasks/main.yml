@@ -27,6 +27,8 @@
          ~ ' ssh -W %h:%p'
          ~ ' -o StrictHostKeyChecking=no'
          ~ ' -o UserKnownHostsFile=/dev/null'
+         ~ ' -o ConnectTimeout=' ~ (infra_add_nodes_bastion_connect_timeout | int)
+         ~ ' -o ConnectionAttempts=1'
          ~ ' -p ' ~ (bastion_ansible_port | int | default(22))
          ~ ' ' ~ bastion_ansible_user
          ~ '@' ~ bastion_ansible_host ~ '"'
