@@ -103,3 +103,6 @@ infra_add_nodes_password: "{{ bastion_ansible_ssh_pass }}"
 # Set to false only when running Ansible directly from a host that has
 # direct network access to the CNV nodes.
 infra_add_nodes_use_bastion_proxy: true
+
+# Keep each proxy connection attempt bounded so readiness checks can retry.
+infra_add_nodes_bastion_connect_timeout: 10
