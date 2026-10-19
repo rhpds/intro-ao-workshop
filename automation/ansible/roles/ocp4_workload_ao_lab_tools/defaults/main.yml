@@ -5,6 +5,8 @@ silent: false
 
 # The account the Showroom terminal tab logs in as, in whose home the scripts land.
 ocp4_workload_ao_lab_tools_user: lab-user
+# lab-user's primary group on the bastion. There is no group named lab-user.
+ocp4_workload_ao_lab_tools_group: users
 # Changing this breaks `./ao-extra-vars` in module 04 and the figure under it.
 ocp4_workload_ao_lab_tools_dest_dir: "/home/{{ ocp4_workload_ao_lab_tools_user }}"
 ocp4_workload_ao_lab_tools_mode: "0755"
