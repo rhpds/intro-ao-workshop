@@ -1,0 +1,27 @@
+---
+become_override: false
+ocp_username: system:admin
+silent: false
+
+# The account the Showroom terminal tab logs in as, in whose home the scripts land.
+ocp4_workload_ao_lab_tools_user: lab-user
+# Changing this breaks `./ao-extra-vars` in module 04 and the figure under it.
+ocp4_workload_ao_lab_tools_dest_dir: "/home/{{ ocp4_workload_ao_lab_tools_user }}"
+ocp4_workload_ao_lab_tools_mode: "0755"
+
+# Add to this list rather than writing another copy task.
+ocp4_workload_ao_lab_tools_scripts:
+  - ao-extra-vars
+
+# The same three variables infra_add_nodes asserts, minus its ProxyCommand.
+ocp4_workload_ao_lab_tools_bastion_host: "{{ bastion_ansible_host | default('') }}"
+ocp4_workload_ao_lab_tools_bastion_user: "{{ bastion_ansible_user | default('') }}"
+ocp4_workload_ao_lab_tools_bastion_password: "{{ bastion_ansible_ssh_pass | default('') }}"
+ocp4_workload_ao_lab_tools_bastion_port: "{{ bastion_ansible_port | default(22) }}"
+
+# Change only on a collision with a host already in the inventory.
+ocp4_workload_ao_lab_tools_bastion_alias: ao_lab_tools_bastion
+
+# Auth here is by password, so never set these to `no` and /dev/null — see README.
+ocp4_workload_ao_lab_tools_host_key_checking: accept-new
+ocp4_workload_ao_lab_tools_known_hosts: "~/.ssh/known_hosts"

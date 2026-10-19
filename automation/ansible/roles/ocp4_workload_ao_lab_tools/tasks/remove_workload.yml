@@ -1,0 +1,6 @@
+---
+- name: No resources to remove for the AO lab tools
+  ansible.builtin.debug:
+    msg: >-
+      The helper scripts are plain files in the student's home directory
+      and go away with the bastion itself.

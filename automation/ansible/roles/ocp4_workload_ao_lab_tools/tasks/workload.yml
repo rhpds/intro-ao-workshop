@@ -1,0 +1,64 @@
+---
+- name: Check required bastion variables
+  ansible.builtin.assert:
+    that:
+      - ocp4_workload_ao_lab_tools_bastion_host | length > 0
+      - ocp4_workload_ao_lab_tools_bastion_user | length > 0
+      - ocp4_workload_ao_lab_tools_bastion_password | length > 0
+    fail_msg: >-
+      bastion_ansible_host, bastion_ansible_user and
+      bastion_ansible_ssh_pass must all be set. These are the same
+      variables infra_add_nodes asserts.
+    quiet: true
+
+- name: Add the bastion to the in-memory inventory
+  ansible.builtin.add_host:
+    name: "{{ ocp4_workload_ao_lab_tools_bastion_alias }}"
+    ansible_host: "{{ ocp4_workload_ao_lab_tools_bastion_host }}"
+    ansible_port: "{{ ocp4_workload_ao_lab_tools_bastion_port | int }}"
+    ansible_user: "{{ ocp4_workload_ao_lab_tools_bastion_user }}"
+    ansible_ssh_pass: "{{ ocp4_workload_ao_lab_tools_bastion_password }}"
+    ansible_ssh_pipelining: true
+    ansible_ssh_common_args: >-
+      -o StrictHostKeyChecking={{ ocp4_workload_ao_lab_tools_host_key_checking }}
+      -o UserKnownHostsFile={{ ocp4_workload_ao_lab_tools_known_hosts }}
+  no_log: true
+
+# ao-extra-vars is bash wrapping a python3 heredoc.
+- name: Check that python3 is available on the bastion
+  ansible.builtin.command: python3 -c "import json, ssl, urllib.request"
+  delegate_to: "{{ ocp4_workload_ao_lab_tools_bastion_alias }}"
+  register: _ao_lab_tools_python3
+  changed_when: false
+  failed_when: false
+
+- name: Fail if the bastion cannot run the helper scripts
+  ansible.builtin.assert:
+    that:
+      - _ao_lab_tools_python3.rc == 0
+    fail_msg: >-
+      The bastion has no usable python3. ao-extra-vars is bash wrapping
+      a python3 heredoc and will not run without it.
+    quiet: true
+
+- name: Install the lab helper scripts on the bastion
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ ocp4_workload_ao_lab_tools_dest_dir }}/{{ item }}"
+    owner: "{{ ocp4_workload_ao_lab_tools_user }}"
+    group: "{{ ocp4_workload_ao_lab_tools_user }}"
+    mode: "{{ ocp4_workload_ao_lab_tools_mode }}"
+  loop: "{{ ocp4_workload_ao_lab_tools_scripts }}"
+  loop_control:
+    label: "{{ ocp4_workload_ao_lab_tools_dest_dir }}/{{ item }}"
+  delegate_to: "{{ ocp4_workload_ao_lab_tools_bastion_alias }}"
+  become: true
+
+- name: Show the scripts installed on the bastion
+  ansible.builtin.debug:
+    msg: >-
+      Installed {{ ocp4_workload_ao_lab_tools_dest_dir }}/{{ item }}
+      mode {{ ocp4_workload_ao_lab_tools_mode }}
+      owned by {{ ocp4_workload_ao_lab_tools_user }}
+  loop: "{{ ocp4_workload_ao_lab_tools_scripts }}"
+  when: not silent | default(false)

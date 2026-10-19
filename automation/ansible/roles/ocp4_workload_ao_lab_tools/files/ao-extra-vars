@@ -1,0 +1,145 @@
+#!/bin/bash
+
+set -euo pipefail
+
+: "${AO_URL:?AO_URL is not set}"
+: "${AO_USER:?AO_USER is not set}"
+: "${AO_PASS:?AO_PASS is not set}"
+
+export AO_PROJECT="${AO_PROJECT:-default}"
+export AO_WORKFLOW="${AO_WORKFLOW:-Disk Utilization Remediation}"
+export AO_ROUTE="${AO_ROUTE:->95%}"
+
+python3 - <<'PY'
+import http.client, json, os, ssl, sys, time, urllib.error, urllib.request
+
+API   = os.environ["AO_URL"].rstrip("/") + "/api/v1"
+PROJ  = os.environ["AO_PROJECT"]
+WF    = os.environ["AO_WORKFLOW"]
+ROUTE = os.environ["AO_ROUTE"]
+
+
+def die(msg):
+    sys.exit("\nERROR: %s\n" % msg)
+
+
+_ca = os.environ.get("AO_CA_BUNDLE")
+if _ca:
+    try:
+        CTX = ssl.create_default_context(cafile=_ca)
+    except Exception as exc:
+        die("AO_CA_BUNDLE is set to %r but could not be loaded as a CA "
+            "bundle (%s)." % (_ca, exc))
+elif os.environ.get("AO_INSECURE_SKIP_TLS_VERIFY") == "1":
+    print("WARNING: TLS verification is disabled. The admin password is "
+          "exposed to any on-path attacker.", file=sys.stderr)
+    CTX = ssl._create_unverified_context()
+else:
+    CTX = ssl.create_default_context()
+
+KEYS = [
+    "dry_run", "disk_tier", "disk_mount", "notify_host", "logs_freed_mb",
+    "disk_expand_gb", "disk_use_percent", "dnf_cache_removed",
+    "dnf_cache_freed_mb", "large_logs_removed", "log_retention_days",
+    "remediation_action", "total_reclaimed_mb", "large_logs_freed_mb",
+    "log_archives_removed", "volume_size_after_gb", "volume_size_before_gb",
+    "disk_use_percent_after", "large_log_threshold_mb", "disk_use_percent_before",
+]
+
+
+def call(path, data=None, token=None, attempts=3):
+    body = None
+    if data is not None:
+        body = json.dumps(data).encode()
+
+    for attempt in range(1, attempts + 1):
+        req = urllib.request.Request(API + path,
+                                     method="POST" if data is not None else "GET")
+        req.add_header("Accept", "application/json")
+        if token:
+            req.add_header("Authorization", "Bearer " + token)
+        if body is not None:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, body, context=CTX, timeout=30) as r:
+                return json.load(r)
+        except (http.client.IncompleteRead,
+                http.client.RemoteDisconnected,
+                ConnectionError,
+                TimeoutError) as exc:
+            if attempt == attempts:
+                die("%s kept dropping the connection (%s). Try again in a "
+                    "moment." % (API + path, exc))
+            time.sleep(attempt)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                die("%s rejected the credentials (HTTP %d). Check AO_USER "
+                    "and AO_PASS." % (API, exc.code))
+            die("%s returned HTTP %d %s" % (API + path, exc.code, exc.reason))
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, ssl.SSLCertVerificationError):
+                die("could not verify the certificate for %s (%s).\n\n"
+                    "If this cluster uses a private CA, point AO_CA_BUNDLE at\n"
+                    "it. As a last resort, AO_INSECURE_SKIP_TLS_VERIFY=1 skips\n"
+                    "the check, but the admin password then travels to an\n"
+                    "unverified host." % (API, reason))
+            if isinstance(reason, (ConnectionError, TimeoutError)) and attempt < attempts:
+                time.sleep(attempt)
+                continue
+            die("could not reach %s (%s)" % (API + path, reason))
+
+
+login = call("/auth/login", {"username": os.environ["AO_USER"],
+                             "password": os.environ["AO_PASS"]})
+token = login.get("access_token")
+if not token:
+    die("logged in to %s but got no access_token back. Check AO_USER and "
+        "AO_PASS." % API)
+
+projects = [p for p in call("/projects", token=token)["resources"] if p["name"] == PROJ]
+if not projects:
+    die("no project named %r" % PROJ)
+
+workflows = [w for w in call("/workflows", token=token)["resources"]
+             if w["name"] == WF and w["project_id"] == projects[0]["id"]]
+if not workflows:
+    die("no workflow named %r in the %s project" % (WF, PROJ))
+
+definition = call("/workflows/" + workflows[0]["id"],
+                  token=token)["version"]["workflow_definition"]
+by_id = {n["id"]: n for n in definition["nodes"]}
+
+switches = [n for n in definition["nodes"] if n.get("type") == "switch"]
+if not switches:
+    die("no switch step in %r" % WF)
+switch = switches[0]
+
+cases = switch["parameters"].get("cases", [])
+matched = [c for c in cases if c.get("label", "").strip() == ROUTE]
+if not matched:
+    die("no %r route on the switch. Routes found: %s"
+        % (ROUTE, ", ".join(repr(c.get("label")) for c in cases)))
+port = matched[0]["port"]
+
+edges = [e for e in definition["edges"]
+         if e.get("from") == switch["id"] and e.get("from_port") == port]
+if not edges:
+    die("nothing is connected to the %s route on the switch yet.\n"
+        "Create the remediation step, connect it to that route, save the\n"
+        "workflow, then run this again." % ROUTE)
+if len(edges) > 1:
+    die("the %s route has %d steps connected to it. Expected one." % (ROUTE, len(edges)))
+
+step_id = edges[0]["to"]
+step = by_id.get(step_id, {})
+
+if step.get("parameters", {}).get("job_template_name") == "Notify Chatroom":
+    die("the %s route is connected to a Notify Chatroom step. It should go to\n"
+        "the remediation step first, and the notify step comes after it." % ROUTE)
+
+print("# reading artifacts from: %s" % step.get("name", step_id), file=sys.stderr)
+print("# step id:                %s\n" % step_id, file=sys.stderr)
+
+print(json.dumps({k: "${%s.artifacts.%s}" % (step_id, k) for k in KEYS}, indent=2))
+PY
