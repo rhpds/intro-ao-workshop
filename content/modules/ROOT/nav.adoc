@@ -3,3 +3,4 @@
 * xref:module-03-your-first-workflow-motd.adoc[3. Your First Workflow: Message of the Day]
 * xref:module-04-disk-utilization.adoc[4. Disk Utilization Remediation]
 * xref:module-05-ticket-enrichment.adoc[5. Ticket Enrichment Workflow]
+* xref:module-06-cve-remediation.adoc[6. CVE Remediation Workflow]
