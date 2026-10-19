@@ -679,9 +679,12 @@ Carried forward so they are not lost:
 - Four tracked `.DS_Store` files reached `main` in the merge. Clear with
   `git rm --cached`; they are already in `.gitignore` but were committed
   before the rule existed.
-- Module 04: `./ao-extra-vars` versus `ao-extra-vars` on PATH. The page
-  says `./ao-extra-vars` to match the screenshot, which contradicts the
-  plan to install it on PATH. Figure and text must agree either way.
+- ~~Module 04: `./ao-extra-vars` versus `ao-extra-vars` on PATH.~~
+  Settled in favour of the home directory. `ocp4_workload_ao_lab_tools`
+  installs it to `/home/lab-user/ao-extra-vars` mode `0755`, so the
+  page's `./ao-extra-vars` and the figure under it are both correct and
+  neither has to change. Still needs the role added to the agnosticv
+  workload list before it actually runs.
 - Module 04 *What You Learned*: whether the bullet beginning "An extra
   variables expression is a *reference into the graph*" should stay now
   that the validation-error moment it taught has been removed. The MOTD

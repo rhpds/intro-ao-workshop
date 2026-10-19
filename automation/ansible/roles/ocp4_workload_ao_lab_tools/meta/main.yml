@@ -1,0 +1,13 @@
+---
+galaxy_info:
+  role_name: ocp4_workload_ao_lab_tools
+  author: Roger Lopez
+  description: >-
+    Installs the lab's helper scripts into the student's home directory on the
+    bastion, executable, so the Showroom terminal tab can run them by name. The
+    scripts themselves are tracked in this role's files/ directory; tools/ in the
+    repository root symlinks to them.
+  license: Apache-2.0
+  min_ansible_version: "2.14"
+
+dependencies: []
