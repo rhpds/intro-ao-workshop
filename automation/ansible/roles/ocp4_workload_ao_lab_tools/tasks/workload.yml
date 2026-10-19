@@ -46,7 +46,7 @@
     src: "{{ item }}"
     dest: "{{ ocp4_workload_ao_lab_tools_dest_dir }}/{{ item }}"
     owner: "{{ ocp4_workload_ao_lab_tools_user }}"
-    group: "{{ ocp4_workload_ao_lab_tools_user }}"
+    group: "{{ ocp4_workload_ao_lab_tools_group }}"
     mode: "{{ ocp4_workload_ao_lab_tools_mode }}"
   loop: "{{ ocp4_workload_ao_lab_tools_scripts }}"
   loop_control:

@@ -49,15 +49,23 @@ with a link to a target outside its own root, which does not survive
 | `bastion_ansible_ssh_pass` | SSH password for that user |
 | `bastion_ansible_port` | Optional, defaults to 22 |
 
-The SSH user needs passwordless sudo, since the copy sets `owner` and `group`
-on a file in another account's home directory. If the bastion user *is*
-`lab-user`, that `become` is a no-op in practice but still runs.
+The SSH user needs passwordless sudo, since the copy sets `owner` on a file in
+another account's home directory. If the bastion user *is* `lab-user`, that
+`become` is a no-op in practice but still runs.
+
+`group` is `users`, not `lab-user`. On the RHDP bastion `lab-user` is
+`uid=1001 gid=100(users) groups=100(users),10(wheel)` — there is no group named
+`lab-user`, and asking for one fails with
+`chgrp failed: failed to look up group lab-user`. Leaving `group` off is not
+the answer either: the copy runs under `become`, so the file would inherit
+root's group and land as `lab-user:root` in the student's own home.
 
 ## Defaults worth knowing
 
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `ocp4_workload_ao_lab_tools_user` | `lab-user` | The account the terminal tab logs in as |
+| `ocp4_workload_ao_lab_tools_group` | `users` | That account's primary group, see below |
 | `ocp4_workload_ao_lab_tools_dest_dir` | `/home/lab-user` | Changing this breaks `./ao-extra-vars` in module 04 |
 | `ocp4_workload_ao_lab_tools_scripts` | `[ao-extra-vars]` | Add to the list rather than writing another copy task |
 | `ocp4_workload_ao_lab_tools_mode` | `0755` | |
