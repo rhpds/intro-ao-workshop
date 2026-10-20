@@ -299,8 +299,8 @@ The *View job in AAP* link on the last row opens the actual job in
 Ansible Automation Platform, with its full output, including the
 finished banner printed line by line. Automation orchestrator did not
 reimplement anything: it launched a job template and waited for it.
-This is great for when wanting to troubleshoot an error you may have
-found with one of your AAP job templates.
+If the AAP step fails, you can use this job output to troubleshoot the
+problem.
 ====
 
 === See it on the host
@@ -336,8 +336,8 @@ the same changes.
 
 == Publish the workflow
 
-Saving a workflow stores your work. Publishing makes the trigger live,
-so the workflow can be started without the editor open.
+Saving preserves your workflow as a draft. Publishing makes it
+available to run outside the editor.
 
 . You are still looking at the run. Click *Back to editor* at the top
   right.
@@ -392,17 +392,15 @@ published *Message of the Day* there.
 * A *response schema* turns an agent from something that writes prose
   into something the next step can consume. The field names you choose
   there are the contract.
-* *Run a step before you wire what comes after it.* Until a step has
-  produced real output, automation orchestrator can only guess at its
-  shape, and you are left typing expressions by hand. Afterwards it
-  hands them to you.
-* *Say less, not more.* Three variables went to AAP. Which hosts to
-  write to, what they are running and how full their disks are were
-  never worth sending, because Ansible Automation Platform already
-  knows all of it.
+* *Run a step before connecting its output.* Once a step has produced
+  real output, automation orchestrator lets you copy the expressions
+  you need instead of typing them manually.
+* *Pass only what the next step needs.* The agent produced three
+  fields: headline, notice, and owner. You mapped them to the AAP job
+  template's extra variables, leaving Ansible to handle the rest.
 * Automation orchestrator *decides*, Ansible Automation Platform
   *executes*. The agent chose the words; a deterministic AAP job
   template put them on a real server next to facts it measured itself.
 
-In the next module we learn about Disk Utilization using many of the
-same structures from our message of the day example.
+In the next module, you'll build on these same concepts to create a
+disk utilization workflow.
