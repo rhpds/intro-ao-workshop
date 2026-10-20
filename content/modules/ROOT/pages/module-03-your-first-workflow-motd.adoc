@@ -1,6 +1,6 @@
-= Your First Workflow: Message of the Day
+= Your first workflow: message of the day
 
-== What You Will Do
+== What you will do
 
 In Integrations and Credentials you built the two connections
 automation orchestrator needs. Now you use them. Starting from an
@@ -44,7 +44,7 @@ everything you are asked to build. Switch the *Project* selector to
 you are about to create.
 ====
 
-== Create the Workflow
+== Create the workflow
 
 . Log in to automation orchestrator at {ao_url} as
   `{ao_admin_user}` / `{ao_admin_password}`, open *Workflows* in the
@@ -66,7 +66,7 @@ in a different project cannot see them.
 +
 image::module-03/02-select-trigger.png[title="", link=self, window=blank, width=100%]
 
-=== Configure the Trigger
+=== Configure the trigger
 
 A manual trigger can collect input from whoever runs the workflow. That
 input is the note your agent will work from.
@@ -84,7 +84,7 @@ image::module-03/03-trigger-input-field.png[title="", link=self, window=blank, w
 
 . Click *Create*.
 
-=== Add the Task Agent
+=== Add the task agent
 
 . Click the *+* on the right edge of the *Trigger* step and choose
   *Task Agent*.
@@ -154,7 +154,7 @@ of a paragraph of prose. Prose you would have to pick apart by hand.
 Named fields you can point at: `headline`, `notice` and `owner` are
 exactly what the next step is going to ask for.
 
-=== Run the Agent on Its Own
+=== Run the agent on its own
 
 . Open the *Task Agent* step and click *Run step*. Automation
   orchestrator asks how you want to supply the input it needs. Click
@@ -189,7 +189,7 @@ image::module-03/10-mock-input.png[title="", link=self, window=blank, width=100%
 +
 image::module-03/11-agent-answer.png[title="", link=self, window=blank, width=100%]
 
-=== Add the Job Template Step
+=== Add the job template step
 
 . Click the *+* on the right edge of the *Task Agent* step, choose
   *AAP Execution*, then *Launch AAP job template*.
@@ -228,7 +228,7 @@ image::module-03/16-extra-vars-skeleton.png[title="", link=self, window=blank, w
 
 . Click *Create*.
 
-=== Wire the Agent's Answer into the Job
+=== Wire the agent's answer into the job
 
 Now open the *Launch AAP job template* step again and look at the
 *Input* panel on the left.
@@ -274,7 +274,7 @@ agent on its own a few steps ago.
 
 . Click *Save workflow*.
 
-== Run the Whole Workflow
+== Run the whole workflow
 
 . Click *Run*, then *Run now*.
 +
@@ -301,7 +301,7 @@ This is great for when wanting to troubleshoot an error you may have
 found with one of your AAP job templates.
 ====
 
-=== See It on the Host
+=== See it on the host
 
 The banner is already in place. The only way to be sure of that is to
 go and look at it.
@@ -332,7 +332,7 @@ Type `exit` to come back to the bastion host. Log in to `node2` to see
 the same changes.
 ====
 
-== Publish the Workflow
+== Publish the workflow
 
 Saving a workflow stores your work. Publishing makes the trigger live,
 so the workflow can be started without the editor open.
@@ -355,7 +355,7 @@ image::module-03/24-publish-confirm.png[title="", link=self, window=blank, width
 +
 image::module-03/25-published.png[title="", link=self, window=blank, width=100%]
 
-== Check Your Work
+== Check your work
 
 [cols="3,2"]
 |===
@@ -382,7 +382,7 @@ selector to `solutions` and compare your workflow against the
 published *Message of the Day* there.
 ====
 
-== What You Learned
+== What you learned
 
 * A workflow is a *trigger plus steps*. The trigger is on the canvas
   with everything else, and `${trigger.<field>}` reaches its input from
