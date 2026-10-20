@@ -2,15 +2,15 @@
 
 == What you will do
 
-The previous module built a workflow from an empty canvas. This one
-hands you a workflow that is almost finished and asks you to complete
-the part that is missing.
+In the previous module, you built a workflow from an empty canvas. In
+this module, you'll start with an almost-complete workflow and build
+the missing steps.
 
 *Disk Utilization Remediation* starts when Ansible Automation Platform
-posts a disk alert to a webhook. A job template measures the real disk
-and publishes what it found, a *switch* reads that number, and each
-route runs the remediation that fits the severity and then posts the
-result to a Mattermost chatroom:
+sends a disk alert to a webhook. An AAP job template checks disk
+utilization, and a *switch* uses the result to select the appropriate
+route. Each route handles the result and posts a notification to a
+Mattermost channel:
 
 * *<80%* is healthy, so it records the check and does nothing else.
 * *80-95%* is a warning, so it reclaims space by cleaning up old logs.
@@ -18,11 +18,11 @@ result to a Mattermost chatroom:
   anything.
 * *Fallback* catches anything the three routes above do not match.
 
-Three of those four routes are already wired. The *>95%* route is not.
-You will build its two steps, and the *80-95%* route sitting one port
-above is your worked example: it is the same two step shape, remediate
-then notify, and you can open it and read exactly how it is put
-together.
+Three of the four routes are already configured. The *>95%* route is
+missing its two steps. You'll add a remediation step to grow the
+volume and a notification step to post the result to Mattermost. Use
+the *80-95%* route directly above it as your example. It follows the
+same pattern: remediate, then notify.
 
 [TIP]
 ====
@@ -36,10 +36,10 @@ are about to create.
 
 == Publishing the current disk utilization draft
 
-The current *Disk Utilization Remediation* workflow contains all the
-steps except for the *>95%* path. In this exercise you will work with
-the existing paths to learn how disk utilization is implemented and
-then add to the use case.
+The *Disk Utilization Remediation* workflow already has three working
+routes. In this module, you'll run the healthy route to inspect its
+output, then build the missing critical route using the existing steps
+as a reference.
 
 . Log in to automation orchestrator at {ao_url} as
   `{ao_admin_user}` / `{ao_admin_password}` and open *Workflows* in the
@@ -66,12 +66,11 @@ fire that webhook.
 
 == Fire a healthy alert first
 
-Prior to doing the exercise, you will first run the existing workflow
-down the healthy path. This allows us to capture the appropriate output
-that will then be displayed as input within the automation
-orchestrator. This is similar to what you saw in the previous module,
-where the task agent ran to display the available wiring for the next
-step.
+Before building the critical route, you'll run the workflow through
+its healthy route. This gives automation orchestrator real output from
+the disk check step, making its fields available to reference when you
+configure the new steps. You used the same approach with the task
+agent in the previous module.
 
 . Switch to the *AAP* tab and log in as `{aap_controller_admin_user}` /
   `{aap_controller_admin_password}`. Open *Automation Execution* ->
@@ -123,13 +122,12 @@ image::module-04/06b-mattermost-ok.png[title="", link=self, window=blank, width=
 
 == Building the >95% path
 
-With the healthy path appropriately displaying its results, let's turn
-our focus to building out the new *>95%* path that runs the job
-template that grows the RHEL node's volume to accommodate the volume
-starting to fill up.
+Now that the healthy route has run, you'll build the missing *>95%*
+route. Its first step runs an AAP job template that expands the RHEL
+host's volume to provide more available space.
 
-. Back in the workflow editor, click the *+* and choose
-  *AAP Execution*.
+. Back in the workflow editor, click the *+* on the *>95%* port of the
+  *Switch* step and choose *AAP Execution*.
 +
 image::module-04/07-add-step-menu.png[title="", link=self, window=blank, width=100%]
 
@@ -242,9 +240,9 @@ image::module-04/18-notify-input-panel.png[title="", link=self, window=blank, wi
 +
 image::module-04/19-job-template-notify.png[title="", link=self, window=blank, width=100%]
 
-. The *Notify Chatroom* requires a large list of variables thus for
-  the purpose of this lab, we have created a small script to capture
-  the appropriate values that you can paste in. Then click *Create*.
+. Select the *Notify Chatroom* job template, then click *Create*.
+  You'll configure its extra variables using a helper script in the
+  next section.
 +
 image::module-04/20-notify-selected.png[title="", link=self, window=blank, width=100%]
 
@@ -294,11 +292,10 @@ from the opening `{` to the closing `}`, as boxed in the image.
 +
 [NOTE]
 ====
-When saving the workflow, if you have any issues with the extra
-variables expression you may see an error like the one shown in the
-banner. Please attempt to re-run the script and re-paste the
-`extra_vars` output, or reach out to one of the assistants if you have
-any issues.
+If saving the workflow fails because of an extra variables expression,
+run `./ao-extra-vars` again and paste the updated JSON into the
+notification step. If the error persists, ask a lab assistant for
+help.
 ====
 +
 image::module-04/21-verification-failed.png[title="", link=self, window=blank, width=100%]
@@ -397,16 +394,16 @@ to `solutions` and compare your branch against the published
 * A *switch* routes on a value an earlier step produced, and each route
   is a branch you wire independently. Three working branches beside an
   empty one is the easiest specification to build against.
-* A step can only address output that an upstream step has actually
-  produced. Running the healthy path first is what made the check
-  step's artifacts real enough to copy.
+* Running the healthy route gave you real output from the disk check
+  step. You then used its published artifacts to configure the
+  critical route without manually typing expressions.
 * An extra variables expression is a *reference into the graph*, not a
   string. Automation orchestrator refuses to publish a branch that
   reads from a step it can never have run, which is a class of mistake
   you would otherwise find at three in the morning.
-* Publishing is a versioned action. The webhook answers the published
-  version, so an edit you did not publish is an edit that did not
-  happen.
+* Publishing makes your latest workflow changes available to the
+  webhook. If you edit a published workflow, you must publish the new
+  version before incoming alerts can use those changes.
 * Automation orchestrator decided *which* remediation to run. Ansible
   Automation Platform ran it, measured the result, and reported it.
   Each did the part it is good at.
