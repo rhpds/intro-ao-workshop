@@ -1,6 +1,6 @@
-= Ticket Enrichment Workflow
+= Ticket enrichment workflow
 
-== What You Will Do
+== What you will do
 
 The previous workflow exercise focused on using manual triggers, a
 switch step and deterministic AAP job templates. The ticket enrichment
@@ -30,7 +30,7 @@ everything you are asked to build. Switch the *Project* selector to
 about to create.
 ====
 
-== Open the Workflow
+== Open the workflow
 
 . Log in to automation orchestrator at {ao_url} as
   `{ao_admin_user}` / `{ao_admin_password}` and open *Workflows* in the
@@ -39,7 +39,7 @@ about to create.
 +
 image::module-05/01-workflows-list.png[title="", link=self, window=blank, width=100%]
 
-== Authorize the Webhook Trigger
+== Authorize the webhook trigger
 
 This workflow does not start with somebody clicking *Run*. It starts
 when Ansible Automation Platform posts to a URL. A webhook trigger will
@@ -66,7 +66,7 @@ project answers on `openflake-incident`, and a webhook path has to be
 unique across the whole instance, so the two cannot collide.
 ====
 
-== Finish the Triage Agent
+== Finish the triage agent
 
 The *AI Triage Agent* is the step that decides which route the incident
 takes. It needs three things from you: a model, the credential that
@@ -121,7 +121,7 @@ on that list genuinely fixes the incident it is required to route to
 *Inform Only*.
 ====
 
-== Finish the Enrich and Assign Agent
+== Finish the Enrich and Assign agent
 
 The second agent only runs on the *Inform Only* route. It is already
 connected to the OpenFlake MCP server and just requires the appropriate
@@ -138,7 +138,7 @@ image::module-05/09-enrich-credential.png[title="", link=self, window=blank, wid
 +
 image::module-05/10-enrich-done.png[title="", link=self, window=blank, width=100%]
 
-== Save and Publish
+== Save and publish
 
 . Click *Save workflow*. With the step panel closed you can see the
   whole shape of it: the trigger, the triage agent, a ticket update,
@@ -159,7 +159,7 @@ once the workflow is published. An unpublished workflow simply will not
 fire.
 ====
 
-== Fire It from Ansible Automation Platform
+== Fire it from Ansible Automation Platform
 
 Nothing so far has created an incident. A job template in AAP does that:
 it writes a ticket into OpenFlake and then posts to your webhook.
@@ -201,7 +201,7 @@ image::module-05/15-aap-job-output.png[title="", link=self, window=blank, width=
 +
 image::module-05/16-openflake-new.png[title="", link=self, window=blank, width=100%]
 
-== Watch the Run
+== Watch the run
 
 . Back in automation orchestrator, open *Executions* in the left
   navigation and open the newest run of *Ticket Enrichment Demo*. The
@@ -226,7 +226,7 @@ image::module-05/18-ao-run-details.png[title="", link=self, window=blank, width=
 +
 image::module-05/19-ao-run-complete.png[title="", link=self, window=blank, width=100%]
 
-== Read the Result in OpenFlake
+== Read the result in OpenFlake
 
 . Go back to the OpenFlake tab and reload the incident. It is now
   *Resolved*, and the *Activity* trail reads like a handover: a triage
@@ -236,7 +236,7 @@ image::module-05/19-ao-run-complete.png[title="", link=self, window=blank, width
 +
 image::module-05/20-openflake-resolved.png[title="", link=self, window=blank, width=100%]
 
-== Try the Other Two Routes
+== Try the other two routes
 
 The same job template drives all three outcomes. You have seen
 *auto remediate*. The other two routes come from the same workflow, the
@@ -346,7 +346,7 @@ instead was provide detailed analysis on how the issue should be
 addressed.
 ====
 
-== Check Your Work
+== Check your work
 
 [cols="3,2"]
 |===
@@ -373,7 +373,7 @@ to `solutions` and compare your workflow against the published
 *Ticket Enrichment Demo* there.
 ====
 
-== What You Learned
+== What you learned
 
 * A task agent is only as useful as the *tools* you connect it to.
   Selecting a tool and authenticating to the server that provides it are

@@ -2,35 +2,43 @@
 
 == Introduction
 
-=== What Is automation orchestrator?
+=== What is automation orchestrator?
 
 Automation orchestrator is an add-on to Red Hat Ansible Automation
-Platform: a composable canvas for designing, deploying and
+Platform: a composable canvas for designing, deploying, and
 governing complex IT operations workflows.
 
 A workflow is a sequence of connected *steps*. A trigger starts it,
-steps do the work, and logic steps decide which step comes next. The
-steps themselves are the pieces you already own. Every certified job
-template, role and collection becomes a reusable workflow step
-immediately, without modification. Alongside them sit approval gates,
-REST API calls, and task agent steps backed by an AI model.
+steps do the work, and logic steps decide which step comes next. These
+building blocks let you extend your existing automation with
+AI-powered task agents, approval gates, and conditional branching.
+Every Ansible job template you've already created can become a
+reusable workflow step immediately, without modification.
 
-It does not replace the playbooks, job templates and automation you
-already have. It connects them using Ansible Automation Platform.
+=== Why should you care?
 
-=== Why Should You Care?
+You can build more sophisticated IT operations workflows without
+rebuilding the automation you've already invested in. By connecting
+existing Ansible job templates with AI-powered capabilities and
+decision-making logic, you can coordinate complex operations,
+incorporate human oversight, and adapt workflows to different
+situations.
 
-Here is what is new on an automation orchestrator canvas.
+Here's how those pieces come together on the automation orchestrator
+canvas.
 
-*The trigger is part of the workflow.* Manual, scheduled, webhook and
+*The trigger is part of the workflow.* Manual, webhook, and
 Event-Driven Ansible triggers are steps you place on the canvas
-itself. The thing that starts your automation and the automation it
-starts are one artifact, and they export to YAML together.
+itself. You can also add multiple triggers to the same workflow,
+giving you different ways to kick off the same automation. The
+triggers and the automation they start are part of a single artifact,
+and they export to YAML together.
 
-*Switch steps route on values.* A switch reads a value produced
-earlier in the workflow and takes the first path that matches. Disk at
-60% does nothing, at 75% cleans up, at 85% expands, at 95% gets a
-human involved. One metric, four paths.
+*Switch steps route on values.* A switch evaluates a value produced
+earlier in the workflow and directs execution down the first path that
+matches. This lets you define multiple possible paths within a single
+workflow, with the next step determined by the results of previous
+steps.
 
 *Task agents handle input you could not predict.* An incident ticket,
 a log excerpt or an alert description arrives as free text that no
@@ -38,15 +46,16 @@ rule written in advance could cover. A task agent reads it,
 classifies it, and recommends what to run, giving you a path through
 the workflow for input you could not plan for.
 
-*AI provides recommendations, AAP is still your trusted execution
-layer.* The reasoning is non-deterministic. The change to your
-infrastructure is not, and you decide whether an approval gate puts a
-person in between.
+*AI provides recommendations, AAP remains your trusted execution
+layer.* AI can recommend what action to take, while AAP handles the
+execution. Human-in-the-loop approvals let you decide when a person
+should review and approve an action before it runs.
 
-=== What You Will Build
+=== What you will build
 
-Across six modules you build up from a single connection to three
-complete, running workflows:
+Over six modules, you'll connect automation orchestrator to the tools
+you already use, build workflows from scratch, and see them execute
+against real systems.
 
 * Your own *integrations and credentials*, connecting automation
   orchestrator to Ansible Automation Platform and to an AI model
@@ -56,17 +65,17 @@ complete, running workflows:
 * A *disk utilization workflow* that branches on how full a filesystem
   is and hands the fix to AAP
 * A *ticket enrichment workflow* where a task agent reads a live
-  incident ticket and routes it to remediation, to an approval gate, or
-  back to a human
-* A *CVE remediation workflow* that patches development hosts
-  automatically and holds production for approval
+  incident ticket and routes it to auto-remediation, an approval gate,
+  or back to a human
+* A *CVE auto-remediation workflow* that automatically patches
+  development hosts while requiring approval before patching
+  production hosts
 
 Every one of them ends in a live run you can watch step by step.
 
-== Red Hat Products Included
+== Red Hat products included
 
 * Red Hat Ansible Automation Platform
-* Automation orchestrator
 * Red Hat OpenShift Container Platform
 * Red Hat Enterprise Linux
 * Red Hat Lightspeed
@@ -74,70 +83,72 @@ Every one of them ends in a live run you can watch step by step.
 Supporting applications in the environment:
 
 * *OpenFlake*: the IT service management system holding the incident
-  tickets module 05 enriches
+  tickets
 * *Mattermost*: the chat platform your workflows post notifications to
 
-== Who Will Benefit
+== Who will benefit
 
-This is a hands-on introduction to automation orchestrator. It assumes
-no prior experience with it, and you will finish every module without
-writing a playbook.
+This is a hands-on introduction to automation orchestrator. You don't
+need any prior experience with it, and you won't have to write a
+single Ansible playbook to complete the modules.
 
-You will get the most out of it if you are:
+You'll get the most out of this lab if you are:
 
-* An automation engineer or platform team member who wants to see what
-  automation orchestrator adds to the Ansible Automation Platform you
-  already run
-* Dealing with alerts, tickets or logs that someone has to read and
-  interpret before anyone knows which automation to run
-* Curious what AI-assisted triage looks like when a human approval
-  gate still sits in front of every change
-* Evaluating automation orchestrator and would rather build something
-  real on the canvas than watch a demo
+* An automation engineer or platform team member interested in using
+  automation orchestrator alongside your existing Ansible Automation
+  Platform environment
+* Working with alerts, tickets, or logs that require someone to
+  interpret the information before deciding which automation to run
+* Curious about how AI-powered task agents can recommend actions while
+  keeping humans in the loop when approvals are needed
+* Evaluating automation orchestrator and would rather build and run
+  real workflows than watch a demo
 
-If you know roughly what an Ansible playbook and an AAP job template
-are, you have everything you need to complete every module.
+If you're familiar with the basics of Ansible playbooks and AAP job
+templates, you have everything you need to get started.
 
-== What Content Is Covered
+== What content is covered
 
 [cols="1,3,1",options="header"]
 |===
 |Module |What you will do |Time
 
-|*01.* Introduction to automation orchestrator
-|Tour the product. Projects, integrations, workflows and executions:
-where everything lives, and what the two projects in this environment
-are for.
-|10 min
+|*01.* Lab overview
+|Get familiar with automation orchestrator, explore the key concepts
+behind workflows, and see what you'll build throughout the lab.
+|5 min
 
-|*02.* Getting Started: Integrations and Credentials
-|Build the LLM and AAP MCP integrations the rest of the lab runs on, by
-hand, with your own credentials.
+|*02.* Getting started: integrations and credentials
+|Set up the LLM and AAP MCP integrations used throughout the lab with
+your own credentials.
 |15 min
 
-|*03.* Your First Workflow: Message of the Day
+|*03.* Your first workflow: message of the day
 |Build a three-step workflow from an empty canvas: a trigger, a task
 agent, and an AAP job template that writes the agent's wording into
 the login banner on a real RHEL host.
 |15 min
 
-|*04.* Disk Utilization Workflow
-|Complete a workflow that branches on how full a filesystem is, and
-watch AAP actually clean it up.
+|*04.* Disk utilization remediation
+|Complete a workflow that branches based on filesystem utilization and
+watch AAP execute the cleanup.
 |15 min
 
-|*05.* Ticket Enrichment Workflow
-|Wire a task agent to MCP tools so it can read an OpenFlake incident,
-decide what it is, and either fix it, escalate it for approval, or
-enrich the ticket for a human. Three runs, three different outcomes.
+|*05.* Ticket enrichment workflow
+|Connect a task agent to MCP tools to read an OpenFlake incident and
+recommend auto-remediation, escalate for approval, or enrich the
+ticket for a human. Run the workflow three times to explore different
+outcomes.
 |20 min
 
-|*06.* CVE Remediation Workflow
-|Wire up both task agents on a thirteen-step canvas, then write the
-routing that sends a real CVE to automatic patching or to an approval
-gate, based on what the triage agent found in Red Hat Lightspeed.
+|*06.* CVE auto-remediation workflow
+|Configure two task agents in a workflow that routes a real CVE to
+automatic patching or a human approval gate based on findings from Red
+Hat Lightspeed.
 |20 min
 |===
+
+Total estimated time: 90 minutes
 
 == Requirements
 
@@ -161,9 +172,6 @@ look at.
 
 == Credentials
 
-Keep this page open in a second tab. Modules 02, 05 and 06 ask you to
-paste several of these values.
-
 === Automation orchestrator
 
 [cols="1,3"]
@@ -182,7 +190,7 @@ paste several of these values.
 |Password |`{aap_controller_admin_password}`
 |===
 
-=== AAP MCP Server
+=== AAP MCP server
 
 The Model Context Protocol endpoint that lets an AI agent call Ansible
 Automation Platform. You point your own integration at this in module
@@ -205,7 +213,7 @@ ticket here and you come back to read the result.
 |Password |`{openflake_admin_password}`
 |===
 
-=== Large Language Model
+=== Large language model
 
 Served by Models-as-a-Service. Integrations and Credentials has you
 create an automation orchestrator credential holding this key and an
@@ -265,12 +273,4 @@ Where your workflows post their notifications.
 |URL |{mattermost_url}
 |Username |`{mattermost_username}`
 |Password |`{mattermost_password}`
-|===
-
-== Version Information
-
-[cols="1,3"]
-|===
-|Lab |Introduction to automation orchestrator
-|Environment GUID |`{guid}`
 |===

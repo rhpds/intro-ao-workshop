@@ -1,6 +1,6 @@
-= Disk Utilization Remediation
+= Disk utilization remediation
 
-== What You Will Do
+== What you will do
 
 The previous module built a workflow from an empty canvas. This one
 hands you a workflow that is almost finished and asks you to complete
@@ -34,7 +34,7 @@ everything you are asked to build. Switch the *Project* selector to
 are about to create.
 ====
 
-== Publishing the Current Disk Utilization Draft
+== Publishing the current disk utilization draft
 
 The current *Disk Utilization Remediation* workflow contains all the
 steps except for the *>95%* path. In this exercise you will work with
@@ -64,7 +64,7 @@ answering once the workflow is published, and the next thing you do is
 fire that webhook.
 ====
 
-== Fire a Healthy Alert First
+== Fire a healthy alert first
 
 Prior to doing the exercise, you will first run the existing workflow
 down the healthy path. This allows us to capture the appropriate output
@@ -121,7 +121,7 @@ image::module-04/06-ao-run-ok-complete.png[title="", link=self, window=blank, wi
 +
 image::module-04/06b-mattermost-ok.png[title="", link=self, window=blank, width=100%]
 
-== Building the >95% Path
+== Building the >95% path
 
 With the healthy path appropriately displaying its results, let's turn
 our focus to building out the new *>95%* path that runs the job
@@ -161,7 +161,7 @@ image::module-04/12-job-template-expand.png[title="", link=self, window=blank, w
 
 . Click *Create*.
 
-=== Adding the Details into the Extra Variables
+=== Adding the details into the extra variables
 
 The existing job template, *Linux - Remediate - Disk Expand*, needs to
 know the values to properly grow the filesystem. Re-open the
@@ -213,7 +213,7 @@ generated id, which is why you copy these rather than type them.
 +
 image::module-04/15-rename-expand-step.png[title="", link=self, window=blank, width=100%]
 
-== Adding the Chatroom Notification Step
+== Adding the chatroom notification step
 
 The second step posts the outcome to the chatroom, the same way the
 other three branches end.
@@ -248,7 +248,7 @@ image::module-04/19-job-template-notify.png[title="", link=self, window=blank, w
 +
 image::module-04/20-notify-selected.png[title="", link=self, window=blank, width=100%]
 
-=== Capturing the Extra Vars
+=== Capturing the extra vars
 
 The *Notify Chatroom* playbook takes the full set of values every
 remediation branch publishes so that one playbook can render a card
@@ -288,7 +288,7 @@ from the opening `{` to the closing `}`, as boxed in the image.
 . Re-open the *Notify Chatroom* job template and copy that JSON into
   *Extra variables* on this step. Then click *Update*.
 
-== Publish the Completed Workflow
+== Publish the completed workflow
 
 . Click *Save workflow*.
 +
@@ -316,7 +316,7 @@ your next alert will run the old workflow and your branch will look
 broken.
 ====
 
-== Fire the Critical Alert
+== Fire the critical alert
 
 . Relaunch *Disk Utilization Simulate Alert*. Open
   *How full should the disk be?* and look at the choices. Each one
@@ -341,7 +341,7 @@ the file left by the previous run before it allocates a new one.
 +
 image::module-04/25-aap-job-critical-summary.png[title="", link=self, window=blank, width=100%]
 
-== Watch the Run
+== Watch the run
 
 . Open the new run in automation orchestrator. This time the canvas
   lights a different path: *Switch* takes the *>95%* port into
@@ -359,7 +359,7 @@ image::module-04/26-ao-run-critical.png[title="", link=self, window=blank, width
 +
 image::module-04/27-mattermost-critical.png[title="", link=self, window=blank, width=100%]
 
-== Check Your Work
+== Check your work
 
 [cols="3,2"]
 |===
@@ -392,7 +392,7 @@ to `solutions` and compare your branch against the published
 *Disk Utilization Remediation* there.
 ====
 
-== What You Learned
+== What you learned
 
 * A *switch* routes on a value an earlier step produced, and each route
   is a branch you wire independently. Three working branches beside an
@@ -411,7 +411,7 @@ to `solutions` and compare your branch against the published
   Automation Platform ran it, measured the result, and reported it.
   Each did the part it is good at.
 
-== Bonus: Run the 80-95% Path
+== Bonus: run the 80-95% path
 
 You have fired the healthy path and the critical path. The warning path
 between them is already wired, and your workflow is published, so you
