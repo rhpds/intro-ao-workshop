@@ -72,6 +72,9 @@ asciidoc:
     # Hat login seeded from the catalog's vaulted rhel_lightspeed_*
     # pair. It opens in a browser tab of its own, not a Showroom tab:
     # console.redhat.com refuses to be framed.
+    # The account keys are insights_*, not lightspeed_*: that is what
+    # agnosticv_importdata publishes in common.yaml. Renaming either
+    # side alone puts `changeme` back on the page.
     lightspeed_console_url: 'https://console.redhat.com'
-    lightspeed_username: changeme
-    lightspeed_password: changeme
+    insights_username: changeme
+    insights_password: changeme
