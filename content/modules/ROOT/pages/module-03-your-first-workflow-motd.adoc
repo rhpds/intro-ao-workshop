@@ -2,36 +2,38 @@
 
 == What you will do
 
-In Integrations and Credentials you built the two connections
-automation orchestrator needs. Now you use them. Starting from an
-empty canvas you build a workflow with three steps:
+In Integrations and Credentials, you built the two connections
+automation orchestrator needs. Now you'll put them to work. Starting
+from an empty canvas, you'll build a workflow with three steps:
 
-* A *manual trigger* that asks the person running it for a note
-* A *task agent* that turns that note into properly worded text
-* An *AAP job template* step that writes it onto a real RHEL host
+* A *manual trigger* that asks the person running it for a note.
+* A *task agent* that turns that note into properly worded text.
+* An *AAP job template* step that writes the message to a real RHEL
+  host.
 
-The workflow sets the message of the day. Every time anyone logs in to
-a Linux server, `/etc/motd` is printed to their terminal, and on a
-well-run estate it is where the maintenance windows, the owning team
-and the house rules live. Keeping it current across a fleet is exactly
-the sort of small, constant chore that nobody gets round to.
+The workflow updates the message of the day (MOTD). When someone logs
+in to a Linux server, the contents of `/etc/motd` are displayed in
+their terminal. It's a useful place to communicate maintenance
+windows, support contacts, and other important information. Keeping
+that message current across a fleet of servers can become a repetitive
+administrative task.
 
-So you type a scribbled note, the kind you would send a colleague:
+With this workflow, you can enter a rough note, just as you might send
+to a colleague:
 
 [source,text]
 ----
 lab web tier, patching sat 2am utc, reboot, ping platform team if issues
 ----
 
-The agent turns that into a headline, a notice and an owning team. An
+The agent turns that into a headline, a notice, and an owning team. An
 Ansible Automation Platform job template then renders those three
-pieces into a banner on the host, surrounded by what the host reports
-about itself: its release, its kernel, its uptime and how full its
-disk is.
+pieces into a banner on the host, alongside information gathered
+directly from the system: its release, kernel, uptime, and disk usage.
 
-That division is the point. The agent writes the half a person would
-have written and cannot know the rest. AAP gathers the half that has
-to be true and would be tedious to write. Neither produces the banner
+That division is the point. The agent writes the part a person would
+normally write. AAP gathers the facts that need to be accurate and
+would be tedious to collect manually. Neither produces the banner
 alone.
 
 [TIP]
