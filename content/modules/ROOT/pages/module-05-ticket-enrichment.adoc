@@ -2,13 +2,14 @@
 
 == What you will do
 
-The previous workflow exercise focused on using manual triggers, a
-switch step and deterministic AAP job templates. The ticket enrichment
-workflow focuses on how to take advantage of webhook triggers, the task
-agent step, along with how to incorporate those details into an ITSM
-ticketing service such as the one provided by OpenFlake. In this
-workflow we see how the task agent can enrich our tickets and make
-recommendations and take the appropriate path based on its findings.
+The previous workflow exercise focused on disk utilization remediation
+using a webhook trigger, a switch step, and deterministic AAP job
+templates. Building on those concepts, the ticket enrichment workflow
+introduces task agents to evaluate incidents, recommend actions, and
+determine the appropriate remediation path. It also demonstrates how
+automation orchestrator integrates with an ITSM ticketing service such
+as OpenFlake to enrich incidents and record the results of automated
+actions.
 
 * The *auto remediate* path is taken when a low risk, high priority
   incident with a pre-approved job template exists to fix the issue.
@@ -17,8 +18,11 @@ recommendations and take the appropriate path based on its findings.
 * The *inform only* path is taken when no remediation exists or
   additional information is needed.
 
-All paths lead to an AAP job template taking the findings and action and
-posting the results back into the OpenFlake ticket automatically.
+All three paths use an AAP job template to post the findings and
+outcome back into the OpenFlake ticket automatically. The *Auto
+Remediate* and *Needs Approval* paths also run remediation job
+templates, while *Inform Only* updates the ticket without attempting
+remediation.
 
 [TIP]
 ====
@@ -178,7 +182,9 @@ template list.
 
 . Launch it. The survey asks two questions. Set *What scenario to run?*
   to *auto_remediate*, and *Which workflow should this fire?* to
-  *student - the workflow I built*. Click *Next*, then *Finish*.
+  *student - the workflow I built*. This directs the simulated
+  incident to your *Ticket Enrichment Demo* workflow. Click *Next*,
+  then *Finish*.
 +
 image::module-05/14-aap-survey.png[title="", link=self, window=blank, width=100%]
 +
@@ -219,9 +225,9 @@ image::module-05/17-ao-run-overview.png[title="", link=self, window=blank, width
 +
 image::module-05/18-ao-run-details.png[title="", link=self, window=blank, width=100%]
 
-. After the workflow has completed, notice that the path taken was the
-  *Auto Remediate* which then ran the *Run Auto Remediation* and
-  *Update OpenFlake Ticket* job templates within Ansible Automation
+. After the workflow completes, notice that *Route Decision* took the
+  *Auto Remediate* path, which ran the *Run Auto Remediation* and
+  *Update OpenFlake Ticket* job templates in Ansible Automation
   Platform.
 +
 image::module-05/19-ao-run-complete.png[title="", link=self, window=blank, width=100%]
@@ -238,10 +244,10 @@ image::module-05/20-openflake-resolved.png[title="", link=self, window=blank, wi
 
 == Try the other two routes
 
-The same job template drives all three outcomes. You have seen
-*auto remediate*. The other two routes come from the same workflow, the
-same agent and the same job template, with nothing to change in
-automation orchestrator.
+The same workflow handles all three outcomes, and each path uses the
+*Update OpenFlake Ticket* job template to record the results. You have
+seen *Auto Remediate*. The other two routes use the same triage agent
+and routing logic, with nothing to change in automation orchestrator.
 
 === Needs Approval
 
@@ -360,10 +366,12 @@ addressed.
 *Student AAP MCP Server*, one tool each
 
 |*Executions*
-|A run marked *Completed*, with *Approve Remediation Change* skipped
+|The *Auto Remediate* run marked *Completed*, with *Approve
+Remediation Change* skipped
 
 |*OpenFlake*
-|The incident *Resolved*, with three entries in its activity trail
+|The *Auto Remediate* incident *Resolved*, with three entries in its
+activity trail
 |===
 
 [TIP]
