@@ -119,6 +119,15 @@ image::module-04/06-ao-run-ok-complete.png[title="", link=self, window=blank, wi
   Nothing needed fixing, and saying so is the outcome.
 +
 image::module-04/06b-mattermost-ok.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+Mattermost:
+
+* URL: {mattermost_url}
+* Username: `{mattermost_username}`
+* Password: `{mattermost_password}`
+====
 
 == Building the >95% path
 
@@ -245,6 +254,16 @@ image::module-04/19-job-template-notify.png[title="", link=self, window=blank, w
   next section.
 +
 image::module-04/20-notify-selected.png[title="", link=self, window=blank, width=100%]
+
+. Click *Save workflow*.
++
+[IMPORTANT]
+====
+Save before you go any further. The script in the next section reads
+your workflow back from automation orchestrator, so it can only see
+the notification step once it has been saved. If you skip this, the
+script fails.
+====
 
 === Capturing the extra vars
 

@@ -1,4 +1,4 @@
-* xref:index.adoc[Lab overview]
+* xref:index.adoc[1. Lab overview]
 * xref:module-02-integrations-and-credentials.adoc[2. Getting started: integrations and credentials]
 * xref:module-03-your-first-workflow-motd.adoc[3. Your first workflow: message of the day]
 * xref:module-04-disk-utilization.adoc[4. Disk utilization remediation]

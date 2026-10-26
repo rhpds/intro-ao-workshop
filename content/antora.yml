@@ -63,7 +63,7 @@ asciidoc:
     # Mattermost, where the Disk Utilization and Ticket Enrichment
     # notifications land
     mattermost_url: 'https://mattermost-mattermost.apps.cluster-%GUID%.dyn.redhatworkshops.io'
-    mattermost_username: admin
+    mattermost_username: ansibleadmin
     mattermost_password: changeme
 
     # Red Hat Lightspeed, where module 06 has the student pick the CVE
