@@ -17,8 +17,16 @@ ocp4_workload_lightspeed_mcp_server_all_tools: true
 ocp4_workload_lightspeed_mcp_server_client_id: ""
 ocp4_workload_lightspeed_mcp_server_client_secret: ""
 
-# MCP endpoint port (container-internal; the Route exposes it over HTTPS)
+# MCP endpoint port (container-internal; in-cluster callers use this directly)
 ocp4_workload_lightspeed_mcp_server_port: 8000
+
+# nginx auth gate — the Route points here, not at the MCP container.
+ocp4_workload_lightspeed_mcp_server_gateway_port: 8080
+ocp4_workload_lightspeed_mcp_server_gateway_image: docker.io/nginxinc/nginx-unprivileged:alpine
+
+# Bearer the gate demands. Empty means reuse the client secret, which is
+# what the AO integration already sends, so nothing else needs changing.
+ocp4_workload_lightspeed_mcp_server_bearer_token: ""
 
 # Wait / retry tuning
 ocp4_workload_lightspeed_mcp_server_wait_retries: 12
