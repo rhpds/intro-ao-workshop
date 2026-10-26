@@ -209,7 +209,7 @@ image::module-05/16-openflake-new.png[title="", link=self, window=blank, width=1
 
 == Watch the run
 
-. Back in automation orchestrator, open *Executions* in the left
+. Back in automation orchestrator, open *Workflow Runs* in the left
   navigation and open the newest run of *Ticket Enrichment Demo*. The
   canvas ticks each step green as it finishes, and the *Current run
   details* table at the bottom lists them with timings.
@@ -365,7 +365,7 @@ addressed.
 |A model, a credential, and two connections: *OpenFlake MCP* and
 *Student AAP MCP Server*, one tool each
 
-|*Executions*
+|*Workflow Runs*
 |The *Auto Remediate* run marked *Completed*, with *Approve
 Remediation Change* skipped
 
