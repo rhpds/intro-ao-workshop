@@ -32,7 +32,7 @@ Event-Driven Ansible triggers are steps you place on the canvas
 itself. You can also add multiple triggers to the same workflow,
 giving you different ways to kick off the same automation. The
 triggers and the automation they start are part of a single artifact,
-and they export to YAML together.
+and they export to JSON together.
 
 *Switch steps route on values.* A switch evaluates a value produced
 earlier in the workflow and directs execution down the first path that

@@ -106,8 +106,8 @@ workflow's check step runs a real `df` and the switch routes on a real
 number.
 ====
 
-. Back in automation orchestrator, open *Executions* and open the run.
-  It completes down the *<80%* route: *Remediate - Continue* and then
+. Back in automation orchestrator, open *Workflow Runs* and open the
+  run. It completes down the *<80%* route: *Remediate - Continue* and then
   *OK - Notify Chatroom - Do nothing*.
 +
 image::module-04/06-ao-run-ok-complete.png[title="", link=self, window=blank, width=100%]
@@ -374,7 +374,7 @@ routes connected
 |Followed by *Critical - Notify Chatroom - Expand Disk*, job template
 `Notify Chatroom`, twenty extra variables
 
-|*Executions*
+|*Workflow Runs*
 |A run marked *Completed* that went down the *>95%* route
 
 |*Mattermost*, Town Square
