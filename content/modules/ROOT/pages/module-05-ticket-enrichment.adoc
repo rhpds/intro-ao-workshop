@@ -206,6 +206,15 @@ image::module-05/15-aap-job-output.png[title="", link=self, window=blank, width=
   what the agent is about to read.
 +
 image::module-05/16-openflake-new.png[title="", link=self, window=blank, width=100%]
++
+[NOTE]
+====
+OpenFlake:
+
+* URL: {openflake_url}
+* Username: `{openflake_admin_username}`
+* Password: `{openflake_admin_password}`
+====
 
 == Watch the run
 
