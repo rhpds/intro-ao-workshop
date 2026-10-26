@@ -84,6 +84,8 @@ Supporting applications in the environment:
 
 * *OpenFlake*: the IT service management system holding the incident
   tickets
+* *Gitea*: the Git service the CVE remediation playbook is committed to
+  before Ansible Automation Platform runs it
 * *Mattermost*: the chat platform your workflows post notifications to
 
 == Who will benefit
