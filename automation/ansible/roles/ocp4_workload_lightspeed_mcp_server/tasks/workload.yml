@@ -58,6 +58,47 @@
         LIGHTSPEED_CLIENT_SECRET: "{{ ocp4_workload_lightspeed_mcp_server_client_secret }}"
 
 # -------------------------------------------------------
+# Auth gate config
+# -------------------------------------------------------
+# The MCP server itself has no auth, so without this gate the Route serves
+# this account's Lightspeed data to anyone who knows the URL.
+- name: Settle on the Lightspeed MCP gate bearer token
+  ansible.builtin.set_fact:
+    _lightspeed_gate_token: >-
+      {{ ocp4_workload_lightspeed_mcp_server_bearer_token
+         if ocp4_workload_lightspeed_mcp_server_bearer_token | length > 0
+         else ocp4_workload_lightspeed_mcp_server_client_secret }}
+  no_log: true
+
+# Both inputs default to empty, which would render the gate password as the
+# guessable literal "Bearer ". Fail loudly instead of standing up a weak gate.
+- name: Require a usable Lightspeed MCP gate token
+  ansible.builtin.assert:
+    that:
+      - _lightspeed_gate_token | default('', true) | trim | length >= 16
+    fail_msg: >-
+      The Lightspeed MCP auth gate has no usable token. Set
+      ocp4_workload_lightspeed_mcp_server_client_secret (or override
+      ocp4_workload_lightspeed_mcp_server_bearer_token).
+    quiet: true
+
+- name: Create Lightspeed MCP nginx config Secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: lightspeed-mcp-nginx-conf
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      type: Opaque
+      stringData:
+        default.conf: >-
+          {{ lookup('file', role_path + '/files/nginx-default.conf.template')
+             | replace('REPLACE_ME', _lightspeed_gate_token) }}
+  no_log: true
+
+# -------------------------------------------------------
 # Deployment (stateless — no PVC required)
 # -------------------------------------------------------
 - name: Set Lightspeed MCP container args
@@ -103,6 +144,43 @@
                   initialDelaySeconds: 10
                   periodSeconds: 5
                   failureThreshold: 12
+              # Sidecar rather than its own Deployment so it can proxy over localhost.
+              - name: nginx
+                image: "{{ ocp4_workload_lightspeed_mcp_server_gateway_image }}"
+                ports:
+                  - containerPort: "{{ ocp4_workload_lightspeed_mcp_server_gateway_port }}"
+                    name: gw
+                volumeMounts:
+                  - name: nginx-conf
+                    mountPath: /etc/nginx/conf.d/default.conf
+                    subPath: default.conf
+                    readOnly: true
+                  - name: nginx-cache
+                    mountPath: /var/cache/nginx
+                  - name: nginx-run
+                    mountPath: /tmp
+                readinessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: gw
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  runAsNonRoot: true
+                  capabilities:
+                    drop: ["ALL"]
+                  seccompProfile:
+                    type: RuntimeDefault
+            volumes:
+              - name: nginx-conf
+                secret:
+                  secretName: lightspeed-mcp-nginx-conf
+                  defaultMode: 288  # 0440
+              - name: nginx-cache
+                emptyDir: {}
+              - name: nginx-run
+                emptyDir: {}
 
 # -------------------------------------------------------
 # Service & Route
@@ -124,6 +202,25 @@
             port: "{{ ocp4_workload_lightspeed_mcp_server_port }}"
             targetPort: mcp
 
+# Separate Service so the Route can reach the gate while the bare one above
+# stays open to in-cluster callers such as the CVE fetch-and-commit job.
+- name: Create Lightspeed MCP gateway Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: lightspeed-mcp-gw
+        namespace: "{{ ocp4_workload_lightspeed_mcp_server_namespace }}"
+      spec:
+        selector:
+          app: lightspeed-mcp
+        ports:
+          - name: gw
+            port: "{{ ocp4_workload_lightspeed_mcp_server_gateway_port }}"
+            targetPort: gw
+
 - name: Create Lightspeed MCP Route
   kubernetes.core.k8s:
     state: present
@@ -136,9 +233,9 @@
       spec:
         to:
           kind: Service
-          name: lightspeed-mcp
+          name: lightspeed-mcp-gw
         port:
-          targetPort: mcp
+          targetPort: gw
         tls:
           termination: edge
           insecureEdgeTerminationPolicy: Redirect
