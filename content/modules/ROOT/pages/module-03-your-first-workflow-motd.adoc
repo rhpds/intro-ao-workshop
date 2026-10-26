@@ -251,6 +251,15 @@ fields are in the output, as shown in <<agent-answer,Figure 11>>,
 before continuing any further.
 ====
 
+.BUG
+[WARNING]
+====
+If the three fields still do not appear after a few tries, open the
+*Tools* dropdown on the *Task Agent* step, select any tool from your
+*Student AAP MCP Server*, set up the connection, and run the step
+again. This is a known bug and is being addressed.
+====
+
 . Hover over `headline` in the Input panel and click the copy icon
   beside it. Automation orchestrator shows you the whole expression and
   copies it to your clipboard.
