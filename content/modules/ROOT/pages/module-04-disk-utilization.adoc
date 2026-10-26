@@ -215,8 +215,14 @@ generated id, which is why you copy these rather than type them.
 ====
 
 . The step is still called *Launch AAP job template*. Click its name at
-  the top of the panel and rename it to `Remediate - Expand Disk`, then
-  click *Update*.
+  the top of the panel and rename it to:
++
+[source,text]
+----
+Remediate - Expand Disk
+----
++
+Then click *Update*.
 +
 image::module-04/15-rename-expand-step.png[title="", link=self, window=blank, width=100%]
 
@@ -234,13 +240,18 @@ image::module-04/16-notify-add-step.png[title="", link=self, window=blank, width
 +
 image::module-04/17-notify-aap-execution.png[title="", link=self, window=blank, width=100%]
 
-. Click the step name at the top of the panel and rename it to
-  `Critical - Notify Chatroom - Expand Disk`. Then open the *Input*
-  panel and expand *Remediate - Expand Disk*. Notice what it says:
-  *Expected output fields (run step to see actual values)*. The
-  remediation step has never run, so automation orchestrator can show
-  you the shape of a job template's output but not the artifacts the
-  playbook will publish.
+. Click the step name at the top of the panel and rename it to:
++
+[source,text]
+----
+Critical - Notify Chatroom - Expand Disk
+----
++
+Then open the *Input* panel and expand *Remediate - Expand Disk*.
+Notice what it says: *Expected output fields (run step to see actual
+values)*. The remediation step has never run, so automation
+orchestrator can show you the shape of a job template's output but not
+the artifacts the playbook will publish.
 +
 image::module-04/18-notify-input-panel.png[title="", link=self, window=blank, width=100%]
 

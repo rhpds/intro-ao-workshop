@@ -52,8 +52,13 @@ you are about to create.
   `{ao_admin_user}` / `{ao_admin_password}`, open *Workflows* in the
   left navigation, and click *Create workflow*.
 
-. Name the workflow `Message of the Day` and place it in
-  the `default` project as shown in the image below.
+. Name the workflow as below and place it in the `default` project as
+  shown in the image.
++
+[source,text]
+----
+Message of the Day
+----
 +
 image::module-03/01-name-and-project.png[title="", link=self, window=blank, width=100%]
 +
@@ -74,10 +79,14 @@ A manual trigger can collect input from whoever runs the workflow. That
 input is the note your agent will work from.
 
 . The trigger step opens with *Input schema* set to *Simple*. Click
-  *Add field* and fill the row in:
+  *Add field* and fill the row in, setting *Field name* to:
++
+[source,text]
+----
+banner_request
+----
 +
 --
-* *Field name*: `banner_request`
 * *Type*: `String`
 * *Required*: ticked
 --
