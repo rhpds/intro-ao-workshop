@@ -286,15 +286,34 @@ your workflow, finds the step that is wired to the *>95%* route and
 prints the whole block ready for you to copy and paste.
 
 . Switch to the *Terminal* tab on the Showroom and point the script at
-  your automation orchestrator. The last line prompts for the password, so nothing is
-  echoed and nothing lands in your shell history. Paste
-  `{ao_admin_password}` at the prompt and press kbd:[Enter].
+  your automation orchestrator. Run these three lines in order.
 +
+.Automation orchestrator URL
 [source,bash,role=execute,subs="attributes+"]
 ----
 export AO_URL="{ao_url}"
+----
++
+.Automation orchestrator username
+[source,bash,role=execute,subs="attributes+"]
+----
 export AO_USER="{ao_admin_user}"
+----
++
+.Prompt for the password
+[source,bash,role=execute]
+----
 read -rsp "AO password: " AO_PASS; export AO_PASS; echo
+----
++
+That last line prompts for your *automation orchestrator* password, so
+nothing is echoed and nothing lands in your shell history. Paste the
+password below at the prompt and press kbd:[Enter].
++
+.Automation orchestrator password
+[source,text,subs="attributes+"]
+----
+{ao_admin_password}
 ----
 
 . Run it.
@@ -313,8 +332,8 @@ script read from. They are not part of the answer. Copy only the JSON,
 from the opening `{` to the closing `}`, as boxed in the image.
 ====
 
-. Re-open the *Notify Chatroom* job template and copy that JSON into
-  *Extra variables* on this step. Then click *Update*.
+. Re-open the *Critical - Notify Chatroom - Expand Disk* step and copy
+  that JSON into its *Extra variables*. Then click *Update*.
 
 == Publish the completed workflow
 
