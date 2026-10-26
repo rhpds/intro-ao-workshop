@@ -174,9 +174,10 @@ Running the agent once on its own gives you a real answer in the shape
 your schema describes, which is what makes the fields available to
 copy and paste when you wire up the next step.
 
-. Automation orchestrator pre-fills the shape the trigger produces, so
-  the key and the braces are already there. Paste this note between
-  the quotes after `banner_request`, then click *Run*:
+. [[mock-data-run]]Automation orchestrator pre-fills the shape the
+  trigger produces, so the key and the braces are already there. Paste
+  this note between the quotes after `banner_request`, then click
+  *Run*:
 +
 [source,text]
 ----
@@ -189,6 +190,7 @@ image::module-03/10-mock-input.png[title="", link=self, window=blank, width=100%
   agent's real answer. Find the `final_answer` block, and click
   *Update* once you have finished reviewing the output.
 +
+[[agent-answer]]
 image::module-03/11-agent-answer.png[title="", link=self, window=blank, width=100%]
 
 === Add the job template step
@@ -239,6 +241,15 @@ It has changed. Before you ran the agent it showed a description of
 what a task agent *might* return. Now it shows what yours actually
 did: a `result` containing a `content` containing your three fields,
 each with the real value beside it.
+
+[IMPORTANT]
+====
+If the *Input* panel does not show `headline`, `notice` and `owner`
+with values beside them, open the *Task Agent* step, click *Run step*
+and <<mock-data-run,set the mock data again>>. Confirm those three
+fields are in the output, as shown in <<agent-answer,Figure 11>>,
+before continuing any further.
+====
 
 . Hover over `headline` in the Input panel and click the copy icon
   beside it. Automation orchestrator shows you the whole expression and
