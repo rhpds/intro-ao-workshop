@@ -349,8 +349,34 @@ help.
 +
 image::module-04/21-verification-failed.png[title="", link=self, window=blank, width=100%]
 
-. With the canvas clean, click *Publish workflow*. The badge returns to
-  *Published* and all four routes now end somewhere.
+.BUG
+[WARNING]
+====
+Do *not* publish from the editor. Adding extra variables to the
+notification step turns on *Use input variables*, and publishing from
+the canvas then fails against a stale copy of the workflow. Publish
+from the *Workflows* list instead, as described below. This is a known
+bug and is being addressed.
+====
+
+. Click the *Workflows* icon in the left navigation, then click the
+  three dots at the end of the *Disk Utilization Remediation* row.
++
+image::module-04/22a-workflows-list.png[title="", link=self, window=blank, width=100%]
+
+. Choose *Publish workflow*.
++
+image::module-04/22b-publish-menu.png[title="", link=self, window=blank, width=100%]
+
+. A *Publish workflow?* dialog opens with the version name already
+  filled in. Leave it as it is, leave *Description* empty, and click
+  *Publish workflow*.
++
+image::module-04/22c-publish-dialog.png[title="", link=self, window=blank, width=100%]
+
+. The *State* column for *Disk Utilization Remediation* reads
+  *Published*. Open the workflow again and the badge beside its name
+  says the same, with all four routes now ending somewhere.
 +
 image::module-04/22-workflow-published-complete.png[title="", link=self, window=blank, width=100%]
 +
