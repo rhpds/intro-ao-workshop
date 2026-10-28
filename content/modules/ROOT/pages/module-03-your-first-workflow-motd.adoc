@@ -48,7 +48,7 @@ you are about to create.
 
 == Create the workflow
 
-. Log in to automation orchestrator at {ao_url} as
+. Log in to automation orchestrator at {ao_url}[^] as
   `{ao_admin_user}` / `{ao_admin_password}`, open *Workflows* in the
   left navigation, and click *Create workflow*.
 

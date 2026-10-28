@@ -178,7 +178,7 @@ look at.
 
 [cols="1,3"]
 |===
-|URL |{ao_url}
+|URL |{ao_url}[^]
 |Username |`{ao_admin_user}`
 |Password |`{ao_admin_password}`
 |===
@@ -187,7 +187,7 @@ look at.
 
 [cols="1,3"]
 |===
-|URL |{aap_controller_web_url}
+|URL |{aap_controller_web_url}[^]
 |Username |`{aap_controller_admin_user}`
 |Password |`{aap_controller_admin_password}`
 |===
@@ -200,7 +200,7 @@ Automation Platform. You point your own integration at this in module
 
 [cols="1,3"]
 |===
-|API URL |`{aap_mcp_url}`
+|API URL |`pass:a[{aap_mcp_url}]`
 |===
 
 === OpenFlake
@@ -210,7 +210,7 @@ ticket here and you come back to read the result.
 
 [cols="1,3"]
 |===
-|URL |{openflake_url}
+|URL |{openflake_url}[^]
 |Username |`{openflake_admin_username}`
 |Password |`{openflake_admin_password}`
 |===
@@ -223,7 +223,7 @@ integration pointing at this URL.
 
 [cols="1,3"]
 |===
-|API URL |`{litellm_api_base_url}`
+|API URL |`pass:a[{litellm_api_base_url}]`
 |API Key |`{litellm_virtual_key}`
 |Model |`{litellm_available_models}`
 |===
@@ -260,7 +260,7 @@ rather than from anything the workflow invented.
 
 [cols="1,3"]
 |===
-|URL |{gitea_console_url}
+|URL |{gitea_console_url}[^]
 |Username |`{gitea_user}`
 |Password |`{gitea_password}`
 |Repository |`{gitea_playbook_repo}`
@@ -272,7 +272,7 @@ Where your workflows post their notifications.
 
 [cols="1,3"]
 |===
-|URL |{mattermost_url}
+|URL |{mattermost_url}[^]
 |Username |`{mattermost_username}`
 |Password |`{mattermost_password}`
 |===

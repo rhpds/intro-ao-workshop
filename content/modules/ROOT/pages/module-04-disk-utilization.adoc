@@ -41,7 +41,7 @@ routes. In this module, you'll run the healthy route to inspect its
 output, then build the missing critical route using the existing steps
 as a reference.
 
-. Log in to automation orchestrator at {ao_url} as
+. Log in to automation orchestrator at {ao_url}[^] as
   `{ao_admin_user}` / `{ao_admin_password}` and open *Workflows* in the
   left navigation. Confirm the *Project* selector reads `default`, then
   click *Disk Utilization Remediation*.
@@ -124,7 +124,7 @@ image::module-04/06b-mattermost-ok.png[title="", link=self, window=blank, width=
 ====
 Mattermost:
 
-* URL: {mattermost_url}
+* URL: {mattermost_url}[^]
 * Username: `{mattermost_username}`
 * Password: `{mattermost_password}`
 ====

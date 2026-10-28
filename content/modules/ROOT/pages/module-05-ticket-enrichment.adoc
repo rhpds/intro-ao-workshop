@@ -36,7 +36,7 @@ about to create.
 
 == Open the workflow
 
-. Log in to automation orchestrator at {ao_url} as
+. Log in to automation orchestrator at {ao_url}[^] as
   `{ao_admin_user}` / `{ao_admin_password}` and open *Workflows* in the
   left navigation. Confirm the *Project* selector reads `default`, then
   click *Ticket Enrichment Demo*.
@@ -211,7 +211,7 @@ image::module-05/16-openflake-new.png[title="", link=self, window=blank, width=1
 ====
 OpenFlake:
 
-* URL: {openflake_url}
+* URL: {openflake_url}[^]
 * Username: `{openflake_admin_username}`
 * Password: `{openflake_admin_password}`
 ====
