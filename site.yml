@@ -1,12 +1,13 @@
 ---
 site:
   title: Introduction to automation orchestrator
-  url: https://github.com/rhpds/intro-ao-workshop
+  url: https://rhpds.github.io/intro-ao-workshop
   start_page: modules::index.adoc
 
 content:
   sources:
     - url: .
+      branches: HEAD
       start_path: content
 
 ui:
