@@ -1,152 +1,134 @@
-# Lab health check
+# Service and credential health check
 
-`healthcheck.yml` checks service readiness and credentials without running a
-workflow, launching an AAP job, changing a ticket, or sending a chat message.
-Authentication exchanges create short-lived sessions/tokens; MCP initialization
-may create a protocol session. This is not a completely side-effect-free scan.
-
-## Coverage
+`healthcheck.yml` verifies availability and the supplied credentials for:
 
 | Service | Checks |
 | --- | --- |
-| OpenShift | API `/readyz`, authenticated user identity, console health, all nodes Ready, cluster operators Available and not Degraded, pod readiness in lab namespaces (including databases) |
-| Automation Orchestrator | Admin login; complete paginated project/credential/integration/workflow/service-account listings; reference workflow configuration; MCP tool discovery and LLM model discovery; both webhook service accounts active and client credentials accepted |
-| AAP | Gateway user authentication, controller API availability, AAP MCP bearer token against controller user API, Automation Decisions API |
-| OpenFlake | Readiness and authenticated incident listing (empty incident table is valid) |
-| Gitea | User password authentication and lab API token authentication |
-| Mattermost | System ping and user login |
-| LLM / LiteLLM | Virtual key accepted and at least one advertised model |
-| MCP servers | AAP, OpenFlake and Lightspeed JSON-RPC initialization, with configured bearer tokens; JSON and SSE responses supported |
-| Red Hat Lightspeed | Red Hat SSO service-account client ID/secret token exchange |
-| Splunk | Web login page and authenticated management API current-user context |
+| AAP | Authenticated gateway user API |
+| AO | Admin login returns an access token |
+| OCP | Console `/health`; `oc whoami` and API `/readyz` using the mounted kubeconfig |
+| Gitea | User/password login and API token against the user API |
+| Mattermost | User login against its API |
+| Splunk | Web availability and Web login (success response plus session cookie); alternatively authenticated management API if explicitly provided |
+| OpenFlake | Readiness and authenticated incident listing (an empty incident table is valid) |
+| RHEL access node | SSH using `ssh_command` and `ssh_password`; authenticated identity and `/etc/os-release` confirms RHEL |
+| RHEL downstream nodes | SSH **from the access node**, using `cnv_nodes` names/users; same supplied password if prompted; confirm RHEL |
+| OpenFlake MCP | JSON-RPC initialization with the provided bearer token; JSON/SSE supported |
+| LiteMaaS | Virtual key accepted and at least one model advertised |
 
-Service checks record PASS/FAIL and continue through the remaining probes. A
-summary is printed before AO configuration checks. AO configuration assertions
-remain fail-fast. Any service failure ultimately gives a nonzero exit; missing
-inputs and export placeholders fail rather than silently skipping a service.
+No AO projects, workflow wiring, webhook accounts, Lightspeed service accounts,
+cluster-wide node/operator/pod readiness, or EDA configuration are inspected.
+No workflows, AAP jobs, MCP tools, LLM inference, or remediation are executed.
+Authentication creates sessions/tokens. This is not a side-effect-free scan.
 
-## Run
+All service checks continue after failures and report a final passed/failed list.
+Missing inputs are failures, not silent skips. Exit zero means all requested
+checks passed; any failure or missing input results in a nonzero exit.
 
-Requirements: Python 3, `ansible-core` (tested with 2.21.5), and network/DNS access
-from the runner to every supplied endpoint. No extra Ansible collections or `oc`
-CLI are needed. The OpenShift token must represent a user able to read nodes,
-cluster operators, and pods in the selected namespaces (an admin token is suitable
-for a lab). The identity check intentionally uses an OpenShift **user** token,
-not a Kubernetes service-account token. It validates that token, not a separately
-supplied OpenShift password.
+## Runner requirements
+
+- Python 3, `ansible-core`, `pexpect`, and OpenSSH `ssh` on the runner.
+- `oc` on the runner and a mounted, valid kubeconfig for the **lab cluster**.
+- `ssh` on the RHEL access node, with network/DNS access to downstream nodes.
+- Network/DNS access from the runner to the service URLs.
 
 ```bash
-python3 -m venv /tmp/ao-qa
-source /tmp/ao-qa/bin/activate
-pip install ansible-core
-cp qa-automation/healthcheck.example.yml /tmp/ao-healthcheck.yml
-# Edit /tmp/ao-healthcheck.yml with the provisioned endpoints and credentials.
-ansible-vault encrypt /tmp/ao-healthcheck.yml
+pip install ansible-core pexpect PyYAML
 ansible-playbook -i localhost, qa-automation/healthcheck.yml \
-  -e @/tmp/ao-healthcheck.yml --ask-vault-pass
+  -e @/run/secrets/provisioned-user-data.yml
 ```
 
-Use provisioned `user_data` for the values; the playbook deliberately does not
-read cluster Secrets or silently select credentials from your kubeconfig. For a
-locally authenticated OpenShift user, obtain `ocp_url` with `oc whoami --show-server`
-and `ocp_token` with `oc whoami --show-token`. Treat that output as secret.
+Provisioning inputs can be Ansible extra vars or lowercase pod environment
+variables. A mounted user-data file is not loaded automatically: pass it using
+`-e @file.yml`. Lowercase `cnv_nodes` environment input must be a JSON array.
+Canonical health-check extra vars override defaults; uppercase environment
+variables take precedence over provisioning aliases.
 
-All defaults/environment variable names are in `vars/services.yml`. For example,
-`AO_URL`, `AO_PASSWORD`, `OCP_URL`, `OCP_TOKEN`, `AAP_URL`, `AAP_PASSWORD`,
-`GITEA_TOKEN`, and `LLM_API_KEY` can be exported instead of passed in a vars file.
-`llm_url` / `LLM_URL` must include the provider's `/v1` suffix; MCP URLs include
-`/mcp`. Do not put real credentials on command lines or in version control.
-Task logging is enabled for troubleshooting. Output may expose passwords,
-bearer tokens, authentication responses, and other sensitive API data, especially
-with verbose/debug callbacks. Restrict log access and do not share raw logs.
+### Provisioning aliases
 
-### Provisioning variable compatibility
-
-Provisioning values may be passed as Ansible extra vars or injected as lowercase
-pod environment variables. Merely mounting a user-data file does not load it;
-the runner must pass the values to Ansible. Canonical health-check extra vars
-have highest precedence, followed by uppercase environment variables, then the
-provisioning aliases below.
-
-| Health-check input | Provisioning alias |
+| Canonical input | Pod / user-data name |
 | --- | --- |
+| `ao_url` | `ao_url` |
 | `ao_username`, `ao_password` | `ao_admin_user`, `ao_admin_password` |
 | `aap_url`, `aap_username`, `aap_password` | `aap_controller_web_url`, `aap_controller_admin_user`, `aap_controller_admin_password` |
 | `ocp_console_url` | `openshift_console_url` |
-| `openflake_url` | `openflake_instance_url` (fallback) |
+| `openflake_url` | `openflake_url` or fallback `openflake_instance_url` |
 | `openflake_username`, `openflake_password` | `openflake_admin_username`, `openflake_admin_password` |
-| `gitea_url`, `gitea_username`, `gitea_token` | `gitea_console_url`, `gitea_user`, `gitea_api_token` |
-| `llm_url`, `llm_api_key` | `litellm_api_base_url`, `litellm_virtual_key` |
-| `openflake_mcp_url`, `openflake_mcp_token` | `openflake_mcp_endpoint`, `openflake_mcp_bearer_token` |
-| `lightspeed_mcp_url` | `lightspeed_mcp_endpoint` |
+| `gitea_url`, `gitea_username`, `gitea_password`, `gitea_token` | `gitea_console_url`, `gitea_user`, `gitea_password`, `gitea_api_token` |
+| `mattermost_url`, `mattermost_username`, `mattermost_password` | Same names |
+| `splunk_url`, `splunk_username`, `splunk_password` | Same names |
+| `llm_url`, `llm_api_key` | `litellm_api_base_url` (includes `/v1`), `litellm_virtual_key` |
+| `openflake_mcp_url`, `openflake_mcp_token` | `openflake_mcp_endpoint` (includes `/mcp`), `openflake_mcp_bearer_token` |
+| `healthcheck_ssh_command`, `healthcheck_ssh_password` | `ssh_command`, `ssh_password` |
+| `healthcheck_rhel_nodes` | `cnv_nodes` |
 
-Lowercase environment variables are also accepted for already-matching pod keys:
-`ao_url`, `openflake_url`, `aap_mcp_url`, `gitea_password`, `mattermost_url`,
-`mattermost_username`, `mattermost_password`, `splunk_url`, `splunk_username`,
-and `splunk_password`.
+See `vars/services.yml` for uppercase environment variable names and defaults.
+Use the lab Gitea user credentials, not the separate administrator pair.
 
-These aliases do **not** supply the OpenShift API URL/user token, AAP MCP token,
-Lightspeed MCP token/SSO client pair, Splunk management API URL, or AO webhook
-client pairs. Supply those separately using the canonical inputs. Insights
-username/password are not treated as OAuth client credentials; console/ingress
-URLs are not used to guess an API endpoint. Missing inputs remain failures,
-reported as **not validated**, rather than being silently skipped. Probe failures
-also distinguish request failures from response-validation failures. Task output
-is not censored and may include credentials or response bodies.
+### OpenShift kubeconfig
 
-TLS verification defaults to **on**. Trust your cluster CA on the runner. For
-disposable environments only, explicitly set `healthcheck_validate_certs: false`.
-The default request timeout is 15 seconds (`healthcheck_timeout`); there is no
-60-second total-runtime guarantee.
+`oc` honors the runner's `KUBECONFIG` environment variable or `~/.kube/config`.
+Set `healthcheck_kubeconfig` to select an explicit mounted file instead. Its
+selected context must point to the lab, not the cluster hosting the runner.
+The console URL is checked separately; it is not used to guess an API URL or
+overwrite the kubeconfig server. Kubeconfig auth can be a user or service account;
+no cluster-admin privileges are needed just to authenticate and read `/readyz`.
+TLS and auth for the API follow kubeconfig settings.
 
-### Catalog differences
+### RHEL SSH topology
 
-- The default namespaces are `automation-orchestrator`, `aap`, `openflake`,
-  `openflake-mcp`, `lightspeed-mcp`, `mattermost`, and `gitea`; `splunk` is appended
-  when enabled. Override `healthcheck_ocp_namespaces` to match your deployment.
-  Each namespace must have pods. Completed Job pods are ignored; other pods must
-  be Ready and not terminating. This does not prove desired deployment replica
-  counts, VM readiness, or database password validity independently of the apps.
-- Splunk and Automation Decisions checks are enabled by default. Explicitly set
-  `splunk_enabled: false` or `aap_eda_enabled: false` **only if not deployed**.
-- `splunk_api_url` is the management API, usually HTTPS port **8089**, not the
-  Splunk UI Route. Provide a reachable management endpoint or an SSH/port-forward
-  tunnel; the web UI alone cannot prove the password works.
-- AAP 2.7 gateway paths are defaults. For standalone Controller use
-  `aap_me_path: /api/v2/me/`, `aap_controller_me_path: /api/v2/me/`, and
-  `aap_controller_ping_path: /api/v2/ping/`. Override `aap_eda_path` if needed.
-- Supply both AO webhook client ID/secret pairs via `ao_webhook_accounts` or
-  `AO_SOLUTIONS_CLIENT_ID`, `AO_SOLUTIONS_CLIENT_SECRET`, `AO_STUDENT_CLIENT_ID`,
-  and `AO_STUDENT_CLIENT_SECRET`. Provisioning stores these on AAP; do not rotate
-  credentials just to run a health check.
+The supplied `ssh_command` must be an OpenSSH command with one destination, e.g.
+`ssh student@bastion.example -p 30852`, with no shell wrapper or remote command.
+The password is sent to SSH password prompts, not put in process arguments.
+The access-node connection defaults to password/keyboard-interactive auth with
+public-key auth disabled, so an existing key cannot mask a bad supplied password.
+Explicit SSH options in `ssh_command` can override that policy.
+Each downstream connection is a nested SSH command on that access node. The
+runner never connects directly to `node*_external_ip`.
 
-## Deliberate limits
+Each `cnv_nodes` entry uses `name` (or explicit `host`) reachable from the access
+node, optional `ssh_user`, and optional `ssh_port` (default 22). Without a user,
+SSH uses its normal remote-side defaults/config. For downstream connections,
+existing keys may authenticate without a password prompt; in that case the check
+proves SSH access, not password validity independently. Password prompts on either hop use `ssh_password`.
+Override `healthcheck_rhel_nodes` if provisioning names do not resolve from the
+access node. An empty target list fails rather than claiming all nodes are healthy.
 
-A successful model listing does not prove inference works or has quota. MCP
-initialization/tool discovery does not execute tools and cannot prove downstream
-permissions. In particular Lightspeed MCP discovery is open even with a bogus
-token; the separate Red Hat SSO exchange checks the actual service-account pair,
-not whether every Lightspeed API operation is authorized. OpenFlake MCP enforces
-its bearer token at the proxy; AAP MCP's token is also checked directly against
-Controller. A healthy app/database pod is not a separate database login test.
-Incoming Mattermost webhook secrets are not exercised because doing so posts a
-message. RHEL VM SSH access and Insights registration are not checked here.
+New SSH host keys are accepted by default; changed keys fail. Options supplied
+in `ssh_command` take precedence. Normal SSH known-hosts files may be updated.
+`healthcheck_ssh_timeout` (30 seconds) bounds each SSH check including both hops.
 
-The reference workflows are checked only in `solutions`. Incomplete student
-workflows in `default` are intentional and are not validated or modified. Use
-`e2e.yml` (currently a scaffold stub) for future execution/remediation tests.
+### Splunk
+
+By default the check logs in through `/en-US/account/login` using the supplied
+Web URL. It requires Splunk's JSON success status (`0`) and a nonempty
+`session_id*` cookie, not merely HTTP 200 or a login page. This contract must be
+verified against the deployed Splunk version. If that deployment uses a different
+Web login contract, supply `splunk_api_url` / `SPLUNK_API_URL` for a reachable
+management endpoint (usually HTTPS port 8089); the check then verifies current
+user context using basic authentication. HEC/syslog NodePorts are not management
+API endpoints.
+
+## Logging and TLS
+
+Logging is enabled; no tasks use `no_log: true`. Output may expose passwords,
+tokens, cookies and API responses, particularly at high verbosity. Restrict log
+access and redact before sharing. Never commit real credentials.
+
+HTTP TLS verification defaults to on (`healthcheck_validate_certs`). Trust the
+cluster CA on the runner. For disposable labs only, explicitly override to false.
+The HTTP timeout is 15 seconds per request; there is no total-runtime guarantee.
 
 ## Offline tests
 
 ```bash
-pip install ansible-core PyYAML
 ansible-playbook -i localhost, qa-automation/healthcheck.yml --syntax-check
 python3 -m unittest discover -s qa-automation/tests -v
 ```
 
-The tests run the real reusable Ansible tasks against a local mock HTTP server:
-valid/invalid credentials, HTML masquerading as a successful API response, empty
-model listings, missing inputs, JSON-RPC errors, SSE initialization, unhealthy
-nodes, completed Job pods, empty namespaces, pagination, and uncensored failures.
-They do not verify the live lab's API contracts; run against a provisioned lab
-before declaring it ready.
+Tests run real Ansible tasks against mock HTTP endpoints, an executable standing
+in for `oc` with a mounted-file check, and a mock SSH client with password prompts
+on both hops. They cover provisioning input mapping, missing kubeconfig, rejected
+SSH passwords, downstream command construction, response validation, missing
+inputs, and JSON/SSE MCP initialization. They do not prove live service contracts
+or actual network/SSH connectivity; rerun against the provisioned lab.

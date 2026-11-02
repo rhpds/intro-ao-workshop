@@ -1,0 +1,77 @@
+---
+- name: Verify Splunk availability and supplied login
+  block:
+    - name: Require Splunk credentials and URL
+      ansible.builtin.assert:
+        that:
+          - splunk_url is match('^https?://[^/]+')
+          - splunk_username | length > 0
+          - splunk_password | length > 0
+          - splunk_password is not match('^(REPLACE_|YOUR_|<Change Me>)')
+        quiet: true
+
+    - name: Read Splunk Web login page and CSRF cookies
+      ansible.builtin.uri:
+        url: "{{ splunk_url }}/en-US/account/login"
+        return_content: true
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: hc_splunk_login
+      changed_when: false
+
+    - name: Authenticate against explicit Splunk management API
+      ansible.builtin.uri:
+        url: "{{ splunk_api_url | regex_replace('/+$', '') }}/services/authentication/current-context?output_mode=json"
+        url_username: "{{ splunk_username }}"
+        url_password: "{{ splunk_password }}"
+        force_basic_auth: true
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: hc_splunk_management
+      changed_when: false
+      when: splunk_api_url | length > 0
+
+    - name: Verify Splunk management authentication response
+      ansible.builtin.assert:
+        that: hc_splunk_management.json.entry | default([]) | length > 0
+        quiet: true
+      when: splunk_api_url | length > 0
+
+    - name: Authenticate using Splunk Web when no management endpoint is provided
+      ansible.builtin.uri:
+        url: "{{ splunk_url }}/en-US/account/login"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          username: "{{ splunk_username }}"
+          password: "{{ splunk_password }}"
+          cval: "{{ hc_splunk_login.cookies.cval | default('') }}"
+          return_to: /en-US/
+        headers:
+          Cookie: "{{ hc_splunk_login.cookies_string | default('') }}"
+        return_content: true
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: hc_splunk_web_auth
+      changed_when: false
+      when: splunk_api_url | length == 0
+
+    - name: Require successful Splunk Web login and a session cookie
+      ansible.builtin.assert:
+        that:
+          - hc_splunk_web_auth.json.status is defined
+          - hc_splunk_web_auth.json.status == 0
+          - hc_splunk_web_auth.cookies | default({}) | dict2items | selectattr('key', 'match', '^session_id') | selectattr('value') | list | length > 0
+        quiet: true
+      when: splunk_api_url | length == 0
+
+    - name: Record Splunk success
+      ansible.builtin.set_fact:
+        healthcheck_passed: "{{ healthcheck_passed + ['Splunk availability and credentials'] }}"
+  rescue:
+    - name: Record Splunk failure
+      ansible.builtin.set_fact:
+        healthcheck_failed: "{{ healthcheck_failed + ['Splunk availability and credentials (failed at: ' ~ ansible_failed_task.name ~ ')'] }}"

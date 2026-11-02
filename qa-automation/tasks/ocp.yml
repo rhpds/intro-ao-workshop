@@ -1,0 +1,40 @@
+---
+- name: Validate mounted OpenShift credentials and API readiness
+  block:
+    - name: Build OpenShift CLI arguments
+      ansible.builtin.set_fact:
+        hc_oc_argv: >-
+          {{ [healthcheck_oc_binary, '--request-timeout=' ~ (healthcheck_timeout | string) ~ 's']
+             + (['--kubeconfig', healthcheck_kubeconfig] if healthcheck_kubeconfig | length > 0 else []) }}
+
+    - name: Authenticate using the mounted kubeconfig
+      ansible.builtin.command:
+        argv: "{{ hc_oc_argv + ['whoami'] }}"
+      register: hc_oc_identity
+      changed_when: false
+
+    - name: Require an authenticated OpenShift identity
+      ansible.builtin.assert:
+        that:
+          - hc_oc_identity.stdout | trim | length > 0
+          - hc_oc_identity.stdout | trim != 'system:anonymous'
+        quiet: true
+
+    - name: Read OpenShift API readiness using mounted kubeconfig
+      ansible.builtin.command:
+        argv: "{{ hc_oc_argv + ['get', '--raw=/readyz'] }}"
+      register: hc_oc_ready
+      changed_when: false
+
+    - name: Require ready OpenShift API
+      ansible.builtin.assert:
+        that: hc_oc_ready.stdout | trim == 'ok'
+        quiet: true
+
+    - name: Record OpenShift success
+      ansible.builtin.set_fact:
+        healthcheck_passed: "{{ healthcheck_passed + ['OpenShift kubeconfig authentication and API readiness'] }}"
+  rescue:
+    - name: Record OpenShift failure
+      ansible.builtin.set_fact:
+        healthcheck_failed: "{{ healthcheck_failed + ['OpenShift kubeconfig authentication and API readiness (failed at: ' ~ ansible_failed_task.name ~ ')'] }}"

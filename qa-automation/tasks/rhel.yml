@@ -1,0 +1,35 @@
+---
+- name: "Check {{ hc_rhel_name }}"
+  block:
+    - name: Require SSH connection inputs
+      ansible.builtin.assert:
+        that:
+          - healthcheck_ssh_command | length > 0
+          - healthcheck_ssh_password | length > 0
+          - healthcheck_ssh_password is not match('^(REPLACE_|YOUR_|<Change Me>)')
+        quiet: true
+
+    - name: Verify SSH authentication and RHEL operating system
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/scripts/check-rhel.py"
+        stdin: >-
+          {{ {'ssh_command': healthcheck_ssh_command,
+              'ssh_password': healthcheck_ssh_password,
+              'node': hc_rhel_target,
+              'timeout': healthcheck_ssh_timeout} | to_json }}
+      register: hc_rhel_result
+      changed_when: false
+
+    - name: Record RHEL success
+      ansible.builtin.set_fact:
+        healthcheck_passed: "{{ healthcheck_passed + [hc_rhel_name] }}"
+  rescue:
+    - name: Record RHEL failure
+      ansible.builtin.set_fact:
+        healthcheck_failed: "{{ healthcheck_failed + [hc_rhel_name ~ ' (SSH authentication, connection inputs, or RHEL identity failed)'] }}"
+  always:
+    - name: Report RHEL outcome
+      ansible.builtin.debug:
+        msg: "{{ 'PASS' if hc_rhel_name in healthcheck_passed else 'FAIL' }} — {{ hc_rhel_name }}"
