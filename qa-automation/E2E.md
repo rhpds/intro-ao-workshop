@@ -40,7 +40,12 @@ Default target: the complete, published workflows in `solutions`. Set
 `e2e_project=default` to test a student's **completed, published** workflows.
 Workflow lookup uses exact name and project. The AAP simulator receives the
 matching `webhook_target` (`solutions` or `student`); its existing injected
-credentials handle webhook authentication.
+credentials handle webhook authentication. Before each launch, Ansible reads the
+live survey, resolves short values to exact dropdown labels, and sends
+multiselect answers as lists. It also reads template prompt permissions: if
+arbitrary extra vars are disabled, only survey answers are submitted and the
+fixed template limit must match the requested node plus localhost. The test does
+not loosen AAP template permissions or silently target a different host.
 
 The suite does not automate browser clicks, create the Student integrations,
 complete unfinished drafts, or publish workflows. Module 02 checks existing
@@ -154,16 +159,19 @@ GUID/domain or missing-host skip is used to turn an incomplete run into a pass.
   this suite does not implement a cross-runner lock.
 - MOTD remains updated. Incidents, work notes, jobs, executions and chat posts
   are retained as evidence.
-- Disk tests use a unique rotated-log ballast path. The `always` block runs the
-  simulator's reset (0) for that exact file once AO is known to have stopped and
-  no AAP launch remains active. Volume growth is **not** shrunk back.
+- Disk tests use a unique rotated-log ballast path when extra-var overrides are
+  enabled. For fixed templates, they use the simulator's default and capture its
+  actual path from stdout. The `always` block runs reset (0) once AO is known to
+  have stopped and no AAP launch remains active, then independently verifies the
+  actual ballast is absent. Volume growth is **not** shrunk back.
 - Ticket tests refuse to overwrite a preexisting capacity/process fixture.
   Successful remediation verifies cleanup. Failed fixtures are retained for
   investigation, not deleted or killed indiscriminately.
 - CVE tests install real patches, commit a playbook, sync AAP projects, create
   remediation job templates and may refresh Insights registration. No rollback
   of these changes is attempted. A rerun may need another CVE or a fresh lab.
-- POSTs are not retried. A lost launch response is an **unknown outcome**. On
+- POSTs are not retried. Explicit AAP validation/auth rejection is reported as a
+  rejected request, not an active job. A lost launch response is an **unknown outcome**. On
   timeout/unknown execution, the suite stops and does not reset ballast while a
   workflow might still be remediating it. Inspect recorded IDs, stop/wait for
   active work, then run simulator reset for the recorded ballast path.

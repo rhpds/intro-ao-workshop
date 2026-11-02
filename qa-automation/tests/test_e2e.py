@@ -55,6 +55,9 @@ class Lab:
         self.patched = False
         self.cve_host = 'node1'
         self.launch_bodies = []
+        self.reject_launch = False
+        self.template_name = 'Disk Utilization Simulate Alert'
+        self.ask_variables_on_launch = True
         for kind, stem in FILES.items():
             definition = json.loads((EXPORTS / (stem + '.json')).read_text())
             self.workflows[kind] = {'id': kind, 'name': NAMES[kind], 'project_id': 'solutions',
@@ -156,7 +159,17 @@ class Handler(BaseHTTPRequestHandler):
                 result.pop('nodes')
                 result['activities'] = None
             self.respond(result)
+        elif path == '/api/controller/v2/job_templates/100/':
+            self.respond({'id': 100, 'name': lab.template_name,
+                          'ask_variables_on_launch': lab.ask_variables_on_launch,
+                          'limit': 'node1,localhost' if lab.template_name.startswith('Ticket') else 'node2,localhost'})
+        elif path == '/api/controller/v2/job_templates/100/survey_spec/':
+            self.respond({'spec': [
+                {'variable': 'disk_fill_target', 'type': 'multiplechoice', 'choices': '50% - healthy, no remediation\n85% - warning, triggers log cleanup\n97% - critical, triggers volume expansion\n0% - reset, clear the ballast and fire nothing'},
+                {'variable': 'webhook_target', 'type': 'multiplechoice', 'choices': ['student - the workflow I built', 'solutions - the pre-built workflow']},
+                {'variable': 'scenario_list', 'type': 'multiselect', 'choices': ['auto_remediate', 'needs_approval', 'inform_only']} ]})
         elif path == '/api/controller/v2/job_templates/':
+            lab.template_name = query['name'][0]
             self.respond({'results': [{'id': 100, 'name': query['name'][0]}]})
         elif path.startswith('/api/controller/v2/jobs/'):
             job_id = int(path.split('/jobs/')[1].split('/')[0])
@@ -231,8 +244,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond({'error': 'credentials not mapped'}, 401)
                 return
             lab.launch_bodies.append(body)
+            if not lab.ask_variables_on_launch and any(k in body['extra_vars'] for k in ('target_host', 'ballast_path')):
+                self.respond({'error': 'non-survey overrides are not accepted'}, 400)
+                return
+            if 'scenario_list' in body['extra_vars'] and not isinstance(body['extra_vars']['scenario_list'], list):
+                self.respond({'error': 'multiselect must be a list'}, 400)
+                return
+            if lab.reject_launch:
+                self.respond({'variables_needed_to_start': ['survey validation rejected']}, 400)
+                return
+            if body['extra_vars'].get('webhook_target') not in (None, 'student - the workflow I built', 'solutions - the pre-built workflow'):
+                self.respond({'variables_needed_to_start': ['full webhook target label required']}, 400)
+                return
             if 'disk_fill_target' in body['extra_vars']:
-                pct = body['extra_vars']['disk_fill_target']
+                value = body['extra_vars']['disk_fill_target']
+                if not isinstance(value, str) or '% - ' not in value:
+                    self.respond({'variables_needed_to_start': ['full disk fill label required']}, 400)
+                    return
+                pct = value.split('%', 1)[0]
                 if pct != '0':
                     lab.start({'50': '<80%', '85': '80-95%', '97': '>95%'}[pct], kind='disk')
             else:
@@ -433,10 +462,41 @@ class NativeE2ETests(unittest.TestCase):
                 self.assertEqual(rc, 2 if case == 'disk_critical' else 0, output)
                 self.assertEqual(len(self.server.lab.launch_bodies), 2)
                 reset = self.server.lab.launch_bodies[-1]['extra_vars']
-                self.assertEqual(reset['disk_fill_target'], '0')
+                self.assertEqual(reset['disk_fill_target'], '0% - reset, clear the ballast and fire nothing')
+                self.assertEqual(reset['webhook_target'], 'solutions - the pre-built workflow')
                 self.assertIn('offline-run', reset['ballast_path'])
                 if case == 'disk_critical':
                     self.assertIn('e2e_df_after.stdout_lines', output)
+
+    def test_fixed_limit_template_uses_only_survey_vars_and_rejects_wrong_target(self):
+        for host in ('node2', 'node3'):
+            with self.subTest(host=host):
+                self.server.lab = Lab()
+                self.server.lab.ask_variables_on_launch = False
+                tasks = [{'set_fact': {'e2e_aap_api': self.base + '/api/controller/v2', 'e2e_active_execution': ''}},
+                         {'include_tasks': str(QA / 'tasks/e2e/aap-launch.yml'),
+                          'vars': {'e2e_template_id': 100, 'e2e_extra_vars': {'disk_fill_target': '50', 'webhook_target': 'solutions',
+                                                                         'target_host': host, 'ballast_path': '/var/log/messages-test'}}}]
+                rc, output, _ = self.run_ansible(tasks)
+                self.assertEqual(rc, 0 if host == 'node2' else 2, output)
+                if host == 'node2':
+                    payload = self.server.lab.launch_bodies[0]['extra_vars']
+                    self.assertEqual(set(payload), {'disk_fill_target', 'webhook_target'})
+                else:
+                    self.assertEqual(self.server.lab.launch_bodies, [])
+
+    def test_rejected_aap_launch_does_not_leave_active_work_markers(self):
+        self.server.lab.reject_launch = True
+        tasks = self.initial_tasks() + [
+            {'set_fact': {'e2e_active_execution': 'unknown - simulator may have fired AO'}},
+            {'block': [{'include_tasks': str(QA / 'tasks/e2e/aap-launch.yml'),
+                        'vars': {'e2e_template_id': 100, 'e2e_extra_vars': {'disk_fill_target': '50', 'webhook_target': 'solutions'}}}],
+             'rescue': [{'set_fact': {'e2e_test_rejected': True}}]},
+            {'assert': {'that': ['e2e_test_rejected | bool', "e2e_active_aap_job == ''", "e2e_active_execution == ''"]}}]
+        rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['ticket_inform']})
+        self.assertEqual(rc, 0, output)
+        self.assertEqual(len(self.server.lab.launch_bodies), 1)
+        self.assertEqual(self.server.lab.launch_bodies[0]['extra_vars']['disk_fill_target'], '50% - healthy, no remediation')
 
     def test_native_ticket_inform_case_from_simulator_to_incident_update(self):
         tasks = self.initial_tasks() + [
@@ -445,6 +505,7 @@ class NativeE2ETests(unittest.TestCase):
         rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['ticket_inform']})
         self.assertEqual(rc, 0, output)
         self.assertEqual(sum(method == 'POST' and path.endswith('/launch/') for method, path in self.server.lab.calls), 1)
+        self.assertEqual(self.server.lab.launch_bodies[0]['extra_vars']['scenario_list'], ['inform_only'])
 
     def test_real_execution_tasks_prove_human_gate_and_reject_wrong_branches_or_jobs(self):
         for route, approval, failed_job, expected_rc in [('Needs Approval', True, False, 0),

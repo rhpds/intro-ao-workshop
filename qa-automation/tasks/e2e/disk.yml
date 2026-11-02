@@ -46,6 +46,23 @@
     - name: Module 04 | Correlate the simulator's exact AO execution
       ansible.builtin.include_tasks: simulator-result.yml
 
+    - name: Module 04 | Identify the real ballast path when the template disallows overrides
+      ansible.builtin.set_fact:
+        e2e_actual_ballast_paths: "{{ e2e_last_stdout.content | regex_findall('Allocated[^\\n]* at (/[A-Za-z0-9_./-]+)') | unique | list }}"
+      when: e2e_using_default_ballast | bool
+
+    - name: Module 04 | Require a measured default ballast path before validating cleanup
+      ansible.builtin.assert:
+        that: e2e_actual_ballast_paths | length == 1
+        fail_msg: Simulator used its fixed ballast path, but stdout did not identify it. Inspect the active execution before resetting.
+        quiet: true
+      when: e2e_using_default_ballast | bool
+
+    - name: Module 04 | Record the simulator's actual ballast path
+      ansible.builtin.set_fact:
+        e2e_ballast_path: "{{ e2e_actual_ballast_paths[0] }}"
+      when: e2e_using_default_ballast | bool
+
     - name: Module 04 | Validate branch and linked job outcomes
       ansible.builtin.include_tasks: execution-validate.yml
 
@@ -107,15 +124,31 @@
           disk_fill_target: '0'
           target_host: "{{ e2e_disk_host }}"
           ballast_path: "{{ e2e_ballast_path }}"
+          webhook_target: "{{ 'solutions' if e2e_project == 'solutions' else 'student' }}"
       when:
         - e2e_disk_seeded | bool
         - e2e_execution_terminal | bool
         - e2e_active_aap_job | length == 0
 
+    - name: Module 04 | Verify the actual ballast is absent after reset
+      ansible.builtin.stat:
+        path: "{{ e2e_ballast_path }}"
+      delegate_to: "e2e_{{ e2e_disk_host }}"
+      register: e2e_ballast_after_reset
+      when: e2e_disk_seeded | bool and e2e_execution_terminal | bool and e2e_active_aap_job | length == 0
+
+    - name: Module 04 | Require confirmed ballast removal
+      ansible.builtin.assert:
+        that:
+          - e2e_ballast_after_reset.stat is defined
+          - not e2e_ballast_after_reset.stat.exists
+        quiet: true
+      when: e2e_disk_seeded | bool and e2e_execution_terminal | bool and e2e_active_aap_job | length == 0
+
     - name: Module 04 | Explain deferred cleanup for active or unknown work
       ansible.builtin.debug:
         msg: "FAIL — disk cleanup deferred: wait for recorded AO/AAP work to stop, then reset {{ e2e_ballast_path }} on {{ e2e_disk_host }}."
-      when: e2e_disk_seeded | bool and not e2e_execution_terminal | bool
+      when: e2e_disk_seeded | bool and not e2e_execution_terminal | bool and e2e_active_execution | default('') | length > 0
 
 - name: Module 04 | Record successful scenario evidence
   ansible.builtin.set_fact:
