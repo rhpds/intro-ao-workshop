@@ -80,6 +80,30 @@ message and does not require the administrator to be a team member. An explicit
 `e2e_mattermost_team` overrides that selection; without a hook, unique user-team
 membership is required.
 
+## Node-serving certificate repair before job execution
+
+`e2e_approve_kubelet_serving_csrs: true` enables a native Ansible preflight for
+cases that execute AAP jobs (it is skipped for integrations-only runs). It uses
+the mounted kubeconfig via `oc`, honoring `KUBECONFIG` or
+`healthcheck_kubeconfig`, and requires OpenSSL on the runner.
+
+Before approval it verifies this cluster's console Route matches the provided
+`openshift_console_url`. It selects the newest `kubernetes.io/kubelet-serving`
+request for each registered node, then proceeds only if that request is pending.
+Older pending requests are not approved behind a newer approved or denied one.
+Requester, node group, server-only usages, cryptographic signature, exact CN/O,
+and every DNS/IP SAN must match the registered node; unknown nodes, client CSRs,
+unexpected SAN types and invalid requests are never approved.
+
+After approving that specific request, it waits for certificate issuance and
+checks API-server-to-kubelet `/proxy/healthz` before starting jobs. Approvals are
+recorded in the evidence JSON. This repairs the serving-certificate condition
+that can cause `error dialing backend: remote error: tls: internal error` during
+AAP pod execution; it does not bypass TLS verification or approve unrelated CSRs.
+Set the flag to false to disable this repair. The kubeconfig identity needs
+permission to read nodes/console Routes/CSRs, approve serving CSRs and access node
+proxy health; a namespace-only service-account token is not sufficient.
+
 ## Inventory and gateway
 
 The playbook uses `add_host` to build:
@@ -102,7 +126,8 @@ authentication uses the supplied password; override `e2e_node_user` /
 node connection; private keys are not copied from the gateway. New host keys are
 accepted; changed host keys are rejected.
 
-Requirements: `ansible-core`, OpenSSH and **sshpass on the QA runner**, plus Python
+Requirements: `ansible-core`, OpenSSH and **sshpass on the QA runner**, plus `oc`
+and OpenSSL for the enabled node-serving certificate repair, and Python
 on the managed RHEL hosts for normal Ansible modules. No pexpect dependency or
 custom SSH script is used by E2E. The health check's separate SSH helper is
 unchanged. A mode-0600 temporary password file supplies the gateway proxy; the
@@ -220,4 +245,7 @@ using the checked-in workflow graphs. They cover the module-02 entry point,
 paginated project lookup, simulator-to-execution-to-incident flow, human approval,
 wrong branches/failed jobs, native dev/production CVE evidence, disk cleanup and
 independent expansion validation, new-card correlation, consent guards, and
-pagination origin checks. Python is used only for that test server, not for E2E execution.
+pagination origin checks. Separate CSR tests run the real Ansible/OpenSSL tasks
+against a mock `oc`, checking identity/SAN/signature validation, latest-request
+selection, idempotence, wrong-cluster protection and backend health failures.
+Python is used only for the offline fixtures, not for E2E execution.

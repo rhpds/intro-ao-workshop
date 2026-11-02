@@ -1,0 +1,69 @@
+---
+# The mounted kubeconfig must target this disposable lab, not its hosting cluster.
+# Node-serving CSRs only: select the newest request per registered node, then
+# approve it only if pending. Never approve stale requests behind an approved or
+# denied newer request.
+- name: CSR preflight | Build OpenShift CLI arguments from mounted kubeconfig
+  ansible.builtin.set_fact:
+    e2e_oc_argv: >-
+      {{ [healthcheck_oc_binary, '--request-timeout=' ~ (healthcheck_timeout | string) ~ 's']
+         + (['--kubeconfig', healthcheck_kubeconfig] if healthcheck_kubeconfig | length > 0 else []) }}
+    e2e_approved_serving_csrs: []
+    e2e_latest_serving_csrs: {}
+
+- name: CSR preflight | Require the provided OpenShift console identity
+  ansible.builtin.assert:
+    that: ocp_console_url is match('^https?://[^/]+')
+    fail_msg: Provide openshift_console_url so CSR approval can verify the mounted kubeconfig targets the lab.
+    quiet: true
+
+- name: CSR preflight | Read this cluster's console route before any approval
+  ansible.builtin.command:
+    argv: "{{ e2e_oc_argv + ['get', 'route', 'console', '-n', 'openshift-console', '-o', 'json'] }}"
+  register: e2e_csr_console_route
+  changed_when: false
+
+- name: CSR preflight | Reject a kubeconfig for another cluster
+  ansible.builtin.assert:
+    that: (e2e_csr_console_route.stdout | from_json).spec.host == ocp_console_url | urlsplit('hostname')
+    fail_msg: Mounted kubeconfig does not target the provided OpenShift console. Refusing CSR approval.
+    quiet: true
+
+- name: CSR preflight | Read registered cluster nodes
+  ansible.builtin.command:
+    argv: "{{ e2e_oc_argv + ['get', 'nodes', '-o', 'json'] }}"
+  register: e2e_csr_nodes_response
+  changed_when: false
+
+- name: CSR preflight | Read certificate signing requests without approving them
+  ansible.builtin.command:
+    argv: "{{ e2e_oc_argv + ['get', 'csr', '-o', 'json'] }}"
+  register: e2e_csr_list_response
+  changed_when: false
+
+- name: CSR preflight | Record registered node identities and pending serving requests
+  ansible.builtin.set_fact:
+    e2e_registered_nodes: "{{ (e2e_csr_nodes_response.stdout | from_json)['items'] }}"
+    e2e_serving_csrs: "{{ (e2e_csr_list_response.stdout | from_json)['items'] | selectattr('spec.signerName', 'equalto', 'kubernetes.io/kubelet-serving') | sort(attribute='metadata.creationTimestamp') }}"
+
+- name: CSR preflight | Select the newest serving request for each known node
+  ansible.builtin.set_fact:
+    e2e_latest_serving_csrs: "{{ e2e_latest_serving_csrs | combine({item.spec.username | regex_replace('^system:node:', ''): item}) }}"
+  loop: "{{ e2e_serving_csrs }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when:
+    - item.spec.username is match('^system:node:')
+    - item.spec.username | regex_replace('^system:node:', '') in (e2e_registered_nodes | map(attribute='metadata.name') | list)
+
+- name: CSR preflight | Validate request identity, signature and SANs before approving
+  ansible.builtin.include_tasks: kubelet-csr-approve.yml
+  loop: "{{ e2e_latest_serving_csrs | dict2items }}"
+  loop_control:
+    loop_var: e2e_node_csr
+    label: "{{ e2e_node_csr.key }} / {{ e2e_node_csr.value.metadata.name }}"
+  when: e2e_node_csr.value.status.conditions | default([], true) | length == 0
+
+- name: CSR preflight | Report only the certificates actually approved
+  ansible.builtin.debug:
+    msg: "E2E — approved kubelet-serving CSRs: {{ e2e_approved_serving_csrs | join(', ') | default('none; no matching pending requests', true) }}"

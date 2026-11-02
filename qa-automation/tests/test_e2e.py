@@ -290,7 +290,7 @@ class NativeE2ETests(unittest.TestCase):
         return {'ao_url': self.base, 'ao_admin_user': 'admin', 'ao_admin_password': 'mock-password',
                 'aap_controller_web_url': self.base, 'aap_controller_admin_user': 'admin', 'aap_controller_admin_password': 'mock-password',
                 'openflake_url': self.base, 'openflake_admin_username': 'admin', 'openflake_admin_password': 'mock-password',
-                'mattermost_url': self.base, 'e2e_poll_interval': 1, 'e2e_timeout': 2,
+                'mattermost_url': self.base, 'e2e_approve_kubelet_serving_csrs': False, 'e2e_poll_interval': 1, 'e2e_timeout': 2,
                 'ansible_python_interpreter': os.sys.executable}
 
     def run_ansible(self, tasks=None, extra=None, root=False):

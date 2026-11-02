@@ -54,6 +54,10 @@
 
     - name: Solve and validate the selected Showroom modules
       block:
+        - name: Preflight | Approve validated node-serving CSRs using the mounted lab kubeconfig
+          ansible.builtin.include_tasks: tasks/e2e/kubelet-csrs.yml
+          when: e2e_approve_kubelet_serving_csrs | bool and e2e_cases | difference(['integrations']) | length > 0
+
         - name: Preflight | Authenticate APIs and resolve workflow contracts
           ansible.builtin.include_tasks: tasks/e2e/preflight.yml
 
@@ -118,6 +122,7 @@
                   'active_aap_job': e2e_active_aap_job | default(''),
                   'current_execution': e2e_execution_id | default(''),
                   'current_job_ids': e2e_job_ids | default([]),
+                  'approved_kubelet_serving_csrs': e2e_approved_serving_csrs | default([]),
                   'disk_ballast_path': e2e_ballast_path | default(''),
                   'disk_host': e2e_disk_host, 'ticket_host': e2e_ticket_host}
                  | to_nice_json }}
