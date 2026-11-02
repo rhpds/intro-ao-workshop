@@ -14,8 +14,8 @@
 
 - name: Add declared trigger/version fields only
   ansible.builtin.set_fact:
-    e2e_launch_body: "{{ e2e_launch_body | combine({item: (e2e_manual_triggers[0].id if item == 'trigger_id' else e2e_workflow.current_version | default(e2e_workflow.version.version | default(none)))}) }}"
-  loop: [trigger_id, workflow_version, version]
+    e2e_launch_body: "{{ e2e_launch_body | combine({item: (e2e_manual_triggers[0].id if item in ['trigger_id', 'trigger_node_id'] else true if item == 'use_published' else e2e_workflow.current_version | default(e2e_workflow.version.version | default(none)))}) }}"
+  loop: [trigger_id, trigger_node_id, workflow_version, version, use_published]
   when: item in e2e_launch_schema.properties
 
 - name: Require all declared mandatory launch fields

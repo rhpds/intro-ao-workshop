@@ -26,9 +26,9 @@
 - name: Normalize node IDs, states and output without retaining full HTTP results
   ansible.builtin.set_fact:
     e2e_nodes: >-
-      {{ e2e_nodes + [{'node_id': item.node_id | default(item.activity_id | default(item.id | default(''))),
+      {{ e2e_nodes + [{'node_id': item.node_id | default(item.activity_name | default(item.activity_id | default(item.id | default('')))),
                       'status': item.status | lower | replace('-', '_') | replace(' ', '_'),
-                      'output': item.output | default(item.outputs | default({}), true)}] }}
+                      'output': item.output | default(item.output_data | default(item.outputs | default({}), true), true)}] }}
   loop: "{{ e2e_raw_nodes }}"
   loop_control:
-    label: "{{ item.node_id | default(item.activity_id | default('node')) }}"
+    label: "{{ item.node_id | default(item.activity_name | default(item.activity_id | default('node'))) }}"

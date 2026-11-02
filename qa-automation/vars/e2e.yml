@@ -41,6 +41,9 @@ e2e_insights_url: https://console.redhat.com
 # Preferred schema URL. Discovery also checks /api/v1/openapi.json and
 # /api/openapi.json, rejecting HTTP-200 UI pages and accepting mislabeled JSON.
 e2e_ao_openapi_url: "{{ ao_url | regex_replace('/+$', '') }}/openapi.json"
+# Some deployed AO builds expose no OpenAPI. This fallback is the exact contract
+# used by the deployed UI, not a probe/guess or a retry of workflow launches.
+e2e_allow_bundled_contract: true
 e2e_ao_execute_path: /executions
 e2e_ao_steps_path: ''
 e2e_ao_input_field: ''

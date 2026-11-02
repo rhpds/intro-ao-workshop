@@ -172,14 +172,19 @@ OpenAPI to discover the execution input property and node-results endpoint;
 unknown mandatory fields fail rather than guessing a launch body. Schema discovery
 checks the preferred `e2e_ao_openapi_url`, then same-origin `/api/v1/openapi.json`
 and `/api/openapi.json` paths. It rejects HTTP-200 HTML/UI fallback pages and
-parses valid JSON even if the response is mislabeled as text. If no schema is
-found, the failure lists attempted URLs, HTTP statuses and content types instead
-of accessing a missing `json` field.
+parses valid JSON even if the response is mislabeled as text. Some AO builds
+expose no backend schema at all. In that case, `vars/ao-v1-contract.yml` supplies
+the minimal contract verified against the deployed frontend: `input_data`,
+`trigger_node_id`, `use_published: true`, and `/executions/{id}/activities`.
+This is a versioned compatibility contract, not a complete backend OpenAPI spec.
+Set `e2e_allow_bundled_contract=false` to require schema discovery instead; its
+failure lists attempted URLs, HTTP statuses and content types.
 
 Override `e2e_ao_openapi_url`, `e2e_ao_execute_path`, `e2e_ao_input_field`, or
 `e2e_ao_steps_path` for a different deployed API contract. Node records must expose
-`node_id`/`activity_id`, `status`, and AAP `output.job_id` (or
-`output.result.job_id`). If node results are embedded in execution detail, no
+`node_id`/`activity_name`/`activity_id`, `status`, and AAP `output.job_id` (or
+`output.result.job_id`). AO's `output_data` is normalized to `output`. If node
+results are embedded in execution detail, no
 separate steps path is needed.
 
 These version-specific contracts, SSH proxy access, all module outcomes and

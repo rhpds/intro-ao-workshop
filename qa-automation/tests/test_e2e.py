@@ -50,6 +50,7 @@ class Lab:
         self.ticket_scenario = 'inform_only'
         self.manual_body = None
         self.schema_mode = 'json'
+        self.activity_contract = False
         self.patched = False
         self.cve_host = 'node1'
         self.launch_bodies = []
@@ -134,6 +135,12 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.respond(schema)
         elif path.startswith('/api/v1/executions/'):
+            if path.endswith('/activities'):
+                self.respond({'resources': [
+                    {'id': 'execution-activity-' + str(index), 'activity_name': row['node_id'],
+                     'status': row['status'], 'output_data': row['output']}
+                    for index, row in enumerate(lab.execution['nodes'])]})
+                return
             lab.execution_reads += 1
             result = copy.deepcopy(lab.execution)
             if lab.pending_approval and lab.execution_reads == 1:
@@ -144,6 +151,9 @@ class Handler(BaseHTTPRequestHandler):
                         row['status'] = 'pending' if row['node_id'] in gate_ids else 'not_started'
             if result['workflow_id'] == 'cve' and result['status'] == 'completed':
                 lab.patched = True
+            if lab.activity_contract:
+                result.pop('nodes')
+                result['activities'] = []
             self.respond(result)
         elif path == '/api/controller/v2/job_templates/':
             self.respond({'results': [{'id': 100, 'name': query['name'][0]}]})
@@ -304,7 +314,7 @@ class NativeE2ETests(unittest.TestCase):
 
     def test_html_only_schema_endpoints_fail_with_actionable_diagnostics(self):
         self.server.lab.schema_mode = 'all_html'
-        rc, output, _ = self.run_ansible(self.initial_tasks(), {'e2e_cases': ['motd']})
+        rc, output, _ = self.run_ansible(self.initial_tasks(), {'e2e_cases': ['motd'], 'e2e_allow_bundled_contract': False})
         self.assertEqual(rc, 2, output)
         self.assertIn('No valid AO OpenAPI JSON document was found', output)
         self.assertIn('text/html', output)
@@ -312,6 +322,36 @@ class NativeE2ETests(unittest.TestCase):
         self.assertNotIn("has no attribute 'json'", output)
         self.assertFalse(any(method == 'POST' and path.endswith(('/executions', '/launch/'))
                              for method, path in self.server.lab.calls))
+
+    def test_bundled_frontend_contract_uses_real_trigger_field_and_published_workflow(self):
+        self.server.lab.schema_mode = 'all_html'
+        tasks = self.initial_tasks() + [
+            {'set_fact': {'e2e_workflow': '{{ e2e_workflows.motd }}',
+                          'e2e_definition': '{{ e2e_workflows.motd.version.workflow_definition }}',
+                          'e2e_inputs': {'banner_request': 'offline-test'}}},
+            {'include_tasks': str(QA / 'tasks/e2e/manual-launch.yml')},
+            {'assert': {'that': ["e2e_steps_path == '/executions/{execution_id}/activities'"]}}]
+        rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['motd']})
+        self.assertEqual(rc, 0, output)
+        self.assertEqual(self.server.lab.manual_body['trigger_node_id'], 'trigger_manual')
+        self.assertTrue(self.server.lab.manual_body['use_published'])
+        self.assertNotIn('trigger_id', self.server.lab.manual_body)
+
+    def test_real_activity_name_and_output_data_contract_is_normalized(self):
+        self.server.lab.schema_mode = 'all_html'
+        self.server.lab.activity_contract = True
+        self.server.lab.start('Inform Only')
+        tasks = self.initial_tasks() + [
+            {'set_fact': {'e2e_workflow': '{{ e2e_workflows.ticket }}',
+                          'e2e_definition': '{{ e2e_workflows.ticket.version.workflow_definition }}',
+                          'e2e_expected_route': 'Inform Only', 'e2e_expects_approval': False,
+                          'e2e_execution_id': '11111111-1111-4111-8111-111111111111'}},
+            {'include_tasks': str(QA / 'tasks/e2e/branch-map.yml')},
+            {'include_tasks': str(QA / 'tasks/e2e/execution-validate.yml')},
+            {'assert': {'that': ['e2e_jobs | length > 0',
+                                "e2e_nodes | selectattr('node_id', 'equalto', 'triage_agent') | list | length == 1"]}}]
+        rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['ticket_inform']})
+        self.assertEqual(rc, 0, output)
 
     def test_manual_launch_uses_deployed_schema_without_a_python_runner(self):
         tasks = self.initial_tasks() + [

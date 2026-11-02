@@ -12,6 +12,18 @@
     loop_var: e2e_schema_url
     label: "{{ e2e_schema_url }}"
 
+- name: Preflight | Load the frontend-verified AO v1 contract when no backend schema is exposed
+  ansible.builtin.include_vars:
+    file: ../../vars/ao-v1-contract.yml
+    name: e2e_bundled_contract
+  when: e2e_openapi_spec | length == 0 and e2e_allow_bundled_contract | bool
+
+- name: Preflight | Use the known AO v1 launch and activities contract
+  ansible.builtin.set_fact:
+    e2e_openapi_spec: "{{ e2e_bundled_contract }}"
+    e2e_openapi_selected_url: bundled AO v1 contract verified against the deployed frontend
+  when: e2e_openapi_spec | length == 0 and e2e_allow_bundled_contract | bool
+
 - name: Preflight | Require a validated AO schema before using its paths
   ansible.builtin.assert:
     that:
@@ -75,7 +87,7 @@
     that:
       - "'workflow_id' in e2e_launch_schema.properties"
       - e2e_input_field in e2e_launch_schema.properties
-      - e2e_launch_schema.required | default([]) | difference(['workflow_id', 'trigger_id', 'workflow_version', 'version', e2e_input_field]) | length == 0
+      - e2e_launch_schema.required | default([]) | difference(['workflow_id', 'trigger_id', 'trigger_node_id', 'workflow_version', 'version', 'use_published', e2e_input_field]) | length == 0
     fail_msg: Unsupported execution schema. Set e2e_ao_input_field from OpenAPI; do not guess a launch body.
     quiet: true
   when: "'motd' in e2e_cases or e2e_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"
