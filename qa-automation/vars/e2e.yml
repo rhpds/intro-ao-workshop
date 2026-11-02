@@ -38,7 +38,8 @@ e2e_gitea_repo: "{{ gitea_playbook_repo | default(lookup('env', 'gitea_playbook_
 e2e_insights_username: "{{ insights_username | default(lookup('env', 'insights_username'), true) }}"
 e2e_insights_password: "{{ insights_password | default(lookup('env', 'insights_password'), true) }}"
 e2e_insights_url: https://console.redhat.com
-# Override if the deployed AO exposes its schema at a different URL.
+# Preferred schema URL. Discovery also checks /api/v1/openapi.json and
+# /api/openapi.json, rejecting HTTP-200 UI pages and accepting mislabeled JSON.
 e2e_ao_openapi_url: "{{ ao_url | regex_replace('/+$', '') }}/openapi.json"
 e2e_ao_execute_path: /executions
 e2e_ao_steps_path: ''

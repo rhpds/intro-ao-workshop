@@ -1,17 +1,39 @@
 ---
-- name: Preflight | Read deployed AO OpenAPI (not a guessed execution payload)
-  ansible.builtin.uri:
-    url: "{{ e2e_ao_openapi_url }}"
-    headers: "{{ e2e_ao_headers }}"
-    validate_certs: "{{ healthcheck_validate_certs }}"
-    timeout: "{{ healthcheck_timeout }}"
-    follow_redirects: none
-  register: e2e_openapi
+- name: Preflight | Initialize bounded AO schema discovery
+  ansible.builtin.set_fact:
+    e2e_openapi_spec: {}
+    e2e_openapi_attempts: []
+    e2e_openapi_candidates: "{{ [e2e_ao_openapi_url, e2e_ao_api ~ '/openapi.json', (ao_url | regex_replace('/+$', '')) ~ '/api/openapi.json'] | unique | list }}"
+
+- name: Preflight | Find a real OpenAPI document rather than the UI fallback page
+  ansible.builtin.include_tasks: openapi-read.yml
+  loop: "{{ e2e_openapi_candidates }}"
+  loop_control:
+    loop_var: e2e_schema_url
+    label: "{{ e2e_schema_url }}"
+
+- name: Preflight | Require a validated AO schema before using its paths
+  ansible.builtin.assert:
+    that:
+      - e2e_openapi_spec is mapping
+      - e2e_openapi_spec.paths is defined
+      - e2e_openapi_spec.paths is mapping
+      - e2e_openapi_spec.paths | length > 0
+    fail_msg: >-
+      No valid AO OpenAPI JSON document was found. Attempts (URL, HTTP status,
+      content type): {{ e2e_openapi_attempts | to_json }}.
+      A 200 HTML response is usually the UI fallback, not an API schema.
+      Set e2e_ao_openapi_url to the backend schema URL for this deployment.
+    quiet: true
+
+- name: Preflight | Report the schema endpoint selected
+  ansible.builtin.debug:
+    msg: "E2E — AO schema: {{ e2e_openapi_selected_url }}"
 
 - name: Preflight | Select execution POST and node-list paths
   ansible.builtin.set_fact:
-    e2e_execute_paths: "{{ e2e_openapi.json.paths | dict2items | selectattr('key', 'match', '^(/api/v1)?' ~ e2e_ao_execute_path ~ '/?$') | selectattr('value.post', 'defined') | list }}"
-    e2e_node_paths: "{{ e2e_openapi.json.paths | dict2items | selectattr('key', 'match', '^(/api/v1)?/executions/\\{[^}]+\\}/(nodes|steps|node_executions|activities)/?$') | selectattr('value.get', 'defined') | map(attribute='key') | list }}"
+    e2e_execute_paths: "{{ e2e_openapi_spec.paths | dict2items | selectattr('key', 'match', '^(/api/v1)?' ~ e2e_ao_execute_path ~ '/?$') | selectattr('value.post', 'defined') | list }}"
+    e2e_node_paths: "{{ e2e_openapi_spec.paths | dict2items | selectattr('key', 'match', '^(/api/v1)?/executions/\\{[^}]+\\}/(nodes|steps|node_executions|activities)/?$') | selectattr('value.get', 'defined') | map(attribute='key') | list }}"
 
 - name: Preflight | Discover node endpoint or use embedded execution nodes
   ansible.builtin.set_fact:
@@ -32,7 +54,7 @@
 
 - name: Preflight | Resolve bounded OpenAPI component references
   ansible.builtin.set_fact:
-    e2e_launch_schema: "{{ e2e_openapi.json.components.schemas[e2e_launch_schema['$ref'].split('/') | last] }}"
+    e2e_launch_schema: "{{ e2e_openapi_spec.components.schemas[e2e_launch_schema['$ref'].split('/') | last] }}"
   loop: "{{ range(10) | list }}"
   when:
     - e2e_launch_schema is defined

@@ -49,6 +49,7 @@ class Lab:
         self.matching_chat = True
         self.ticket_scenario = 'inform_only'
         self.manual_body = None
+        self.schema_mode = 'json'
         self.patched = False
         self.cve_host = 'node1'
         self.launch_bodies = []
@@ -85,10 +86,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-    def respond(self, data, code=200):
+    def respond(self, data, code=200, content_type=None):
         body = (data if isinstance(data, str) else json.dumps(data)).encode()
         self.send_response(code)
-        self.send_header('Content-Type', 'text/plain' if isinstance(data, str) else 'application/json')
+        self.send_header('Content-Type', content_type or ('text/plain' if isinstance(data, str) else 'application/json'))
         if self.command == 'POST' and self.path == '/api/v4/users/login':
             self.send_header('Token', 'mock-chat-session')
         self.end_headers()
@@ -121,9 +122,17 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'resources': [{'name': n} for n in ('job_templates_list', 'hosts_list', 'hosts_variable_data_retrieve')]})
         elif path == '/api/v1/integrations/llm/models':
             self.respond({'resources': [{'name': 'qwen3-235b'}]})
-        elif path == '/openapi.json':
-            self.respond({'paths': {'/api/v1/executions': {'post': {'requestBody': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/Launch'}}}}}}},
-                          'components': {'schemas': {'Launch': {'properties': {'workflow_id': {}, 'input_data': {}, 'trigger_id': {}}, 'required': ['workflow_id', 'input_data']}}}})
+        elif path in ('/openapi.json', '/api/v1/openapi.json', '/api/openapi.json'):
+            schema = {'paths': {'/api/v1/executions': {'post': {'requestBody': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/Launch'}}}}}}},
+                      'components': {'schemas': {'Launch': {'properties': {'workflow_id': {}, 'input_data': {}, 'trigger_id': {}}, 'required': ['workflow_id', 'input_data']}}}}
+            if lab.schema_mode == 'all_html' or (path == '/openapi.json' and lab.schema_mode == 'html_fallback'):
+                self.respond('<html>AO user interface</html>', content_type='text/html')
+            elif path == '/openapi.json' and lab.schema_mode == 'malformed_fallback':
+                self.respond('{broken JSON', content_type='text/plain')
+            elif lab.schema_mode == 'text_json':
+                self.respond(json.dumps(schema), content_type='text/plain')
+            else:
+                self.respond(schema)
         elif path.startswith('/api/v1/executions/'):
             lab.execution_reads += 1
             result = copy.deepcopy(lab.execution)
@@ -276,6 +285,33 @@ class NativeE2ETests(unittest.TestCase):
         self.assertEqual(report['passed'][0]['case'], 'integrations')
         self.assertTrue(any('cursor=page2' in path for _, path in self.server.lab.calls))
         self.assertNotIn('scripts/e2e.py', output)
+
+    def test_schema_discovery_handles_html_fallback_text_json_and_malformed_json(self):
+        for mode, suffix in (('html_fallback', '/api/v1/openapi.json'),
+                             ('text_json', '/openapi.json'),
+                             ('malformed_fallback', '/api/v1/openapi.json')):
+            with self.subTest(mode=mode):
+                self.server.lab = Lab()
+                self.server.lab.schema_mode = mode
+                tasks = self.initial_tasks() + [{'assert': {'that': [
+                    "e2e_openapi_selected_url == '" + self.base + suffix + "'",
+                    "e2e_input_field == 'input_data'",
+                    "'workflow_id' in e2e_launch_schema.properties"]}}]
+                rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['motd']})
+                self.assertEqual(rc, 0, output)
+                self.assertFalse(any(method == 'POST' and path.endswith(('/executions', '/launch/'))
+                                     for method, path in self.server.lab.calls))
+
+    def test_html_only_schema_endpoints_fail_with_actionable_diagnostics(self):
+        self.server.lab.schema_mode = 'all_html'
+        rc, output, _ = self.run_ansible(self.initial_tasks(), {'e2e_cases': ['motd']})
+        self.assertEqual(rc, 2, output)
+        self.assertIn('No valid AO OpenAPI JSON document was found', output)
+        self.assertIn('text/html', output)
+        self.assertIn('/api/v1/openapi.json', output)
+        self.assertNotIn("has no attribute 'json'", output)
+        self.assertFalse(any(method == 'POST' and path.endswith(('/executions', '/launch/'))
+                             for method, path in self.server.lab.calls))
 
     def test_manual_launch_uses_deployed_schema_without_a_python_runner(self):
         tasks = self.initial_tasks() + [

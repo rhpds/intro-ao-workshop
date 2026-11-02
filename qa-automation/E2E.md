@@ -169,7 +169,12 @@ Logging is enabled: no `no_log: true`; verbose Ansible output can expose secrets
 
 AO workflow readback uses `version.workflow_definition`. The playbook reads
 OpenAPI to discover the execution input property and node-results endpoint;
-unknown mandatory fields fail rather than guessing a launch body.
+unknown mandatory fields fail rather than guessing a launch body. Schema discovery
+checks the preferred `e2e_ao_openapi_url`, then same-origin `/api/v1/openapi.json`
+and `/api/openapi.json` paths. It rejects HTTP-200 HTML/UI fallback pages and
+parses valid JSON even if the response is mislabeled as text. If no schema is
+found, the failure lists attempted URLs, HTTP statuses and content types instead
+of accessing a missing `json` field.
 
 Override `e2e_ao_openapi_url`, `e2e_ao_execute_path`, `e2e_ao_input_field`, or
 `e2e_ao_steps_path` for a different deployed API contract. Node records must expose
