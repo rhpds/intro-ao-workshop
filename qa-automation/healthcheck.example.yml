@@ -31,10 +31,9 @@ openflake_mcp_url: https://openflake-mcp.example.test/mcp
 openflake_mcp_token: REPLACE_ME
 ssh_command: ssh student@bastion.example.test -p 30852
 ssh_password: REPLACE_ME
-cnv_nodes:
+# Optional overrides; these internal names are already the default.
+# Gateway-side SSH config selects the downstream user/key.
+healthcheck_rhel_nodes:
   - name: node1
-    ssh_user: cloud-user
   - name: node2
-    ssh_user: cloud-user
   - name: node3
-    ssh_user: cloud-user

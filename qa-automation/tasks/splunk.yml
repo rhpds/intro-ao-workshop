@@ -59,12 +59,36 @@
       changed_when: false
       when: splunk_api_url | length == 0
 
-    - name: Require successful Splunk Web login and a session cookie
+    - name: Require successful Splunk Web login
       ansible.builtin.assert:
         that:
           - hc_splunk_web_auth.json.status is defined
           - hc_splunk_web_auth.json.status == 0
-          - hc_splunk_web_auth.cookies | default({}) | dict2items | selectattr('key', 'match', '^session_id') | selectattr('value') | list | length > 0
+        quiet: true
+      when: splunk_api_url | length == 0
+
+    - name: Preserve cookies from both Splunk Web login requests
+      ansible.builtin.set_fact:
+        hc_splunk_cookies: "{{ hc_splunk_login.cookies | default({}) | combine(hc_splunk_web_auth.cookies | default({})) }}"
+      when: splunk_api_url | length == 0
+
+    - name: Verify authenticated user context through the Splunk Web proxy
+      ansible.builtin.uri:
+        url: "{{ splunk_url }}{{ splunk_web_context_path }}"
+        headers:
+          Cookie: "{% for key, value in hc_splunk_cookies.items() %}{{ key }}={{ value }}{{ '; ' if not loop.last else '' }}{% endfor %}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: hc_splunk_web_context
+      changed_when: false
+      when: splunk_api_url | length == 0
+
+    - name: Require the supplied Splunk user's authenticated context
+      ansible.builtin.assert:
+        that:
+          - hc_splunk_web_context.json.entry | default([]) | length > 0
+          - hc_splunk_web_context.json.entry[0].content.username == splunk_username
         quiet: true
       when: splunk_api_url | length == 0
 
@@ -75,3 +99,7 @@
     - name: Record Splunk failure
       ansible.builtin.set_fact:
         healthcheck_failed: "{{ healthcheck_failed + ['Splunk availability and credentials (failed at: ' ~ ansible_failed_task.name ~ ')'] }}"
+  always:
+    - name: Report Splunk outcome
+      ansible.builtin.debug:
+        msg: "{{ 'PASS' if 'Splunk availability and credentials' in healthcheck_passed else 'FAIL' }} — Splunk availability and credentials"

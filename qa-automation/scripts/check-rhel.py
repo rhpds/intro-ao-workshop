@@ -49,6 +49,8 @@ def ssh_arguments(command):
 def remote_command(node):
     if not node:
         return CHECK
+    if 'host' in node and not node['host']:
+        raise ValueError('Missing host address for downstream node ' + str(node.get('name', '')))
     host = str(node.get('host') or node.get('name') or '')
     user = str(node.get('ssh_user') or '')
     if not re.fullmatch(r'[A-Za-z0-9_.:-]+', host) or host.startswith('-'):

@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs
 
 import yaml
 
@@ -40,17 +41,26 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/mcp-error':
             payload = {'jsonrpc': '2.0', 'error': {'message': 'not authorized'}}
         elif path == '/en-US/account/login':
-            payload = {'status': 0}
+            payload = {'status': 1 if getattr(self, 'login_failed', False) else 0}
+        elif path == '/en-US/splunkd/__raw/services/authentication/current-context':
+            if 'splunk_session=mock-session' in self.headers.get('Cookie', ''):
+                payload = {'entry': [{'content': {'username': 'admin'}}]}
+            else:
+                status, payload = 401, {'error': 'missing login cookies'}
         body = (payload if isinstance(payload, str) else json.dumps(payload)).encode()
         self.send_response(status)
         self.send_header('Content-Type', content_type)
-        if path == '/en-US/account/login':
-            self.send_header('Set-Cookie', 'session_id_8000=mock-session; Path=/')
+        # Model a session established by GET and retained on successful POST,
+        # with no newly issued cookie and no dependency on its name.
+        if path == '/en-US/account/login' and self.command == 'GET':
+            self.send_header('Set-Cookie', 'splunk_session=mock-session; Path=/')
         self.end_headers()
         self.wfile.write(body)
 
     def do_POST(self):
-        self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
+        if self.path == '/en-US/account/login':
+            self.login_failed = parse_qs(body.decode()).get('password') != [SECRET]
         self.do_GET()
 
 
@@ -71,6 +81,8 @@ class SSHParsingTests(unittest.TestCase):
                 rhel.ssh_arguments(command)
         with self.assertRaises(ValueError):
             rhel.remote_command({'name': '-oProxyCommand=bad'})
+        with self.assertRaises(ValueError):
+            rhel.remote_command({'name': 'node1', 'host': ''})
 
 
 @unittest.skipUnless(shutil.which('ansible-playbook'), 'ansible-playbook required')
@@ -102,7 +114,9 @@ class HealthcheckTests(unittest.TestCase):
             'ssh_command': 'ssh student@bastion.example -p 30852', 'ssh_password': SECRET,
             'cnv_nodes': [{'name': f'node{n}', 'ssh_user': 'cloud-user'} for n in range(1, 4)],
         }
-        for mode in ('extra-vars', 'lowercase-env', 'missing-kubeconfig', 'bad-ssh-password'):
+        for mode in ('extra-vars', 'lowercase-env', 'internal-default', 'internal-env',
+                     'missing-kubeconfig', 'bad-ssh-password', 'bad-splunk-password',
+                     'compact', 'compact-failure'):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 oc = root / 'oc'
@@ -113,6 +127,8 @@ class HealthcheckTests(unittest.TestCase):
                 oc.chmod(0o700)
                 ssh = root / 'ssh'
                 ssh.write_text('#!/usr/bin/env python3\nimport sys\n'
+                               'assert sys.argv[-2] == "student@bastion.example"\n'
+                               'assert "192.0.2." not in sys.argv[-1]\n'
                                'print("Password: ", end="", flush=True)\n'
                                f'if input() != {SECRET!r}: sys.exit(1)\n'
                                '# Nested connections may prompt for the same password.\n'
@@ -129,25 +145,50 @@ class HealthcheckTests(unittest.TestCase):
                 env = {key: value for key, value in os.environ.items()
                        if key not in aliases and not key.startswith(('AO_', 'AAP_', 'OCP_', 'GITEA_', 'OPENFLAKE_', 'MATTERMOST_', 'SPLUNK_', 'LLM_', 'SSH_'))}
                 env.update({'PATH': str(root) + os.pathsep + env['PATH'], 'KUBECONFIG': str(kubeconfig)})
-                if mode == 'lowercase-env':
+                inputs = dict(aliases)
+                if mode in ('internal-default', 'internal-env'):
+                    inputs.pop('cnv_nodes')
+                    # External addresses must not be used, even when provided.
+                    inputs.update({f'node{n}_external_ip': f'192.0.2.{n}' for n in range(1, 4)})
+                if mode in ('lowercase-env', 'internal-env'):
                     env.update({key: json.dumps(value) if isinstance(value, list) else value
-                                for key, value in aliases.items()})
+                                for key, value in inputs.items()})
                 else:
-                    variables.update(aliases)
+                    variables.update(inputs)
+                if mode in ('bad-splunk-password', 'compact-failure'):
+                    variables['splunk_password'] = 'bad-password'
                 if mode == 'bad-ssh-password':
                     variables['ssh_password'] = 'bad-password'
                 path = root / 'inputs.yml'
                 path.write_text(yaml.safe_dump(variables))
-                result = subprocess.run(['ansible-playbook', '-i', 'localhost,',
-                                         str(QA / 'healthcheck.yml'), '-e', '@' + str(path)],
+                command = (['bash', str(QA / 'run-healthcheck.sh')]
+                           if mode.startswith('compact') else
+                           ['ansible-playbook', '-i', 'localhost,', str(QA / 'healthcheck.yml')])
+                # The wrapper must select the callback even from another cwd.
+                env.pop('ANSIBLE_STDOUT_CALLBACK', None)
+                result = subprocess.run(command + ['-e', '@' + str(path)], cwd=root,
                                         env=env, capture_output=True, text=True, timeout=90)
                 output = result.stdout + result.stderr
-                if mode in ('missing-kubeconfig', 'bad-ssh-password'):
+                if mode in ('missing-kubeconfig', 'bad-ssh-password', 'bad-splunk-password', 'compact-failure'):
                     self.assertNotEqual(result.returncode, 0, output)
-                    self.assertIn('Checks failed or not validated', output)
+                    self.assertIn('Failed / not validated:' if mode.startswith('compact')
+                                  else 'Checks failed or not validated', output)
                 else:
                     self.assertEqual(result.returncode, 0, output)
-                    self.assertIn('Service availability and supplied credentials verified', output)
+                    self.assertIn('RESULT: PASSED' if mode.startswith('compact')
+                                  else 'Service availability and supplied credentials verified', output)
+                if mode.startswith('compact'):
+                    self.assertNotIn('TASK [', output)
+                    self.assertNotIn('included:', output)
+                    self.assertNotIn('No inventory was parsed', output)
+                    self.assertIn('PASS — OpenShift kubeconfig', output)
+                    self.assertIn('PASS — RHEL node node3 via access node', output)
+                    if mode == 'compact-failure':
+                        self.assertIn('FAIL — Splunk', output)
+                        self.assertIn('Summary: 15 passed, 1 failed', output)
+                        self.assertIn('RESULT: FAILED', output)
+                    else:
+                        self.assertIn('Summary: 16 passed, 0 failed', output)
                 self.assertNotIn('List workflows', output)
                 self.assertNotIn('censored', output)
 

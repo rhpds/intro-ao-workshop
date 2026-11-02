@@ -38,3 +38,7 @@
     - name: Record OpenShift failure
       ansible.builtin.set_fact:
         healthcheck_failed: "{{ healthcheck_failed + ['OpenShift kubeconfig authentication and API readiness (failed at: ' ~ ansible_failed_task.name ~ ')'] }}"
+  always:
+    - name: Report OpenShift outcome
+      ansible.builtin.debug:
+        msg: "{{ 'PASS' if 'OpenShift kubeconfig authentication and API readiness' in healthcheck_passed else 'FAIL' }} — OpenShift kubeconfig authentication and API readiness"

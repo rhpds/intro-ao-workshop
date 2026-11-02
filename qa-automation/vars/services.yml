@@ -32,14 +32,23 @@ llm_api_key: "{{ lookup('env', 'LLM_API_KEY') | default(litellm_virtual_key | de
 splunk_url: "{{ lookup('env', 'SPLUNK_URL') | default(lookup('env', 'splunk_url'), true) | regex_replace('/+$', '') }}"
 # Optional explicit management endpoint; otherwise authenticate via Splunk Web.
 splunk_api_url: "{{ lookup('env', 'SPLUNK_API_URL') }}"
+splunk_web_context_path: /en-US/splunkd/__raw/services/authentication/current-context?output_mode=json
 splunk_username: "{{ lookup('env', 'SPLUNK_USERNAME') | default(lookup('env', 'splunk_username'), true) | default('admin', true) }}"
 splunk_password: "{{ lookup('env', 'SPLUNK_PASSWORD') | default(lookup('env', 'splunk_password'), true) }}"
 openflake_mcp_url: "{{ lookup('env', 'OPENFLAKE_MCP_URL') | default(openflake_mcp_endpoint | default(lookup('env', 'openflake_mcp_endpoint'), true), true) }}"
 openflake_mcp_token: "{{ lookup('env', 'OPENFLAKE_MCP_TOKEN') | default(openflake_mcp_bearer_token | default(lookup('env', 'openflake_mcp_bearer_token'), true), true) }}"
 healthcheck_ssh_command: "{{ lookup('env', 'SSH_COMMAND') | default(ssh_command | default(lookup('env', 'ssh_command'), true), true) }}"
 healthcheck_ssh_password: "{{ lookup('env', 'SSH_PASSWORD') | default(ssh_password | default(lookup('env', 'ssh_password'), true), true) }}"
-# cnv_nodes names must be resolvable from the SSH access node, not the runner.
-healthcheck_rhel_nodes: "{{ cnv_nodes | default(lookup('env', 'cnv_nodes') | default('[]', true) | from_json) }}"
+# All targets are contacted from the SSH access node, never from the runner.
+healthcheck_provisioned_rhel_nodes: "{{ cnv_nodes | default(lookup('env', 'cnv_nodes') | default('[]', true) | from_json, true) }}"
+# Internal names resolve on the gateway. Let its SSH config select the user/key.
+healthcheck_internal_rhel_nodes:
+  - name: node1
+  - name: node2
+  - name: node3
+healthcheck_rhel_nodes: >-
+  {{ healthcheck_provisioned_rhel_nodes if healthcheck_provisioned_rhel_nodes | length > 0
+     else healthcheck_internal_rhel_nodes }}
 healthcheck_ssh_timeout: 30
 healthcheck_http_probes:
   - name: OpenShift console

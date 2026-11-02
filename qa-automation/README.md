@@ -9,10 +9,10 @@
 | OCP | Console `/health`; `oc whoami` and API `/readyz` using the mounted kubeconfig |
 | Gitea | User/password login and API token against the user API |
 | Mattermost | User login against its API |
-| Splunk | Web availability and Web login (success response plus session cookie); alternatively authenticated management API if explicitly provided |
+| Splunk | Web availability, Web login, and authenticated user context; alternatively authenticated management API if explicitly provided |
 | OpenFlake | Readiness and authenticated incident listing (an empty incident table is valid) |
 | RHEL access node | SSH using `ssh_command` and `ssh_password`; authenticated identity and `/etc/os-release` confirms RHEL |
-| RHEL downstream nodes | SSH **from the access node**, using `cnv_nodes` names/users; same supplied password if prompted; confirm RHEL |
+| RHEL downstream nodes | SSH **from the access node** to internal `node1`, `node2`, `node3` (overridable); same supplied password if prompted; confirm RHEL |
 | OpenFlake MCP | JSON-RPC initialization with the provided bearer token; JSON/SSE supported |
 | LiteMaaS | Virtual key accepted and at least one model advertised |
 
@@ -34,7 +34,7 @@ checks passed; any failure or missing input results in a nonzero exit.
 
 ```bash
 pip install ansible-core pexpect PyYAML
-ansible-playbook -i localhost, qa-automation/healthcheck.yml \
+bash qa-automation/run-healthcheck.sh \
   -e @/run/secrets/provisioned-user-data.yml
 ```
 
@@ -60,7 +60,7 @@ variables take precedence over provisioning aliases.
 | `llm_url`, `llm_api_key` | `litellm_api_base_url` (includes `/v1`), `litellm_virtual_key` |
 | `openflake_mcp_url`, `openflake_mcp_token` | `openflake_mcp_endpoint` (includes `/mcp`), `openflake_mcp_bearer_token` |
 | `healthcheck_ssh_command`, `healthcheck_ssh_password` | `ssh_command`, `ssh_password` |
-| `healthcheck_rhel_nodes` | `cnv_nodes` |
+| `healthcheck_rhel_nodes` | `cnv_nodes`, or default internal names `node1`, `node2`, `node3` |
 
 See `vars/services.yml` for uppercase environment variable names and defaults.
 Use the lab Gitea user credentials, not the separate administrator pair.
@@ -92,7 +92,11 @@ SSH uses its normal remote-side defaults/config. For downstream connections,
 existing keys may authenticate without a password prompt; in that case the check
 proves SSH access, not password validity independently. Password prompts on either hop use `ssh_password`.
 Override `healthcheck_rhel_nodes` if provisioning names do not resolve from the
-access node. An empty target list fails rather than claiming all nodes are healthy.
+access node. If `cnv_nodes` is missing or empty, the targets default to internal
+hostnames `node1`, `node2`, and `node3` on port 22. Resolution and connections
+happen on the gateway; no external IP variables are used. Gateway-side SSH
+configuration selects the downstream username/key unless explicitly overridden.
+An explicitly empty `healthcheck_rhel_nodes` fails rather than claiming success.
 
 New SSH host keys are accepted by default; changed keys fail. Options supplied
 in `ssh_command` take precedence. Normal SSH known-hosts files may be updated.
@@ -101,17 +105,64 @@ in `ssh_command` take precedence. Normal SSH known-hosts files may be updated.
 ### Splunk
 
 By default the check logs in through `/en-US/account/login` using the supplied
-Web URL. It requires Splunk's JSON success status (`0`) and a nonempty
-`session_id*` cookie, not merely HTTP 200 or a login page. This contract must be
-verified against the deployed Splunk version. If that deployment uses a different
-Web login contract, supply `splunk_api_url` / `SPLUNK_API_URL` for a reachable
+Web URL. It requires Splunk's JSON success status (`0`), merges the cookies from
+both the initial page and login response, and requests authenticated user context
+through `/en-US/splunkd/__raw/services/authentication/current-context?output_mode=json`.
+The returned username must match the supplied user. No particular cookie name
+or newly issued cookie is required. Override `splunk_web_context_path` if your
+version uses a different proxy path. Alternatively, supply `splunk_api_url` / `SPLUNK_API_URL` for a reachable
 management endpoint (usually HTTPS port 8089); the check then verifies current
 user context using basic authentication. HEC/syslog NodePorts are not management
 API endpoints.
 
+## Readable output
+
+Use `run-healthcheck.sh` in the pod's health-check launcher instead of calling
+`ansible-playbook` directly. It selects the local `healthcheck` stdout callback
+and supplies localhost inventory, removing the inventory warnings. Extra CLI
+arguments are forwarded unchanged; the Ansible exit code is preserved.
+
+```text
+Health check — service availability and credentials
+
+PASS — OpenShift console
+PASS — AAP credentials and API
+PASS — AO credentials and API
+...
+PASS — Splunk availability and credentials
+PASS — OpenShift kubeconfig authentication and API readiness
+PASS — RHEL access node
+PASS — RHEL node node1 via access node
+PASS — RHEL node node2 via access node
+PASS — RHEL node node3 via access node
+
+Summary: 16 passed, 0 failed
+
+RESULT: PASSED (12.3s)
+```
+
+Failures include a one-line task diagnostic (limited to 300 characters) and a
+final list of failed/not-validated checks. Successful intermediate tasks, skipped
+tasks, include banners and full response objects are not printed. These are
+individual probes, so multiple checks may belong to one service.
+
+If your launcher must invoke `ansible-playbook` directly, configure its environment:
+
+```bash
+export ANSIBLE_CALLBACK_PLUGINS=/app/qa-automation/callback_plugins
+export ANSIBLE_STDOUT_CALLBACK=healthcheck
+ansible-playbook -i localhost, /app/qa-automation/healthcheck.yml
+```
+
+For raw Ansible troubleshooting, use:
+
+```bash
+ANSIBLE_STDOUT_CALLBACK=default bash qa-automation/run-healthcheck.sh -vv
+```
+
 ## Logging and TLS
 
-Logging is enabled; no tasks use `no_log: true`. Output may expose passwords,
+Compact output is formatting, not secret redaction. Logging is enabled; no tasks use `no_log: true`. Output may expose passwords,
 tokens, cookies and API responses, particularly at high verbosity. Restrict log
 access and redact before sharing. Never commit real credentials.
 
@@ -129,6 +180,9 @@ python3 -m unittest discover -s qa-automation/tests -v
 Tests run real Ansible tasks against mock HTTP endpoints, an executable standing
 in for `oc` with a mounted-file check, and a mock SSH client with password prompts
 on both hops. They cover provisioning input mapping, missing kubeconfig, rejected
-SSH passwords, downstream command construction, response validation, missing
+SSH passwords, internal-node defaults (ignoring external IPs), retained Splunk cookies, rejected Splunk
+passwords, downstream command construction, response validation, missing
 inputs, and JSON/SSE MCP initialization. They do not prove live service contracts
-or actual network/SSH connectivity; rerun against the provisioned lab.
+or actual network/SSH connectivity; rerun against the provisioned lab. Tests also
+verify compact success/failure summaries, preserved nonzero exit codes, and
+running the wrapper from outside the repository.
