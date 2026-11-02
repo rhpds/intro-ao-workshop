@@ -31,6 +31,7 @@ e2e_workflow_names:
   ticket: Ticket Enrichment Demo
   cve: RHEL CVE Remediation
 e2e_mattermost_team: ''
+e2e_mattermost_webhook_token: "{{ lookup('env', 'MATTERMOST_WEBHOOK_TOKEN') | default(mattermost_webhook_token | default(lookup('env', 'mattermost_webhook_token'), true), true) }}"
 e2e_mattermost_channel: town-square
 e2e_disk_host: node2
 e2e_ticket_host: node1

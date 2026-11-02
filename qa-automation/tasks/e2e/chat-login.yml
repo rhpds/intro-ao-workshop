@@ -15,38 +15,74 @@
     that: e2e_chat_login.token | default('') | length > 0
     quiet: true
 
-- name: Preflight | Record Mattermost session headers
+- name: Preflight | Record Mattermost session and provided incoming-hook ID
   ansible.builtin.set_fact:
     e2e_chat_headers: {Authorization: "Bearer {{ e2e_chat_login.token }}"}
+    e2e_chat_hook_id: "{{ e2e_mattermost_webhook_token | regex_replace('/+$', '') | split('/') | last }}"
 
-- name: Preflight | List Mattermost teams
-  ansible.builtin.uri:
-    url: "{{ mattermost_url }}/api/v4/users/me/teams"
-    headers: "{{ e2e_chat_headers }}"
-    timeout: "{{ healthcheck_timeout }}"
-    validate_certs: "{{ healthcheck_validate_certs }}"
-    follow_redirects: none
-  register: e2e_chat_teams
+- name: Preflight | Resolve the actual lab notification channel from the provided webhook
+  when: e2e_mattermost_team | length == 0 and e2e_chat_hook_id | length > 0
+  block:
+    - name: Preflight | Read incoming webhook metadata without posting a message
+      ansible.builtin.uri:
+        url: "{{ mattermost_url }}/api/v4/hooks/incoming/{{ e2e_chat_hook_id }}"
+        headers: "{{ e2e_chat_headers }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: e2e_chat_hook
 
-- name: Preflight | Select notification team
-  ansible.builtin.set_fact:
-    e2e_chat_selected_teams: "{{ (e2e_chat_teams.json | selectattr('name', 'equalto', e2e_mattermost_team) | list) if e2e_mattermost_team | length > 0 else e2e_chat_teams.json }}"
+    - name: Preflight | Read the webhook's channel
+      ansible.builtin.uri:
+        url: "{{ mattermost_url }}/api/v4/channels/{{ e2e_chat_hook.json.channel_id }}"
+        headers: "{{ e2e_chat_headers }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: e2e_chat_hook_channel
 
-- name: Preflight | Require a unique team
-  ansible.builtin.assert:
-    that: e2e_chat_selected_teams | length == 1
-    fail_msg: Set e2e_mattermost_team when the user belongs to multiple teams.
-    quiet: true
+    - name: Preflight | Require the intended lab channel rather than another webhook target
+      ansible.builtin.assert:
+        that:
+          - e2e_chat_hook_channel.json.name == e2e_mattermost_channel
+          - e2e_chat_hook_channel.json.team_id == e2e_chat_hook.json.team_id
+        quiet: true
 
-- name: Preflight | Resolve Town Square channel
-  ansible.builtin.uri:
-    url: "{{ mattermost_url }}/api/v4/teams/{{ e2e_chat_selected_teams[0].id }}/channels/name/{{ e2e_mattermost_channel | urlencode }}"
-    headers: "{{ e2e_chat_headers }}"
-    timeout: "{{ healthcheck_timeout }}"
-    validate_certs: "{{ healthcheck_validate_certs }}"
-    follow_redirects: none
-  register: e2e_chat_channel_response
+    - name: Preflight | Record the provided webhook's notification channel
+      ansible.builtin.set_fact:
+        e2e_chat_channel: "{{ e2e_chat_hook_channel.json.id }}"
 
-- name: Preflight | Record notification channel
-  ansible.builtin.set_fact:
-    e2e_chat_channel: "{{ e2e_chat_channel_response.json.id }}"
+- name: Preflight | Resolve an explicit team or fall back to unique user membership
+  when: e2e_mattermost_team | length > 0 or e2e_chat_hook_id | length == 0
+  block:
+    - name: Preflight | List Mattermost teams
+      ansible.builtin.uri:
+        url: "{{ mattermost_url }}/api/v4/users/me/teams"
+        headers: "{{ e2e_chat_headers }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: e2e_chat_teams
+
+    - name: Preflight | Select notification team
+      ansible.builtin.set_fact:
+        e2e_chat_selected_teams: "{{ (e2e_chat_teams.json | selectattr('name', 'equalto', e2e_mattermost_team) | list) if e2e_mattermost_team | length > 0 else e2e_chat_teams.json }}"
+
+    - name: Preflight | Require a unique team
+      ansible.builtin.assert:
+        that: e2e_chat_selected_teams | length == 1
+        fail_msg: Supply the provisioned mattermost_webhook_token, or select a team accessible to this user with e2e_mattermost_team.
+        quiet: true
+
+    - name: Preflight | Resolve Town Square channel
+      ansible.builtin.uri:
+        url: "{{ mattermost_url }}/api/v4/teams/{{ e2e_chat_selected_teams[0].id }}/channels/name/{{ e2e_mattermost_channel | urlencode }}"
+        headers: "{{ e2e_chat_headers }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: e2e_chat_channel_response
+
+    - name: Preflight | Record notification channel
+      ansible.builtin.set_fact:
+        e2e_chat_channel: "{{ e2e_chat_channel_response.json.id }}"

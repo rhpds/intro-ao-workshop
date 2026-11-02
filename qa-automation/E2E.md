@@ -54,7 +54,8 @@ The playbook uses the same `vars/services.yml` aliases as the health check:
 - AO: `ao_url`, `ao_admin_user`, `ao_admin_password`
 - AAP: `aap_controller_web_url`, `aap_controller_admin_user`, `aap_controller_admin_password`
 - OpenFlake: `openflake_url`, `openflake_admin_username`, `openflake_admin_password`
-- Mattermost: `mattermost_url`, `mattermost_username`, `mattermost_password`
+- Mattermost: `mattermost_url`, `mattermost_username`, `mattermost_password`,
+  `mattermost_webhook_token`
 - Gitea: `gitea_console_url`, `gitea_api_token`, `gitea_playbook_repo`
 - Insights: `insights_username`, `insights_password`, `guid`
 - Gateway: `ssh_command`, `ssh_password`, plus `ssh_address`, `ssh_username`,
@@ -67,6 +68,12 @@ or credential value is embedded in the tests.
 `e2e_gitea_repo` must be `owner/repository`. Override it if the provisioned
 `gitea_playbook_repo` is only a repository name or clone URL. Insights REST calls
 use the provided username/password, not an invented OAuth client secret.
+
+When `mattermost_webhook_token` is supplied, the suite reads its incoming-hook
+metadata to select the actual lab notification channel. It does not post a test
+message and does not require the administrator to be a team member. An explicit
+`e2e_mattermost_team` overrides that selection; without a hook, unique user-team
+membership is required.
 
 ## Inventory and gateway
 

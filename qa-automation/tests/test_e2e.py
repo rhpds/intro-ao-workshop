@@ -47,6 +47,7 @@ class Lab:
         self.execution_reads = 0
         self.pending_approval = False
         self.matching_chat = True
+        self.mm_no_teams = False
         self.ticket_scenario = 'inform_only'
         self.manual_body = None
         self.schema_mode = 'json'
@@ -167,7 +168,11 @@ class Handler(BaseHTTPRequestHandler):
             self.respond({'result': [{'sys_id': 'ticket-1', 'number': 'INC0000001', 'state': '2',
                                       'work_notes': 'Enriched for security team', 'comments': 'Please investigate'}]})
         elif path == '/api/v4/users/me/teams':
-            self.respond([{'id': 'team', 'name': 'lab'}])
+            self.respond([] if lab.mm_no_teams else [{'id': 'team', 'name': 'lab'}])
+        elif path == '/api/v4/hooks/incoming/mock-hook':
+            self.respond({'channel_id': 'channel', 'team_id': 'team'})
+        elif path == '/api/v4/channels/channel':
+            self.respond({'id': 'channel', 'name': 'town-square', 'team_id': 'team'})
         elif path == '/api/v4/teams/team/channels/name/town-square':
             self.respond({'id': 'channel'})
         elif path == '/api/inventory/v1/hosts':
@@ -449,6 +454,17 @@ class NativeE2ETests(unittest.TestCase):
                 else:
                     self.assertIn('Execution failed, skipped a required branch node', output)
                 self.assertFalse(any(method == 'POST' and 'approv' in path for method, path in self.server.lab.calls))
+
+    def test_mattermost_admin_without_team_membership_uses_provided_webhook(self):
+        self.server.lab.mm_no_teams = True
+        tasks = [{'include_tasks': str(QA / 'tasks/e2e/chat-login.yml')},
+                 {'assert': {'that': ["e2e_chat_channel == 'channel'"]}}]
+        rc, output, _ = self.run_ansible(tasks, {'mattermost_username': 'admin',
+                                                'mattermost_password': 'mock-password',
+                                                'mattermost_webhook_token': 'mock-hook'})
+        self.assertEqual(rc, 0, output)
+        self.assertIn(('GET', '/api/v4/hooks/incoming/mock-hook'), self.server.lab.calls)
+        self.assertNotIn(('GET', '/api/v4/users/me/teams'), self.server.lab.calls)
 
     def test_new_chat_card_must_match_every_term_on_one_post(self):
         tasks = [{'set_fact': {'e2e_chat_channel': 'channel', 'e2e_chat_headers': {}, 'e2e_chat_baseline': ['old']}},
