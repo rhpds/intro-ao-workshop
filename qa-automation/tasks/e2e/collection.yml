@@ -1,0 +1,12 @@
+---
+# Inputs: e2e_collection_url, e2e_collection_key (resources/results),
+# e2e_collection_headers or e2e_collection_user/password. Output e2e_collection.
+- name: Initialize bounded collection read
+  ansible.builtin.set_fact:
+    e2e_collection: []
+    e2e_next_url: "{{ e2e_collection_url }}"
+    e2e_page_count: 0
+    e2e_seen_urls: []
+
+- name: Read collection pages
+  ansible.builtin.include_tasks: collection-page.yml

@@ -1,0 +1,71 @@
+---
+# Invoking e2e.yml authorizes changes to this disposable workshop lab.
+# Set any permission to false explicitly to prohibit that class of change.
+e2e_allow_changes: true
+e2e_allow_patching: true
+e2e_allow_disk_expand: true
+# Repair only validated node-serving certificate requests on the mounted lab
+# kubeconfig before AAP jobs need kubelet exec/streaming. Never approve client CSRs.
+e2e_approve_kubelet_serving_csrs: false
+e2e_csr_retries: 30
+e2e_csr_poll_interval: 2
+e2e_project: solutions
+e2e_supported_cases: [integrations, motd, disk_healthy, disk_warning, disk_critical, ticket_auto, ticket_approval, ticket_inform, cve_dev, cve_prod]
+# Independent-only defaults while AAP execution-pod TLS is blocked. Workflow
+# cases remain supported but are explicitly excluded, not counted as passed.
+# MOTD also remains excluded for its empty structured agent output.
+e2e_check_rhel_connectivity: true
+e2e_cases:
+  - integrations
+e2e_cve_id: "{{ lookup('env', 'E2E_CVE_ID') }}"
+e2e_lab_guid: "{{ guid | default(lookup('env', 'guid'), true) }}"
+e2e_timeout: 900
+e2e_poll_interval: 5
+e2e_retries: "{{ ((e2e_timeout | int) / (e2e_poll_interval | int)) | round(0, 'ceil') | int }}"
+e2e_report_path: ''
+e2e_success_statuses: [completed, successful, succeeded, success]
+e2e_failed_statuses: [failed, error, canceled, cancelled, rejected, timed_out]
+e2e_paused_statuses: [paused, pending_approval, waiting_for_approval]
+e2e_pending_node_statuses: [pending, waiting, paused, pending_approval, waiting_for_approval]
+e2e_idle_node_statuses: [pending, skipped, not_started]
+e2e_workflow_names:
+  motd: Message of the Day
+  disk: Disk Utilization Remediation
+  ticket: Ticket Enrichment Demo
+  cve: RHEL CVE Remediation
+e2e_mattermost_team: ''
+e2e_mattermost_webhook_token: "{{ lookup('env', 'MATTERMOST_WEBHOOK_TOKEN') | default(mattermost_webhook_token | default(lookup('env', 'mattermost_webhook_token'), true), true) }}"
+e2e_mattermost_channel: town-square
+e2e_disk_host: node2
+e2e_ticket_host: node1
+e2e_gitea_repo: "{{ gitea_playbook_repo | default(lookup('env', 'gitea_playbook_repo'), true) }}"
+e2e_insights_username: "{{ insights_username | default(lookup('env', 'insights_username'), true) }}"
+e2e_insights_password: "{{ insights_password | default(lookup('env', 'insights_password'), true) }}"
+e2e_insights_url: https://console.redhat.com
+# Preferred schema URL. Discovery also checks /api/v1/openapi.json and
+# /api/openapi.json, rejecting HTTP-200 UI pages and accepting mislabeled JSON.
+e2e_ao_openapi_url: "{{ ao_url | regex_replace('/+$', '') }}/openapi.json"
+# Some deployed AO builds expose no OpenAPI. This fallback is the exact contract
+# used by the deployed UI, not a probe/guess or a retry of workflow launches.
+e2e_allow_bundled_contract: true
+e2e_ao_execute_path: /executions
+e2e_ao_steps_path: ''
+e2e_ao_input_field: ''
+# The usual supplied command is ssh USER@HOST -p PORT. Explicit flat provisioned
+# SSH values take precedence; no host, username or password is invented.
+e2e_ssh_destination: "{{ healthcheck_ssh_command | regex_findall('(?:^|\\s)([A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+)(?=\\s|$)') | first | default('') }}"
+e2e_gateway_host: "{{ ssh_address | default(lookup('env', 'ssh_address'), true) | default(e2e_ssh_destination.split('@') | last, true) }}"
+e2e_gateway_user: "{{ ssh_username | default(lookup('env', 'ssh_username'), true) | default(e2e_ssh_destination.split('@') | first if '@' in e2e_ssh_destination else '', true) }}"
+e2e_gateway_port: "{{ ssh_port | default(lookup('env', 'ssh_port'), true) | default(healthcheck_ssh_command | regex_findall('(?:^|\\s)-p\\s*([0-9]+)') | first | default('22'), true) }}"
+# Discover each node's user/hostname/port from `ssh -G nodeN` on the gateway,
+# exactly as the Showroom terminal connects. Explicit user override is optional.
+e2e_node_user: ''
+e2e_node_password: "{{ healthcheck_ssh_password }}"
+e2e_disk_cases:
+  disk_healthy: {percent: '50', route: '<80%', tier: ok}
+  disk_warning: {percent: '85', route: '80-95%', tier: warn}
+  disk_critical: {percent: '97', route: '>95%', tier: critical}
+e2e_ticket_cases:
+  ticket_auto: {scenario: auto_remediate, route: Auto Remediate, state: '6'}
+  ticket_approval: {scenario: needs_approval, route: Needs Approval, state: '6'}
+  ticket_inform: {scenario: inform_only, route: Inform Only, state: '2'}

@@ -1,0 +1,48 @@
+---
+- name: Reject looping, excessive or cross-origin pagination
+  ansible.builtin.assert:
+    that:
+      - e2e_page_count | int < 50
+      - e2e_next_url not in e2e_seen_urls
+      - e2e_next_url | urlsplit('netloc') == e2e_collection_url | urlsplit('netloc')
+      - e2e_next_url | urlsplit('scheme') == e2e_collection_url | urlsplit('scheme')
+    quiet: true
+
+- name: Read collection page
+  ansible.builtin.uri:
+    url: "{{ e2e_next_url }}"
+    headers: "{{ e2e_collection_headers | default({}) }}"
+    url_username: "{{ e2e_collection_user | default(omit) }}"
+    url_password: "{{ e2e_collection_password | default(omit) }}"
+    force_basic_auth: "{{ e2e_collection_user is defined }}"
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+    return_content: true
+  register: e2e_page_response
+  changed_when: false
+
+- name: Parse collection envelope
+  ansible.builtin.set_fact:
+    e2e_page: "{{ e2e_page_response.content | regex_replace('[\\x00-\\x1f]', ' ') | from_json }}"
+
+- name: Require a collection rather than a successful login/error page
+  ansible.builtin.assert:
+    that:
+      - e2e_page[e2e_collection_key | default('resources')] is sequence
+      - e2e_page[e2e_collection_key | default('resources')] is not string
+    quiet: true
+
+- name: Append page and advance cursor
+  ansible.builtin.set_fact:
+    e2e_collection: "{{ e2e_collection + e2e_page[e2e_collection_key | default('resources')] }}"
+    e2e_page_count: "{{ (e2e_page_count | int) + 1 }}"
+    e2e_seen_urls: "{{ e2e_seen_urls + [e2e_next_url] }}"
+    e2e_next_url: >-
+      {{ ((e2e_collection_url.split('?') | first) ~ '?limit=100&cursor=' ~ (e2e_page.next | urlencode))
+         if e2e_page.next | default('', true) and e2e_collection_key | default('resources') == 'resources'
+         else e2e_page.next | default('', true) }}
+
+- name: Continue while another page exists
+  ansible.builtin.include_tasks: collection-page.yml
+  when: e2e_next_url | length > 0

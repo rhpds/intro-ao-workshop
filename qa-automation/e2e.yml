@@ -1,13 +1,154 @@
 ---
-# E2E — End-to-end test
-# Runs all module solve + validate sequences to verify the full lab
-# works from start to finish without manual intervention.
+# Native Ansible E2E, following the Showroom module order.
+# Module 02: validate the configured MCP/model integrations.
+# Module 03: execute MOTD and inspect /etc/motd on node1–3.
+# Module 04: seed real disk alerts, validate routing/remediation/chat, reset ballast.
+# Module 05: seed incidents and validate all three ticket outcomes.
+# Module 06: patch an applicable CVE on dev/prod and validate AAP/Git/chat/Insights.
+# Fails fast. Approval decisions remain human. No no_log settings.
 
-- name: "End-to-End Test"
+- name: Build inventory and initialize E2E test
   hosts: localhost
   connection: local
   gather_facts: false
+  # Turn delegated connection failures into explicit assertions so the outer
+  # always block still removes the temporary proxy credential.
+  ignore_unreachable: true
+  vars_files:
+    - vars/services.yml
+    - vars/e2e.yml
   tasks:
-    - name: "TODO: Implement end-to-end test sequence"
+    - name: Require permission and valid scenario selection before changing the lab
+      ansible.builtin.assert:
+        that:
+          - e2e_allow_changes | bool
+          - e2e_project in ['solutions', 'default']
+          - e2e_cases is sequence and e2e_cases is not string
+          - e2e_cases | length > 0
+          - e2e_cases | difference(e2e_supported_cases) | length == 0
+          - e2e_cases | unique | length == e2e_cases | length
+          - "'disk_critical' not in e2e_cases or e2e_allow_disk_expand | bool"
+          - "not (e2e_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_allow_patching | bool"
+          - "not (e2e_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_cve_id is match('^CVE-[0-9]{4}-[0-9]{4,}$')"
+          - "not (e2e_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_lab_guid | length > 0"
+          - e2e_timeout | int > 0 and e2e_poll_interval | int > 0
+        fail_msg: >-
+          Use a disposable lab and e2e_allow_changes=true. Critical disk tests
+          require e2e_allow_disk_expand=true. CVE tests require
+          e2e_allow_patching=true, an applicable e2e_cve_id and the provisioned guid.
+
+    - name: Allocate a private test workspace for evidence and temporary SSH credentials
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: intro-ao-e2e-
+      register: e2e_workspace
+
+    - name: Initialize run facts
+      ansible.builtin.set_fact:
+        e2e_run_id: "{{ e2e_workspace.path | basename }}"
+        e2e_results: []
+        e2e_checks: []
+        e2e_failure: ''
+        e2e_ao_api: "{{ ao_url | regex_replace('/+$', '') }}/api/v1"
+        e2e_aap_api: "{{ aap_url | regex_replace('/+$', '') }}/api/controller/v2"
+        e2e_password_file: "{{ e2e_workspace.path }}/ssh-password"
+
+    - name: Solve and validate the selected Showroom modules
+      block:
+        - name: Preflight | Approve validated node-serving CSRs using the mounted lab kubeconfig
+          ansible.builtin.include_tasks: tasks/e2e/kubelet-csrs.yml
+          when: e2e_approve_kubelet_serving_csrs | bool and e2e_cases | difference(['integrations']) | length > 0
+
+        - name: Preflight | Authenticate APIs and resolve workflow contracts
+          ansible.builtin.include_tasks: tasks/e2e/preflight.yml
+
+        - name: Build gateway and internal-node inventory
+          ansible.builtin.include_tasks: tasks/e2e/inventory.yml
+          when: e2e_check_rhel_connectivity | bool or e2e_cases | difference(['integrations', 'cve_dev', 'cve_prod']) | length > 0
+
+        - name: Module 02 | Integrations and credentials
+          ansible.builtin.include_tasks: tasks/e2e/integrations.yml
+          when: "'integrations' in e2e_cases"
+
+        - name: Module 03 | Message of the Day
+          ansible.builtin.include_tasks: tasks/e2e/motd.yml
+          when: "'motd' in e2e_cases"
+
+        - name: Module 04 | Disk utilization remediation
+          ansible.builtin.include_tasks: tasks/e2e/disk.yml
+          loop: "{{ ['disk_healthy', 'disk_warning', 'disk_critical'] | select('in', e2e_cases) | list }}"
+          loop_control:
+            loop_var: e2e_case
+            label: "{{ e2e_case }}"
+
+        - name: Module 05 | Ticket enrichment
+          ansible.builtin.include_tasks: tasks/e2e/ticket.yml
+          loop: "{{ ['ticket_auto', 'ticket_approval', 'ticket_inform'] | select('in', e2e_cases) | list }}"
+          loop_control:
+            loop_var: e2e_case
+            label: "{{ e2e_case }}"
+
+        - name: Module 06 | CVE remediation
+          ansible.builtin.include_tasks: tasks/e2e/cve.yml
+          loop: "{{ ['cve_dev', 'cve_prod'] | select('in', e2e_cases) | list }}"
+          loop_control:
+            loop_var: e2e_case
+            label: "{{ e2e_case }}"
+
+      rescue:
+        - name: Record the first failed validation and stop subsequent modules
+          ansible.builtin.set_fact:
+            e2e_failure: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('validation failed') }}"
+
+        - name: Report failed validation
+          ansible.builtin.debug:
+            msg: "FAIL — {{ e2e_failure }}"
+
+      always:
+        - name: Remove temporary proxy password
+          ansible.builtin.file:
+            path: "{{ e2e_password_file }}"
+            state: absent
+
+        - name: Write private JSON evidence (no input credentials or raw responses)
+          ansible.builtin.copy:
+            dest: "{{ e2e_report_path | default(e2e_workspace.path ~ '/evidence.json', true) }}"
+            mode: '0600'
+            content: >-
+              {{ {'run_id': e2e_run_id, 'project': e2e_project, 'passed': e2e_results,
+                  'checks': e2e_checks,
+                  'failure': e2e_failure,
+                  'not_passed': e2e_cases | difference(e2e_results | map(attribute='case') | list),
+                  'excluded_cases': e2e_supported_cases | difference(e2e_cases),
+                  'active_execution': e2e_active_execution | default(''),
+                  'active_aap_job': e2e_active_aap_job | default(''),
+                  'current_execution': e2e_execution_id | default(''),
+                  'current_job_ids': e2e_job_ids | default([]),
+                  'approved_kubelet_serving_csrs': e2e_approved_serving_csrs | default([]),
+                  'gateway_verified': e2e_gateway_verified | default(false),
+                  'rhel_nodes_verified': e2e_rhel_nodes_verified | default([]),
+                  'disk_ballast_path': e2e_ballast_path | default(''),
+                  'disk_host': e2e_disk_host, 'ticket_host': e2e_ticket_host}
+                 | to_nice_json }}
+
+    - name: E2E | Final summary
       ansible.builtin.debug:
-        msg: "Replace this task with your e2e test implementation"
+        msg:
+          scope: "{{ 'Independent checks only; no workflows executed' if e2e_cases | difference(['integrations']) | length == 0 else 'Selected checks and workflow cases only' }}"
+          passed: "{{ e2e_checks | selectattr('status', 'equalto', 'passed') | map(attribute='check') | list }}"
+          cases_passed: "{{ e2e_results | map(attribute='case') | list }}"
+          failed: "{{ [e2e_failure] if e2e_failure | length > 0 else [] }}"
+          excluded_cases_not_tested: "{{ e2e_supported_cases | difference(e2e_cases) | sort }}"
+          csr_approval_enabled: "{{ e2e_approve_kubelet_serving_csrs | bool }}"
+
+    - name: E2E | Evidence report location
+      ansible.builtin.debug:
+        msg: "E2E — evidence: {{ e2e_report_path | default(e2e_workspace.path ~ '/evidence.json', true) }}"
+
+    - name: Require every selected Showroom case to pass
+      ansible.builtin.assert:
+        that:
+          - e2e_failure | length == 0
+          - e2e_cases | difference(e2e_results | map(attribute='case') | list) | length == 0
+        fail_msg: E2E failed or incomplete. Inspect the failed task and evidence report; do not rerun over active work.
+        success_msg: All selected cases passed; intentionally excluded cases were not executed.

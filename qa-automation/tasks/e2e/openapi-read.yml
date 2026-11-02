@@ -1,0 +1,59 @@
+---
+# Probe at most the configured candidate URLs. Never forward the AO token to a
+# different origin, follow redirects, or treat an HTTP-200 UI page as a schema.
+- name: Preflight | Inspect a schema candidate only while no schema is selected
+  when: e2e_openapi_spec | length == 0
+  block:
+    - name: Preflight | Require same-origin schema discovery
+      ansible.builtin.assert:
+        that:
+          - e2e_schema_url | urlsplit('scheme') == e2e_ao_api | urlsplit('scheme')
+          - e2e_schema_url | urlsplit('netloc') == e2e_ao_api | urlsplit('netloc')
+        fail_msg: Refusing to send AO credentials to a cross-origin schema URL.
+        quiet: true
+
+    - name: Preflight | Read schema candidate including its raw response body
+      ansible.builtin.uri:
+        url: "{{ e2e_schema_url }}"
+        headers: "{{ e2e_ao_headers }}"
+        return_content: true
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        timeout: "{{ healthcheck_timeout }}"
+        follow_redirects: none
+        unredirected_headers: [Authorization]
+      register: e2e_schema_response
+      failed_when: false
+      changed_when: false
+
+    - name: Preflight | Record compact schema response diagnostics
+      ansible.builtin.set_fact:
+        e2e_openapi_attempts: >-
+          {{ e2e_openapi_attempts + [{'url': e2e_schema_url,
+              'status': e2e_schema_response.status | default(-1),
+              'content_type': e2e_schema_response.content_type | default('unknown')}] }}
+        e2e_schema_decoded: "{{ e2e_schema_response.json | default({}) }}"
+
+    - name: Preflight | Parse JSON even when the server labels it as text
+      when:
+        - e2e_schema_response.status | default(-1) | int == 200
+        - e2e_schema_response.json is not defined
+        - e2e_schema_response.content | default('') | trim is match('^\{')
+      block:
+        - name: Preflight | Decode raw JSON schema
+          ansible.builtin.set_fact:
+            e2e_schema_decoded: "{{ e2e_schema_response.content | from_json }}"
+      rescue:
+        - name: Preflight | Reject malformed JSON and continue schema discovery
+          ansible.builtin.set_fact:
+            e2e_schema_decoded: {}
+
+    - name: Preflight | Accept only a JSON object with nonempty schema paths
+      ansible.builtin.set_fact:
+        e2e_openapi_spec: "{{ e2e_schema_decoded }}"
+        e2e_openapi_selected_url: "{{ e2e_schema_url }}"
+      when:
+        - e2e_schema_response.status | default(-1) | int == 200
+        - e2e_schema_decoded is mapping
+        - e2e_schema_decoded.paths is defined
+        - e2e_schema_decoded.paths is mapping
+        - e2e_schema_decoded.paths | length > 0

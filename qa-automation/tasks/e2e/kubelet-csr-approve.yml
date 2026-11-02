@@ -1,0 +1,104 @@
+---
+- name: CSR preflight | Require a node-authenticated, server-only certificate request
+  ansible.builtin.assert:
+    that:
+      - e2e_node_csr.value.metadata.name is match('^[a-z0-9][a-z0-9.-]*$')
+      - e2e_node_csr.value.spec.signerName == 'kubernetes.io/kubelet-serving'
+      - e2e_node_csr.value.spec.username == 'system:node:' ~ e2e_node_csr.key
+      - "'system:nodes' in e2e_node_csr.value.spec.groups"
+      - "'server auth' in e2e_node_csr.value.spec.usages"
+      - "'digital signature' in e2e_node_csr.value.spec.usages"
+      - e2e_node_csr.value.spec.usages | difference(['digital signature', 'key encipherment', 'server auth']) | length == 0
+      - e2e_node_csr.value.status.conditions | default([], true) | length == 0
+    fail_msg: Refusing an untrusted, already-processed, or non-serving CSR.
+    quiet: true
+
+- name: CSR preflight | Verify and approve this specific request
+  block:
+    - name: CSR preflight | Decode the public request in the private test workspace
+      ansible.builtin.copy:
+        content: "{{ e2e_node_csr.value.spec.request | b64decode }}"
+        dest: "{{ e2e_workspace.path }}/{{ e2e_node_csr.value.metadata.name }}.pem"
+        mode: '0600'
+
+    - name: CSR preflight | Verify CSR signature and inspect its subject and requested extensions
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - req
+          - '-in'
+          - "{{ e2e_workspace.path }}/{{ e2e_node_csr.value.metadata.name }}.pem"
+          - '-verify'
+          - '-noout'
+          - '-subject'
+          - '-nameopt'
+          - RFC2253
+          - '-text'
+      register: e2e_csr_inspection
+      changed_when: false
+
+    - name: CSR preflight | Extract identity and SAN entries (never trust CSR metadata alone)
+      ansible.builtin.set_fact:
+        e2e_csr_subject: "{{ e2e_csr_inspection.stdout_lines | select('match', '^subject=') | first | default('') }}"
+        e2e_csr_san_blocks: "{{ e2e_csr_inspection.stdout | regex_findall('X509v3 Subject Alternative Name:[ \\t]*\\n[ \\t]*([^\\n]+)') }}"
+        e2e_csr_expected_addresses: "{{ ((e2e_registered_nodes | selectattr('metadata.name', 'equalto', e2e_node_csr.key) | first).status.addresses | map(attribute='address') | list) + [e2e_node_csr.key] }}"
+
+    - name: CSR preflight | Require a valid signature, exact node subject and one SAN extension
+      ansible.builtin.assert:
+        that:
+          - (e2e_csr_inspection.stdout ~ e2e_csr_inspection.stderr) is search('verify OK')
+          - not (e2e_csr_inspection.stdout ~ e2e_csr_inspection.stderr) is search('(?i)verify failure|verification failure|invalid signature')
+          - e2e_csr_subject | regex_findall('(?:subject=|,)CN=([^,]+)') == ['system:node:' ~ e2e_node_csr.key]
+          - e2e_csr_subject | regex_findall('(?:subject=|,)O=([^,]+)') == ['system:nodes']
+          - e2e_csr_san_blocks | length == 1
+          - "'CA:TRUE' not in e2e_csr_inspection.stdout"
+        fail_msg: Refusing a CSR with an invalid signature, subject or extensions.
+        quiet: true
+
+    - name: CSR preflight | Extract DNS/IP names and reject other SAN types
+      ansible.builtin.set_fact:
+        e2e_csr_requested_addresses: "{{ (e2e_csr_san_blocks[0] | regex_findall('DNS:([^,\\s]+)')) + (e2e_csr_san_blocks[0] | regex_findall('IP Address:([^,\\s]+)')) }}"
+        e2e_csr_san_entries: "{{ e2e_csr_san_blocks[0].split(',') | map('trim') | list }}"
+
+    - name: CSR preflight | Require every requested address to belong to this registered node
+      ansible.builtin.assert:
+        that:
+          - e2e_csr_requested_addresses | length > 0
+          - e2e_csr_requested_addresses | difference(e2e_csr_expected_addresses) | length == 0
+          - e2e_csr_san_entries | reject('match', '^(DNS:|IP Address:)') | list | length == 0
+        fail_msg: Refusing a CSR whose requested DNS/IP SANs do not match the node.
+        quiet: true
+
+    - name: CSR preflight | Approve only this validated node-serving CSR
+      ansible.builtin.command:
+        argv: "{{ e2e_oc_argv + ['certificate', 'approve', e2e_node_csr.value.metadata.name] }}"
+      register: e2e_csr_approval
+      changed_when: true
+
+    - name: CSR preflight | Record the approval for evidence
+      ansible.builtin.set_fact:
+        e2e_approved_serving_csrs: "{{ e2e_approved_serving_csrs + [e2e_node_csr.value.metadata.name] }}"
+
+    - name: CSR preflight | Wait for the serving certificate to be issued
+      ansible.builtin.command:
+        argv: "{{ e2e_oc_argv + ['get', 'csr', e2e_node_csr.value.metadata.name, '-o', 'json'] }}"
+      register: e2e_csr_issued
+      until: (e2e_csr_issued.stdout | from_json).status.certificate | default('', true) | length > 0
+      retries: "{{ e2e_csr_retries }}"
+      delay: "{{ e2e_csr_poll_interval }}"
+      changed_when: false
+
+    - name: CSR preflight | Wait for API-server-to-kubelet TLS to work
+      ansible.builtin.command:
+        argv: "{{ e2e_oc_argv + ['get', '--raw', '/api/v1/nodes/' ~ e2e_node_csr.key ~ '/proxy/healthz'] }}"
+      register: e2e_kubelet_health
+      until: e2e_kubelet_health.rc == 0 and e2e_kubelet_health.stdout | trim == 'ok'
+      retries: "{{ e2e_csr_retries }}"
+      delay: "{{ e2e_csr_poll_interval }}"
+      changed_when: false
+
+  always:
+    - name: CSR preflight | Remove the temporary public CSR file
+      ansible.builtin.file:
+        path: "{{ e2e_workspace.path }}/{{ e2e_node_csr.value.metadata.name }}.pem"
+        state: absent

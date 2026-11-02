@@ -1,0 +1,135 @@
+---
+# Canonical extra vars override defaults; uppercase env precedes pod aliases.
+# Missing inputs fail rather than silently passing. Logging is enabled.
+healthcheck_validate_certs: true
+healthcheck_timeout: 15
+healthcheck_passed: []
+healthcheck_failed: []
+ao_url: "{{ lookup('env', 'AO_URL') | default(lookup('env', 'ao_url'), true) | regex_replace('/+$', '') }}"
+ao_username: "{{ lookup('env', 'AO_USERNAME') | default(ao_admin_user | default(lookup('env', 'ao_admin_user'), true), true) | default('admin', true) }}"
+ao_password: "{{ lookup('env', 'AO_PASSWORD') | default(ao_admin_password | default(lookup('env', 'ao_admin_password'), true), true) }}"
+aap_url: "{{ lookup('env', 'AAP_URL') | default(aap_controller_web_url | default(lookup('env', 'aap_controller_web_url'), true), true) | regex_replace('/+$', '') }}"
+aap_username: "{{ lookup('env', 'AAP_USERNAME') | default(aap_controller_admin_user | default(lookup('env', 'aap_controller_admin_user'), true), true) | default('admin', true) }}"
+aap_password: "{{ lookup('env', 'AAP_PASSWORD') | default(aap_controller_admin_password | default(lookup('env', 'aap_controller_admin_password'), true), true) }}"
+aap_me_path: /api/gateway/v1/me/
+ocp_console_url: "{{ lookup('env', 'OCP_CONSOLE_URL') | default(openshift_console_url | default(lookup('env', 'openshift_console_url'), true), true) | regex_replace('/+$', '') }}"
+# oc uses KUBECONFIG (including merged files) or ~/.kube/config by default.
+# Set healthcheck_kubeconfig to select an explicit mounted file instead.
+healthcheck_kubeconfig: ''
+healthcheck_oc_binary: oc
+openflake_url: "{{ lookup('env', 'OPENFLAKE_URL') | default(lookup('env', 'openflake_url'), true) | default(openflake_instance_url | default(lookup('env', 'openflake_instance_url'), true), true) | regex_replace('/+$', '') }}"
+openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default(openflake_admin_username | default(lookup('env', 'openflake_admin_username'), true), true) | default('admin', true) }}"
+openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') | default(openflake_admin_password | default(lookup('env', 'openflake_admin_password'), true), true) }}"
+gitea_url: "{{ lookup('env', 'GITEA_URL') | default(gitea_console_url | default(lookup('env', 'gitea_console_url'), true), true) | regex_replace('/+$', '') }}"
+gitea_username: "{{ lookup('env', 'GITEA_USERNAME') | default(gitea_user | default(lookup('env', 'gitea_user'), true), true) }}"
+gitea_password: "{{ lookup('env', 'GITEA_PASSWORD') | default(lookup('env', 'gitea_password'), true) }}"
+gitea_token: "{{ lookup('env', 'GITEA_TOKEN') | default(gitea_api_token | default(lookup('env', 'gitea_api_token'), true), true) }}"
+mattermost_url: "{{ lookup('env', 'MATTERMOST_URL') | default(lookup('env', 'mattermost_url'), true) | regex_replace('/+$', '') }}"
+mattermost_username: "{{ lookup('env', 'MATTERMOST_USERNAME') | default(lookup('env', 'mattermost_username'), true) | default('admin', true) }}"
+mattermost_password: "{{ lookup('env', 'MATTERMOST_PASSWORD') | default(lookup('env', 'mattermost_password'), true) }}"
+llm_url: "{{ lookup('env', 'LLM_URL') | default(litellm_api_base_url | default(lookup('env', 'litellm_api_base_url'), true), true) | regex_replace('/+$', '') }}"
+llm_api_key: "{{ lookup('env', 'LLM_API_KEY') | default(litellm_virtual_key | default(lookup('env', 'litellm_virtual_key'), true), true) }}"
+splunk_url: "{{ lookup('env', 'SPLUNK_URL') | default(lookup('env', 'splunk_url'), true) | regex_replace('/+$', '') }}"
+# Optional explicit management endpoint; otherwise authenticate via Splunk Web.
+splunk_api_url: "{{ lookup('env', 'SPLUNK_API_URL') }}"
+splunk_web_context_path: /en-US/splunkd/__raw/services/authentication/current-context?output_mode=json
+splunk_username: "{{ lookup('env', 'SPLUNK_USERNAME') | default(lookup('env', 'splunk_username'), true) | default('admin', true) }}"
+splunk_password: "{{ lookup('env', 'SPLUNK_PASSWORD') | default(lookup('env', 'splunk_password'), true) }}"
+openflake_mcp_url: "{{ lookup('env', 'OPENFLAKE_MCP_URL') | default(openflake_mcp_endpoint | default(lookup('env', 'openflake_mcp_endpoint'), true), true) }}"
+openflake_mcp_token: "{{ lookup('env', 'OPENFLAKE_MCP_TOKEN') | default(openflake_mcp_bearer_token | default(lookup('env', 'openflake_mcp_bearer_token'), true), true) }}"
+healthcheck_ssh_command: "{{ lookup('env', 'SSH_COMMAND') | default(ssh_command | default(lookup('env', 'ssh_command'), true), true) }}"
+healthcheck_ssh_password: "{{ lookup('env', 'SSH_PASSWORD') | default(ssh_password | default(lookup('env', 'ssh_password'), true), true) }}"
+# All targets are contacted from the SSH access node, never from the runner.
+healthcheck_provisioned_rhel_nodes: "{{ cnv_nodes | default(lookup('env', 'cnv_nodes') | default('[]', true) | from_json, true) }}"
+# Internal names resolve on the gateway. Let its SSH config select the user/key.
+healthcheck_internal_rhel_nodes:
+  - name: node1
+  - name: node2
+  - name: node3
+healthcheck_rhel_nodes: >-
+  {{ healthcheck_provisioned_rhel_nodes if healthcheck_provisioned_rhel_nodes | length > 0
+     else healthcheck_internal_rhel_nodes }}
+healthcheck_ssh_timeout: 30
+healthcheck_http_probes:
+  - name: OpenShift console
+    required: ["{{ ocp_console_url }}"]
+    request:
+      url: "{{ ocp_console_url }}/health"
+  - name: AAP credentials and API
+    required: ["{{ aap_url }}", "{{ aap_username }}", "{{ aap_password }}"]
+    request:
+      url: "{{ aap_url }}{{ aap_me_path }}"
+      url_username: "{{ aap_username }}"
+      url_password: "{{ aap_password }}"
+      force_basic_auth: true
+    nonempty_key: results
+  - name: AO credentials and API
+    required: ["{{ ao_url }}", "{{ ao_username }}", "{{ ao_password }}"]
+    request:
+      url: "{{ ao_url }}/api/v1/auth/login"
+      method: POST
+      body_format: json
+      body:
+        username: "{{ ao_username }}"
+        password: "{{ ao_password }}"
+    nonempty_key: access_token
+  - name: OpenFlake readiness
+    required: ["{{ openflake_url }}"]
+    request:
+      url: "{{ openflake_url }}/health/ready"
+  - name: OpenFlake credentials and incident API
+    required: ["{{ openflake_url }}", "{{ openflake_username }}", "{{ openflake_password }}"]
+    request:
+      url: "{{ openflake_url }}/api/flake/table/incident?sysparm_limit=1"
+      url_username: "{{ openflake_username }}"
+      url_password: "{{ openflake_password }}"
+      force_basic_auth: true
+    json_key: result
+  - name: Gitea password credentials
+    required: ["{{ gitea_url }}", "{{ gitea_username }}", "{{ gitea_password }}"]
+    request:
+      url: "{{ gitea_url }}/api/v1/user"
+      url_username: "{{ gitea_username }}"
+      url_password: "{{ gitea_password }}"
+      force_basic_auth: true
+    json_key: login
+  - name: Gitea API token
+    required: ["{{ gitea_url }}", "{{ gitea_token }}"]
+    request:
+      url: "{{ gitea_url }}/api/v1/user"
+      headers: {Authorization: "token {{ gitea_token }}"}
+    json_key: login
+  - name: Mattermost credentials and API
+    required: ["{{ mattermost_url }}", "{{ mattermost_username }}", "{{ mattermost_password }}"]
+    request:
+      url: "{{ mattermost_url }}/api/v4/users/login"
+      method: POST
+      body_format: json
+      body:
+        login_id: "{{ mattermost_username }}"
+        password: "{{ mattermost_password }}"
+    json_key: id
+  - name: LiteMaaS virtual key and model availability
+    required: ["{{ llm_url }}", "{{ llm_api_key }}"]
+    request:
+      url: "{{ llm_url }}/models"
+      headers: {Authorization: "Bearer {{ llm_api_key }}"}
+    nonempty_key: data
+  - name: OpenFlake MCP protocol and bearer credential
+    kind: mcp
+    required: ["{{ openflake_mcp_url }}", "{{ openflake_mcp_token }}"]
+    request:
+      url: "{{ openflake_mcp_url }}"
+      method: POST
+      headers:
+        Authorization: "Bearer {{ openflake_mcp_token }}"
+        Accept: application/json, text/event-stream
+      body_format: json
+      body:
+        jsonrpc: '2.0'
+        id: 1
+        method: initialize
+        params:
+          protocolVersion: '2024-11-05'
+          capabilities: {}
+          clientInfo: {name: lab-healthcheck, version: '1.0'}

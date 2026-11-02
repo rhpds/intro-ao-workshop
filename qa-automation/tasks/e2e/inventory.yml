@@ -1,0 +1,116 @@
+---
+- name: Inventory | Require provided gateway and SSH credentials
+  ansible.builtin.assert:
+    that:
+      - e2e_gateway_host is match('^[A-Za-z0-9][A-Za-z0-9_.:-]*$')
+      - e2e_gateway_user is match('^[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+      - e2e_gateway_port | int > 0 and e2e_gateway_port | int < 65536
+      - healthcheck_ssh_password | length > 0
+    fail_msg: Supply ssh_address/ssh_username/ssh_port or a standard ssh USER@HOST -p PORT command, plus ssh_password.
+    quiet: true
+
+- name: Inventory | Require sshpass on the QA runner for the password-authenticated gateway proxy
+  ansible.builtin.command:
+    argv: [sshpass, '-V']
+  changed_when: false
+
+- name: Inventory | Create private temporary password file (removed in always)
+  ansible.builtin.copy:
+    content: "{{ healthcheck_ssh_password }}"
+    dest: "{{ e2e_password_file }}"
+    mode: '0600'
+
+- name: Inventory | Build SSH gateway proxy without putting a password in process arguments
+  ansible.builtin.set_fact:
+    e2e_proxy_command: >-
+      sshpass -f {{ e2e_password_file | quote }} ssh -W %h:%p
+      -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15
+      -p {{ e2e_gateway_port | int }} {{ (e2e_gateway_user ~ '@' ~ e2e_gateway_host) | quote }}
+
+- name: Inventory | Add RHEL gateway
+  ansible.builtin.add_host:
+    name: e2e_gateway
+    groups: e2e_gateways
+    ansible_connection: ssh
+    ansible_host: "{{ e2e_gateway_host }}"
+    ansible_port: "{{ e2e_gateway_port | int }}"
+    ansible_user: "{{ e2e_gateway_user }}"
+    ansible_password: "{{ healthcheck_ssh_password }}"
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15'
+
+- name: Inventory | Validate the gateway connection
+  ansible.builtin.ping:
+  delegate_to: e2e_gateway
+  register: e2e_gateway_ping
+
+- name: Inventory | Require gateway connectivity rather than skipping an unreachable host
+  ansible.builtin.assert:
+    that: e2e_gateway_ping.ping | default('') == 'pong'
+    quiet: true
+
+- name: Inventory | Record verified gateway connectivity
+  ansible.builtin.set_fact:
+    e2e_gateway_verified: true
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'RHEL gateway SSH connectivity', 'status': 'passed'}] }}"
+
+- name: Inventory | Discover internal-node SSH settings from the gateway's existing config
+  ansible.builtin.command:
+    argv: [ssh, '-G', "{{ item }}"]
+  delegate_to: e2e_gateway
+  loop: [node1, node2, node3]
+  register: e2e_discovered_nodes
+  changed_when: false
+
+- name: Inventory | Require successful SSH-config discovery for every node
+  ansible.builtin.assert:
+    that:
+      - item.rc | default(1) == 0
+      - item.stdout_lines | select('match', '^user ') | list | length == 1
+      - item.stdout_lines | select('match', '^hostname ') | list | length == 1
+      - item.stdout_lines | select('match', '^port ') | list | length == 1
+    quiet: true
+  loop: "{{ e2e_discovered_nodes.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inventory | Add internal RHEL nodes through the gateway only
+  ansible.builtin.add_host:
+    name: "e2e_{{ item.item }}"
+    groups: e2e_rhel_nodes
+    ansible_connection: ssh
+    ansible_host: "{{ item.stdout_lines | select('match', '^hostname ') | first | regex_replace('^hostname ', '') }}"
+    ansible_port: "{{ item.stdout_lines | select('match', '^port ') | first | regex_replace('^port ', '') | int }}"
+    ansible_user: "{{ e2e_node_user | default(item.stdout_lines | select('match', '^user ') | first | regex_replace('^user ', ''), true) }}"
+    ansible_password: "{{ e2e_node_password }}"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -o ProxyCommand={{ e2e_proxy_command | quote }}"
+  loop: "{{ e2e_discovered_nodes.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inventory | Verify all internal nodes are RHEL before launching workflows
+  ansible.builtin.shell: '. /etc/os-release; test "$ID" = rhel'
+  delegate_to: "e2e_{{ item }}"
+  loop: [node1, node2, node3]
+  register: e2e_node_os_checks
+  changed_when: false
+
+- name: Inventory | Require every internal node to be reachable and RHEL
+  ansible.builtin.assert:
+    that: item.rc | default(1) == 0
+    quiet: true
+  loop: "{{ e2e_node_os_checks.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inventory | Record independent gateway and RHEL connectivity evidence
+  ansible.builtin.set_fact:
+    e2e_rhel_nodes_verified: [node1, node2, node3]
+
+- name: Inventory | Record each verified RHEL node in the check ledger
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': item ~ ' SSH connectivity and RHEL identity', 'status': 'passed'}] }}"
+  loop: "{{ e2e_rhel_nodes_verified }}"
+
+- name: Inventory | Independent validation - Success
+  ansible.builtin.debug:
+    msg: PASS — RHEL gateway and node1/node2/node3 SSH connectivity (independent of AAP execution)

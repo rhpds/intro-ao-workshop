@@ -1,0 +1,43 @@
+---
+- name: Run service availability and credential checks
+  ansible.builtin.include_tasks: http-probe.yml
+  loop: "{{ healthcheck_http_probes }}"
+  loop_control:
+    loop_var: hc_probe
+    label: "{{ hc_probe.name }}"
+
+- name: Check Splunk credentials
+  ansible.builtin.include_tasks: splunk.yml
+
+- name: Check OpenShift using mounted kubeconfig
+  ansible.builtin.include_tasks: ocp.yml
+
+- name: Check RHEL access node SSH credentials
+  ansible.builtin.include_tasks: rhel.yml
+  vars:
+    hc_rhel_target: {}
+    hc_rhel_name: RHEL access node
+
+- name: Require downstream RHEL targets
+  block:
+    - name: Require a nonempty RHEL node list
+      ansible.builtin.assert:
+        that:
+          - healthcheck_rhel_nodes is sequence
+          - healthcheck_rhel_nodes is not string
+          - healthcheck_rhel_nodes | length > 0
+        fail_msg: Supply cnv_nodes or healthcheck_rhel_nodes with names reachable from the access node.
+  rescue:
+    - name: Record missing RHEL targets
+      ansible.builtin.set_fact:
+        healthcheck_failed: "{{ healthcheck_failed + ['RHEL downstream nodes (not validated: missing node list)'] }}"
+
+- name: Check RHEL nodes through the SSH access node only
+  ansible.builtin.include_tasks: rhel.yml
+  vars:
+    hc_rhel_target: "{{ hc_rhel_node }}"
+    hc_rhel_name: "RHEL node {{ hc_rhel_node.name | default('unnamed') }} via access node"
+  loop: "{{ healthcheck_rhel_nodes if healthcheck_rhel_nodes is sequence and healthcheck_rhel_nodes is not string else [] }}"
+  loop_control:
+    loop_var: hc_rhel_node
+    label: "{{ hc_rhel_node.name | default('unnamed') }}"

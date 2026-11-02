@@ -1,0 +1,16 @@
+---
+- name: Extract AO execution UUID from this simulator's summary
+  ansible.builtin.set_fact:
+    e2e_simulator_job_id: "{{ e2e_last_job.id }}"
+    e2e_execution_ids: "{{ e2e_last_stdout.content | regex_findall('Execution:\\s*([0-9a-fA-F-]{36})') | unique | list }}"
+
+- name: Require one exact execution ID (never select the newest run)
+  ansible.builtin.assert:
+    that: e2e_execution_ids | length == 1
+    fail_msg: Simulator did not report exactly one execution UUID. Inspect its AAP job and AO before retrying.
+    quiet: true
+
+- name: Record the exact AO execution
+  ansible.builtin.set_fact:
+    e2e_execution_id: "{{ e2e_execution_ids[0] }}"
+    e2e_active_execution: "{{ e2e_execution_ids[0] }}"

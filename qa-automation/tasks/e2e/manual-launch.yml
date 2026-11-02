@@ -1,0 +1,53 @@
+---
+- name: Select the workflow's manual trigger
+  ansible.builtin.set_fact:
+    e2e_manual_triggers: "{{ e2e_definition.triggers | selectattr('type', 'equalto', 'manual_trigger') | list }}"
+
+- name: Require one manual trigger
+  ansible.builtin.assert:
+    that: e2e_manual_triggers | length == 1
+    quiet: true
+
+- name: Build the launch payload from the deployed schema
+  ansible.builtin.set_fact:
+    e2e_launch_body: "{{ {'workflow_id': e2e_workflow.id, e2e_input_field: e2e_inputs} }}"
+
+- name: Add declared trigger/version fields only
+  ansible.builtin.set_fact:
+    e2e_launch_body: "{{ e2e_launch_body | combine({item: (e2e_manual_triggers[0].id if item in ['trigger_id', 'trigger_node_id'] else true if item == 'use_published' else e2e_workflow.current_version | default(e2e_workflow.version.version | default(none)))}) }}"
+  loop: [trigger_id, trigger_node_id, workflow_version, version, use_published]
+  when: item in e2e_launch_schema.properties
+
+- name: Require all declared mandatory launch fields
+  ansible.builtin.assert:
+    that:
+      - e2e_launch_schema.required | default([]) | difference(e2e_launch_body | list) | length == 0
+      - e2e_launch_body.values() | select('equalto', none) | list | length == 0
+    quiet: true
+
+- name: Mark execution launch outcome unknown until AO responds
+  ansible.builtin.set_fact:
+    e2e_active_execution: unknown - inspect AO before retrying
+
+- name: Launch the manual workflow once (never retry POST)
+  ansible.builtin.uri:
+    url: "{{ e2e_ao_api }}{{ e2e_execute_path }}"
+    method: POST
+    headers: "{{ e2e_ao_headers }}"
+    body_format: json
+    body: "{{ e2e_launch_body }}"
+    status_code: [200, 201, 202]
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_manual_launch
+
+- name: Require a returned execution ID
+  ansible.builtin.assert:
+    that: e2e_manual_launch.json.execution_id | default(e2e_manual_launch.json.id | default(''), true) | length > 0
+    quiet: true
+
+- name: Record launched execution
+  ansible.builtin.set_fact:
+    e2e_execution_id: "{{ e2e_manual_launch.json.execution_id | default(e2e_manual_launch.json.id, true) }}"
+    e2e_active_execution: "{{ e2e_manual_launch.json.execution_id | default(e2e_manual_launch.json.id, true) }}"

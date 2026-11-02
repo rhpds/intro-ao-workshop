@@ -1,0 +1,59 @@
+---
+- name: Module 02 | List AO integrations
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/integrations?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+- name: Module 02 | Select target-project integration names
+  ansible.builtin.set_fact:
+    e2e_integrations: "{{ e2e_collection }}"
+    e2e_mcp_name: "{{ 'Solutions AAP MCP' if e2e_project == 'solutions' else 'Student AAP MCP Server' }}"
+    e2e_llm_name: "{{ 'Solutions LLM' if e2e_project == 'solutions' else 'Student LLM' }}"
+
+- name: Module 02 | Require both configured integrations
+  ansible.builtin.assert:
+    that:
+      - e2e_integrations | selectattr('name', 'equalto', e2e_mcp_name) | selectattr('integration_type', 'equalto', 'mcp_server') | list | length == 1
+      - e2e_integrations | selectattr('name', 'equalto', e2e_llm_name) | selectattr('integration_type', 'equalto', 'llm_provider') | list | length == 1
+    quiet: true
+
+- name: Module 02 | Record both integration existence checks
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP MCP integration exists: ' ~ e2e_mcp_name, 'status': 'passed'}, {'check': 'LLM integration exists: ' ~ e2e_llm_name, 'status': 'passed'}] }}"
+
+- name: Module 02 | Discover actual AAP MCP tools
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/integrations/{{ (e2e_integrations | selectattr('name', 'equalto', e2e_mcp_name) | first).id }}/tools?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+- name: Module 02 | Validate tools required by the Showroom agents
+  ansible.builtin.assert:
+    that: "['job_templates_list', 'hosts_list', 'hosts_variable_data_retrieve'] | difference(e2e_collection | map(attribute='name') | list) | length == 0"
+    quiet: true
+
+- name: Module 02 | Record each required tool discovery check
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP MCP tool discovered: ' ~ item, 'status': 'passed'}] }}"
+  loop: [job_templates_list, hosts_list, hosts_variable_data_retrieve]
+
+- name: Module 02 | Discover enabled LLM models
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/integrations/{{ (e2e_integrations | selectattr('name', 'equalto', e2e_llm_name) | first).id }}/models?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+- name: Module 02 | Require model discovery
+  ansible.builtin.assert:
+    that: e2e_collection | length > 0
+    quiet: true
+
+- name: Module 02 | Record success
+  ansible.builtin.set_fact:
+    e2e_results: "{{ e2e_results + [{'case': 'integrations', 'status': 'passed'}] }}"
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'LLM model discovery', 'status': 'passed', 'models': e2e_collection | map(attribute='name') | list}] }}"
+
+- name: Module 02 | Validation - Success
+  ansible.builtin.debug:
+    msg: PASS — integrations (AAP MCP tools and LLM models discovered)

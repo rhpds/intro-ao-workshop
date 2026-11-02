@@ -1,0 +1,16 @@
+---
+- name: Match an exact survey choice or an unambiguous leading number/word
+  ansible.builtin.set_fact:
+    e2e_survey_matches: >-
+      {{ [e2e_survey_requested_value | string] if (e2e_survey_requested_value | string) in e2e_survey_choices
+         else e2e_survey_choices | select('match', '^' ~ (e2e_survey_requested_value | string | regex_escape) ~ '(?:%|\s|$)') | list }}
+
+- name: Require exactly one valid survey option before launching any job
+  ansible.builtin.assert:
+    that: e2e_survey_matches | length == 1
+    fail_msg: "Cannot uniquely resolve {{ e2e_survey_field.variable }}={{ e2e_survey_requested_value }} against the live AAP survey."
+    quiet: true
+
+- name: Retain the resolved survey option
+  ansible.builtin.set_fact:
+    e2e_survey_resolved_values: "{{ e2e_survey_resolved_values + [e2e_survey_matches[0]] }}"

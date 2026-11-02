@@ -1,0 +1,13 @@
+---
+- name: Record existing Mattermost posts before starting this case
+  ansible.builtin.uri:
+    url: "{{ mattermost_url }}/api/v4/channels/{{ e2e_chat_channel }}/posts?per_page=100"
+    headers: "{{ e2e_chat_headers }}"
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_chat_before
+
+- name: Record baseline post IDs
+  ansible.builtin.set_fact:
+    e2e_chat_baseline: "{{ e2e_chat_before.json.posts | list }}"

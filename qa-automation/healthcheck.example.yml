@@ -1,0 +1,39 @@
+---
+# Optional canonical overrides for provisioned user_data. Never commit secrets.
+# Most values are already accepted under the pod's provisioning variable names.
+# See README.md for the full mapping. Keep this file outside git when populated.
+ao_url: https://ao.example.test
+ao_username: admin
+ao_password: REPLACE_ME
+aap_url: https://aap.example.test
+aap_username: admin
+aap_password: REPLACE_ME
+ocp_console_url: https://console.example.test
+healthcheck_kubeconfig: /run/secrets/lab-kubeconfig
+openflake_url: https://openflake.example.test
+openflake_username: admin
+openflake_password: REPLACE_ME
+gitea_url: https://gitea.example.test
+gitea_username: lab-user
+gitea_password: REPLACE_ME
+gitea_token: REPLACE_ME
+mattermost_url: https://mattermost.example.test
+mattermost_username: admin
+mattermost_password: REPLACE_ME
+splunk_url: https://splunk.example.test
+splunk_username: admin
+splunk_password: REPLACE_ME
+# Optional; without it, credentials are tested through Splunk Web login.
+splunk_api_url: ''
+llm_url: https://maas.example.test/v1
+llm_api_key: REPLACE_ME
+openflake_mcp_url: https://openflake-mcp.example.test/mcp
+openflake_mcp_token: REPLACE_ME
+ssh_command: ssh student@bastion.example.test -p 30852
+ssh_password: REPLACE_ME
+# Optional overrides; these internal names are already the default.
+# Gateway-side SSH config selects the downstream user/key.
+healthcheck_rhel_nodes:
+  - name: node1
+  - name: node2
+  - name: node3

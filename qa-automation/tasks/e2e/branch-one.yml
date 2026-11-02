@@ -1,0 +1,19 @@
+---
+- name: Find the branch's first node
+  ansible.builtin.set_fact:
+    e2e_reachable: "{{ e2e_definition.edges | selectattr('from', 'equalto', e2e_switches[0].id) | selectattr('from_port', 'equalto', e2e_route_case.port) | map(attribute='to') | list }}"
+
+- name: Require a connected branch
+  ansible.builtin.assert:
+    that: e2e_reachable | length > 0
+    fail_msg: "Nothing is connected to route {{ e2e_route_case.label }}."
+    quiet: true
+
+- name: Traverse at most the graph's node count (including approval's approved edge)
+  ansible.builtin.set_fact:
+    e2e_reachable: "{{ (e2e_reachable + (e2e_follow_edges | selectattr('from', 'in', e2e_reachable) | map(attribute='to') | list)) | unique | list }}"
+  loop: "{{ range(e2e_definition.nodes | length) | list }}"
+
+- name: Cache this branch
+  ansible.builtin.set_fact:
+    e2e_branches: "{{ e2e_branches | combine({e2e_route_case.label: e2e_reachable}) }}"

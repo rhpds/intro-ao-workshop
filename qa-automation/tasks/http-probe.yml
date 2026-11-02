@@ -1,0 +1,59 @@
+---
+# Logging is enabled for troubleshooting; output may contain credentials.
+- name: "Check {{ hc_probe.name }}"
+  block:
+    - name: Validate probe inputs
+      ansible.builtin.assert:
+        that:
+          - hc_probe.required | default([]) | reject('equalto', '') | list | length == hc_probe.required | default([]) | length
+          - hc_probe.required | default([]) | select('match', '^(REPLACE_|YOUR_|<Change Me>)') | list | length == 0
+          - hc_probe.request.url is match('^https?://[^/]+')
+        quiet: true
+
+    - name: Make bounded service request
+      ansible.builtin.uri:
+        url: "{{ hc_probe.request.url }}"
+        method: "{{ hc_probe.request.method | default('GET') }}"
+        headers: "{{ hc_probe.request.headers | default({}) }}"
+        url_username: "{{ hc_probe.request.url_username | default(omit) }}"
+        url_password: "{{ hc_probe.request.url_password | default(omit) }}"
+        force_basic_auth: "{{ hc_probe.request.force_basic_auth | default(false) }}"
+        body_format: "{{ hc_probe.request.body_format | default(omit) }}"
+        body: "{{ hc_probe.request.body | default(omit) }}"
+        status_code: "{{ hc_probe.request.status_code | default([200]) }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+        unredirected_headers: [Authorization]
+        return_content: true
+      register: hc_response
+      changed_when: false
+
+    - name: Verify response is not an HTML login page or an API error
+      ansible.builtin.assert:
+        that:
+          - hc_probe.json_key is not defined or hc_probe.json_key in (hc_response.json | default({}))
+          - hc_probe.nonempty_key is not defined or (hc_response.json | default({})).get(hc_probe.nonempty_key | default(''), '') | length > 0
+          - hc_probe.pattern is not defined or (hc_response.content is search(hc_probe.pattern | default('')))
+          - hc_probe.kind | default('') != 'mcp' or (hc_response.content is search('"serverInfo"') and hc_response.content is search('"result"') and not hc_response.content is search('"error"\s*:'))
+        quiet: true
+
+    - name: Record successful check
+      ansible.builtin.set_fact:
+        healthcheck_passed: "{{ healthcheck_passed + [hc_probe.name] }}"
+
+  rescue:
+    - name: Record probe failure category
+      ansible.builtin.set_fact:
+        healthcheck_failed: >-
+          {{ healthcheck_failed + [hc_probe.name ~
+             (' (not validated: missing/placeholder input or malformed URL)'
+              if ansible_failed_task.name == 'Validate probe inputs'
+              else ' (connection/TLS or HTTP status failed)'
+              if ansible_failed_task.name == 'Make bounded service request'
+              else ' (response validation failed)')] }}
+
+  always:
+    - name: Report probe outcome
+      ansible.builtin.debug:
+        msg: "{{ 'PASS' if hc_probe.name in healthcheck_passed else 'FAIL' }} — {{ hc_probe.name }}"

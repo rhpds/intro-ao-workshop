@@ -476,24 +476,25 @@ python3 tests/test_ao_workflow.py     # 44 tests
 Against a live lab, after provisioning:
 
 ```bash
-ansible-playbook qa-automation/healthcheck.yml \
-  -e ao_url=https://<ao-route> -e ao_password=<admin-password>
+bash qa-automation/run-healthcheck.sh -e @/path/to/provisioned-user-data.yml
 ```
 
-The health check asserts what AO's own validation does not. Because validation is
-structural, it asserts per-node that every `agentic` and `aap_job_template` node
-carries a real `credential_id` (and no surviving `YOUR_*`/`REPLACE_*`
-placeholder), that every agentic node has an `llm_model_id` and a non-empty tool
-selection, and that every static AAP node resolved a `job_template_id` — skipping
-nodes whose `job_template_name` is a `${...}` runtime expression. It also checks
-that each MCP integration actually exposes tools and the LLM integration exposes
-models, since a failed refresh leaves an integration that exists but is useless.
+The health check verifies service availability and supplied credentials, not
+workflow execution. For live behavioral tests derived from Showroom modules
+02–06, see `qa-automation/E2E.md` and `qa-automation/run-e2e.sh`. The E2E suite
+executes published workflows, follows linked AAP jobs, and verifies host, incident,
+chat and CVE outcomes. Running E2E authorizes changes to the disposable lab;
+permission flags default to enabled. Current defaults run independent integration
+and RHEL SSH checks only; CSR approval and AAP-dependent workflow cases are
+excluded pending execution-pod TLS repair. MOTD also needs its agent output repaired.
+Critical-disk, approval and CVE cases must be selected explicitly; CVE cases
+also require an applicable CVE and lab GUID. Approval cases need a human decision.
 
-It asserts the student's `default` project still exists and is untouched.
+Neither suite edits student workflows. Offline wiring-transform checks remain
+covered by `tests/test_ao_workflow.py` above.
 
 ## Not yet implemented
 
 - **Seeding the `default` project**, which is intentionally a separate decision.
-- **`qa-automation/e2e.yml`** — still the scaffold stub. Executing a workflow
-  (`POST /api/v1/executions`) and polling it to completion would be the real
-  end-to-end proof; the health check stops at "runnable".
+- **Browser authoring automation** — the E2E suite exercises published workflow
+  behavior through APIs; it does not automate the student's canvas editing steps.

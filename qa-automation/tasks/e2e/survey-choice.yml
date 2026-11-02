@@ -1,0 +1,21 @@
+---
+# AAP validates full survey labels and expects lists for multiselect fields.
+- name: Normalize the live survey choices and requested values
+  ansible.builtin.set_fact:
+    e2e_survey_choices: "{{ e2e_survey_field.choices.splitlines() if e2e_survey_field.choices is string else e2e_survey_field.choices | default([], true) }}"
+    e2e_survey_requested_values: >-
+      {{ e2e_launch_extra_vars[e2e_survey_field.variable]
+         if e2e_survey_field.type == 'multiselect' and e2e_launch_extra_vars[e2e_survey_field.variable] is sequence and e2e_launch_extra_vars[e2e_survey_field.variable] is not string
+         else [e2e_launch_extra_vars[e2e_survey_field.variable] | string] }}
+    e2e_survey_resolved_values: []
+
+- name: Resolve each requested survey value to an exact live choice
+  ansible.builtin.include_tasks: survey-option.yml
+  loop: "{{ e2e_survey_requested_values }}"
+  loop_control:
+    loop_var: e2e_survey_requested_value
+    label: "{{ e2e_survey_requested_value }}"
+
+- name: Use the complete survey labels and the correct single/list value type
+  ansible.builtin.set_fact:
+    e2e_launch_extra_vars: "{{ e2e_launch_extra_vars | combine({e2e_survey_field.variable: (e2e_survey_resolved_values if e2e_survey_field.type == 'multiselect' else e2e_survey_resolved_values[0])}) }}"

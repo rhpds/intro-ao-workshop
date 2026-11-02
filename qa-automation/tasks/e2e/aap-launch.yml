@@ -1,0 +1,131 @@
+---
+# Inputs e2e_template_id, e2e_extra_vars. Outputs e2e_last_job and stdout.
+- name: Read actual template prompt permissions and fixed host limit
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/job_templates/{{ e2e_template_id }}/"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_launch_template
+  changed_when: false
+
+- name: Read the template's live survey before resolving launch choices
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/job_templates/{{ e2e_template_id }}/survey_spec/"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_aap_survey
+  changed_when: false
+
+- name: Verify fixed simulator targeting when arbitrary extra variables are disabled
+  ansible.builtin.assert:
+    that:
+      - "e2e_extra_vars | list | difference(e2e_aap_survey.json.spec | default([]) | map(attribute='variable') | list) | difference(['target_host', 'ballast_path']) | length == 0"
+      - "e2e_extra_vars.target_host is not defined or ((e2e_launch_template.json.limit | default('') | replace(',', ' ') | split() | sort) == ([e2e_extra_vars.target_host, 'localhost'] | sort))"
+    fail_msg: Simulator does not allow extra-var overrides and its fixed limit does not safely match the requested host.
+    quiet: true
+  when: not e2e_launch_template.json.ask_variables_on_launch | default(false) | bool
+
+- name: Build only launch variables permitted by this template
+  ansible.builtin.set_fact:
+    e2e_launch_extra_vars: >-
+      {{ e2e_extra_vars if e2e_launch_template.json.ask_variables_on_launch | default(false) | bool
+         else e2e_extra_vars | dict2items | selectattr('key', 'in', e2e_aap_survey.json.spec | default([]) | map(attribute='variable') | list) | items2dict }}
+    e2e_using_default_ballast: "{{ not e2e_launch_template.json.ask_variables_on_launch | default(false) | bool and 'ballast_path' in e2e_extra_vars }}"
+
+- name: Map shorthand values to the complete AAP survey choices
+  ansible.builtin.include_tasks: survey-choice.yml
+  loop: "{{ e2e_aap_survey.json.spec | default([]) }}"
+  loop_control:
+    loop_var: e2e_survey_field
+    label: "{{ e2e_survey_field.variable }}"
+  when: e2e_survey_field.type in ['multiplechoice', 'multiselect'] and e2e_survey_field.variable in e2e_launch_extra_vars
+
+- name: Record an unknown launch outcome until AAP returns a job ID
+  ansible.builtin.set_fact:
+    e2e_active_aap_job: unknown - inspect AAP before retrying
+
+- name: Launch the AAP job template once (never retry POST)
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/job_templates/{{ e2e_template_id }}/launch/"
+    method: POST
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    body_format: json
+    body: {extra_vars: "{{ e2e_launch_extra_vars }}"}
+    status_code: [200, 201, 202, 400, 401, 403, 404, 422]
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_aap_launch
+
+- name: Clear active-work markers when AAP explicitly rejects the launch
+  ansible.builtin.set_fact:
+    e2e_active_aap_job: ''
+    e2e_active_execution: "{{ '' if e2e_active_execution | default('') is match('^unknown') else e2e_active_execution | default('') }}"
+  when: e2e_aap_launch.status in [400, 401, 403, 404, 422]
+
+- name: Explain a rejected launch without treating it as an active job
+  ansible.builtin.assert:
+    that:
+      - e2e_aap_launch.status in [200, 201, 202]
+      - e2e_aap_launch.json.id | default(0) | int > 0
+    fail_msg: "AAP launch HTTP {{ e2e_aap_launch.status }}: {{ e2e_aap_launch.json | default({}) | to_json }}. Inspect unknown outcomes before retrying."
+    quiet: true
+
+- name: Record launched AAP job ID
+  ansible.builtin.set_fact:
+    e2e_active_aap_job: "{{ e2e_aap_launch.json.id }}"
+
+- name: Reject ignored launch variables
+  ansible.builtin.assert:
+    that: e2e_aap_launch.json.ignored_fields | default({}) | length == 0
+    fail_msg: AAP ignored launch fields. Inspect the recorded job; do not blindly relaunch it.
+    quiet: true
+
+- name: Wait for AAP job to reach a terminal state
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/jobs/{{ e2e_active_aap_job }}/"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_aap_job_response
+  until: e2e_aap_job_response.json.status in (['successful'] + e2e_failed_statuses)
+  retries: "{{ e2e_retries }}"
+  delay: "{{ e2e_poll_interval }}"
+  changed_when: false
+
+- name: Record completed simulator result
+  ansible.builtin.set_fact:
+    e2e_last_job: "{{ e2e_aap_job_response.json }}"
+    e2e_active_aap_job: ''
+
+- name: Require successful AAP execution
+  ansible.builtin.assert:
+    that: e2e_last_job.status == 'successful'
+    fail_msg: "AAP job {{ e2e_last_job.id }} ended {{ e2e_last_job.status }}."
+    quiet: true
+
+- name: Read simulator stdout for exact execution and incident correlation
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/jobs/{{ e2e_last_job.id }}/stdout/?format=txt"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    return_content: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_last_stdout
+  changed_when: false

@@ -1,0 +1,27 @@
+---
+# AO v1 contract verified against the deployed frontend on 2026-11-02.
+# Workflows-BK7eQmXm.js uses POST /executions with these fields;
+# RunWorkflowModal-Cui7Okkk.js reads /executions/{execution_id}/activities.
+# This is a minimal compatibility contract, NOT a complete backend OpenAPI spec.
+# It is used only when the deployment does not expose a schema document.
+openapi: 3.0.3
+info:
+  title: AO v1 frontend-verified E2E compatibility contract
+  version: '1'
+paths:
+  /executions:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workflow_id, input_data, trigger_node_id]
+              properties:
+                workflow_id: {type: string}
+                input_data: {type: object}
+                trigger_node_id: {type: string}
+                use_published: {type: boolean}
+  /executions/{execution_id}/activities:
+    get:
+      description: Paginated activity records keyed by activity_name, with output_data.

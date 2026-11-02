@@ -1,0 +1,93 @@
+---
+- name: Preflight | Initialize bounded AO schema discovery
+  ansible.builtin.set_fact:
+    e2e_openapi_spec: {}
+    e2e_openapi_attempts: []
+    e2e_openapi_candidates: "{{ [e2e_ao_openapi_url, e2e_ao_api ~ '/openapi.json', (ao_url | regex_replace('/+$', '')) ~ '/api/openapi.json'] | unique | list }}"
+
+- name: Preflight | Find a real OpenAPI document rather than the UI fallback page
+  ansible.builtin.include_tasks: openapi-read.yml
+  loop: "{{ e2e_openapi_candidates }}"
+  loop_control:
+    loop_var: e2e_schema_url
+    label: "{{ e2e_schema_url }}"
+
+- name: Preflight | Load the frontend-verified AO v1 contract when no backend schema is exposed
+  ansible.builtin.include_vars:
+    file: ../../vars/ao-v1-contract.yml
+    name: e2e_bundled_contract
+  when: e2e_openapi_spec | length == 0 and e2e_allow_bundled_contract | bool
+
+- name: Preflight | Use the known AO v1 launch and activities contract
+  ansible.builtin.set_fact:
+    e2e_openapi_spec: "{{ e2e_bundled_contract }}"
+    e2e_openapi_selected_url: bundled AO v1 contract verified against the deployed frontend
+  when: e2e_openapi_spec | length == 0 and e2e_allow_bundled_contract | bool
+
+- name: Preflight | Require a validated AO schema before using its paths
+  ansible.builtin.assert:
+    that:
+      - e2e_openapi_spec is mapping
+      - e2e_openapi_spec.paths is defined
+      - e2e_openapi_spec.paths is mapping
+      - e2e_openapi_spec.paths | length > 0
+    fail_msg: >-
+      No valid AO OpenAPI JSON document was found. Attempts (URL, HTTP status,
+      content type): {{ e2e_openapi_attempts | to_json }}.
+      A 200 HTML response is usually the UI fallback, not an API schema.
+      Set e2e_ao_openapi_url to the backend schema URL for this deployment.
+    quiet: true
+
+- name: Preflight | Report the schema endpoint selected
+  ansible.builtin.debug:
+    msg: "E2E — AO schema: {{ e2e_openapi_selected_url }}"
+
+- name: Preflight | Select execution POST and node-list paths
+  ansible.builtin.set_fact:
+    e2e_execute_paths: "{{ e2e_openapi_spec.paths | dict2items | selectattr('key', 'match', '^(/api/v1)?' ~ e2e_ao_execute_path ~ '/?$') | selectattr('value.post', 'defined') | list }}"
+    e2e_node_paths: "{{ e2e_openapi_spec.paths | dict2items | selectattr('key', 'match', '^(/api/v1)?/executions/\\{[^}]+\\}/(nodes|steps|node_executions|activities)/?$') | selectattr('value.get', 'defined') | map(attribute='key') | list }}"
+
+- name: Preflight | Discover node endpoint or use embedded execution nodes
+  ansible.builtin.set_fact:
+    e2e_steps_path: "{{ e2e_ao_steps_path if e2e_ao_steps_path | length > 0 else ((e2e_node_paths | first | regex_replace('^/api/v1', '') | regex_replace('\\{[^}]+\\}', '{execution_id}')) if e2e_node_paths | length == 1 else '') }}"
+
+- name: Preflight | Require a declared manual execution API
+  ansible.builtin.assert:
+    that: e2e_execute_paths | length == 1
+    fail_msg: Set e2e_ao_openapi_url and e2e_ao_execute_path for the deployed AO API.
+    quiet: true
+  when: "'motd' in e2e_cases or e2e_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"
+
+- name: Preflight | Read manual launch schema
+  ansible.builtin.set_fact:
+    e2e_execute_path: "{{ e2e_execute_paths[0].key | regex_replace('^/api/v1', '') }}"
+    e2e_launch_schema: "{{ e2e_execute_paths[0].value.post.requestBody.content['application/json'].schema }}"
+  when: e2e_execute_paths | length == 1
+
+- name: Preflight | Resolve bounded OpenAPI component references
+  ansible.builtin.set_fact:
+    e2e_launch_schema: "{{ e2e_openapi_spec.components.schemas[e2e_launch_schema['$ref'].split('/') | last] }}"
+  loop: "{{ range(10) | list }}"
+  when:
+    - e2e_launch_schema is defined
+    - "'$ref' in e2e_launch_schema"
+
+- name: Preflight | Detect the declared execution input property
+  ansible.builtin.set_fact:
+    e2e_input_candidates: "{{ ['input_data', 'inputs', 'input', 'trigger_input', 'trigger_inputs'] | intersect(e2e_launch_schema.properties | default({}) | list) }}"
+  when: e2e_launch_schema is defined
+
+- name: Preflight | Record launch input field
+  ansible.builtin.set_fact:
+    e2e_input_field: "{{ e2e_ao_input_field if e2e_ao_input_field | length > 0 else (e2e_input_candidates | first if e2e_input_candidates | length == 1 else '') }}"
+  when: e2e_launch_schema is defined
+
+- name: Preflight | Reject unsupported manual-launch schemas before any workflow launch
+  ansible.builtin.assert:
+    that:
+      - "'workflow_id' in e2e_launch_schema.properties"
+      - e2e_input_field in e2e_launch_schema.properties
+      - e2e_launch_schema.required | default([]) | difference(['workflow_id', 'trigger_id', 'trigger_node_id', 'workflow_version', 'version', 'use_published', e2e_input_field]) | length == 0
+    fail_msg: Unsupported execution schema. Set e2e_ao_input_field from OpenAPI; do not guess a launch body.
+    quiet: true
+  when: "'motd' in e2e_cases or e2e_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"

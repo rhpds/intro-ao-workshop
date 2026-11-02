@@ -1,0 +1,129 @@
+---
+# Inputs: e2e_execution_id, workflow/definition, required/forbidden nodes,
+# e2e_expects_approval. Read-only validation; never auto-approves a gate.
+- name: Wait for the exact AO execution to complete, fail or pause for approval
+  ansible.builtin.uri:
+    url: "{{ e2e_ao_api }}/executions/{{ e2e_execution_id }}"
+    headers: "{{ e2e_ao_headers }}"
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_execution_response
+  until: e2e_execution_response.json.status | lower in (e2e_success_statuses + e2e_failed_statuses + e2e_paused_statuses)
+  retries: "{{ e2e_retries }}"
+  delay: "{{ e2e_poll_interval }}"
+  changed_when: false
+
+- name: Require execution to belong to the selected workflow
+  ansible.builtin.assert:
+    that: e2e_execution_response.json.workflow_id == e2e_workflow.id
+    quiet: true
+
+- name: Record terminal state or observed approval
+  ansible.builtin.set_fact:
+    e2e_execution_terminal: "{{ e2e_execution_response.json.status | lower in (e2e_success_statuses + e2e_failed_statuses) }}"
+    e2e_approval_observed: "{{ e2e_execution_response.json.status | lower in e2e_paused_statuses }}"
+
+- name: Clear active execution after a terminal AO outcome
+  ansible.builtin.set_fact:
+    e2e_active_execution: ''
+  when: e2e_execution_terminal | bool
+
+- name: Report AO's original workflow failure before inspecting optional node data
+  ansible.builtin.assert:
+    that: e2e_execution_response.json.status | lower not in e2e_failed_statuses
+    fail_msg: >-
+      AO execution {{ e2e_execution_id }} ended {{ e2e_execution_response.json.status }}:
+      {{ e2e_execution_response.json.error_details | default('No error details returned', true) }}
+    quiet: true
+
+- name: Inspect nodes at the approval boundary or completion
+  ansible.builtin.include_tasks: execution-nodes.yml
+
+- name: Require exactly the intended approval behavior
+  ansible.builtin.assert:
+    that: e2e_approval_observed | bool == e2e_expects_approval | bool
+    fail_msg: Approval case bypassed its human gate, or an automatic case unexpectedly paused.
+    quiet: true
+
+- name: Validate and wait for the human decision
+  when: e2e_approval_observed | bool
+  block:
+    - name: Locate the pending gate on the expected branch
+      ansible.builtin.set_fact:
+        e2e_gate_ids: "{{ e2e_definition.nodes | selectattr('type', 'equalto', 'approval') | map(attribute='id') | intersect(e2e_required_nodes) }}"
+
+    - name: Prove that remediation has not started before approval
+      ansible.builtin.assert:
+        that:
+          - e2e_nodes | selectattr('node_id', 'in', e2e_gate_ids) | selectattr('status', 'in', e2e_pending_node_statuses) | list | length == 1
+          - e2e_nodes | selectattr('node_id', 'in', e2e_required_nodes | difference(e2e_gate_ids)) | rejectattr('status', 'in', e2e_idle_node_statuses) | list | length == 0
+        quiet: true
+
+    - name: Request a human approval for this exact run
+      ansible.builtin.debug:
+        msg: "WAIT — review and approve execution {{ e2e_execution_id }} in AO. The test never auto-approves."
+
+    - name: Wait for the human decision and subsequent workflow completion
+      ansible.builtin.uri:
+        url: "{{ e2e_ao_api }}/executions/{{ e2e_execution_id }}"
+        headers: "{{ e2e_ao_headers }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+      register: e2e_approved_execution_response
+      until: e2e_approved_execution_response.json.status | lower in (e2e_success_statuses + e2e_failed_statuses)
+      retries: "{{ e2e_retries }}"
+      delay: "{{ e2e_poll_interval }}"
+      changed_when: false
+
+    - name: Record terminal outcome after approval
+      ansible.builtin.set_fact:
+        e2e_execution_terminal: true
+        e2e_execution_response: "{{ e2e_approved_execution_response }}"
+        e2e_active_execution: ''
+
+    - name: Require successful AO completion after the human decision
+      ansible.builtin.assert:
+        that: e2e_execution_response.json.status | lower in e2e_success_statuses
+        fail_msg: >-
+          AO execution {{ e2e_execution_id }} ended {{ e2e_execution_response.json.status }}:
+          {{ e2e_execution_response.json.error_details | default('No error details returned', true) }}
+        quiet: true
+
+    - name: Read final node results
+      ansible.builtin.include_tasks: execution-nodes.yml
+
+- name: Clear active execution only after confirming a terminal outcome
+  ansible.builtin.set_fact:
+    e2e_active_execution: ''
+  when: e2e_execution_terminal | bool
+
+- name: Require successful completion and the correct branch (not an empty fallback)
+  vars:
+    e2e_completed_nodes: "{{ e2e_nodes | selectattr('status', 'in', e2e_success_statuses) | map(attribute='node_id') | list }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_execution_response.json.status | lower in e2e_success_statuses
+      - e2e_required_nodes | difference(e2e_completed_nodes) | length == 0
+      - e2e_forbidden_nodes | intersect(e2e_completed_nodes) | length == 0
+    fail_msg: Execution failed, skipped a required branch node, or executed an unintended branch.
+    quiet: true
+
+- name: Collect AAP nodes and initialize linked-job evidence
+  ansible.builtin.set_fact:
+    e2e_aap_node_ids: "{{ e2e_definition.nodes | selectattr('type', 'equalto', 'aap_job_template') | map(attribute='id') | list }}"
+    e2e_jobs: []
+    e2e_job_ids: []
+
+- name: Verify every executed AAP node against its actual Controller job
+  ansible.builtin.include_tasks: validate-job.yml
+  loop: "{{ e2e_nodes | selectattr('status', 'in', e2e_success_statuses) | selectattr('node_id', 'in', e2e_aap_node_ids) | list }}"
+  loop_control:
+    loop_var: e2e_node_result
+    label: "{{ e2e_node_result.node_id }}"
+
+- name: Require linked AAP jobs as execution evidence
+  ansible.builtin.assert:
+    that: e2e_jobs | length > 0
+    quiet: true
