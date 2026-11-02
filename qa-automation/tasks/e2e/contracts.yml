@@ -56,7 +56,7 @@
     that: e2e_execute_paths | length == 1
     fail_msg: Set e2e_ao_openapi_url and e2e_ao_execute_path for the deployed AO API.
     quiet: true
-  when: "'motd' in e2e_cases or e2e_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"
+  when: "'motd' in e2e_run_cases or e2e_run_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"
 
 - name: Preflight | Read manual launch schema
   ansible.builtin.set_fact:
@@ -90,4 +90,4 @@
       - e2e_launch_schema.required | default([]) | difference(['workflow_id', 'trigger_id', 'trigger_node_id', 'workflow_version', 'version', 'use_published', e2e_input_field]) | length == 0
     fail_msg: Unsupported execution schema. Set e2e_ao_input_field from OpenAPI; do not guess a launch body.
     quiet: true
-  when: "'motd' in e2e_cases or e2e_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"
+  when: "'motd' in e2e_run_cases or e2e_run_cases | intersect(['cve_dev', 'cve_prod']) | length > 0"

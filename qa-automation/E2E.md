@@ -23,8 +23,9 @@ service health check, E2E runs real workflows and makes persistent changes.
 | 05 — tickets | `ticket_auto`, `ticket_approval`, `ticket_inform` | AAP simulator creates one incident; exact AO execution takes the correct branch; linked jobs succeed; OpenFlake state/notes match Resolved or In Progress; capacity ballast/process cleanup is independently checked |
 | 06 — CVE | `cve_dev`, `cve_prod` | Tag-scoped Insights host is affected before the test; AAP host env is dev/production; correct AO route and successful patch job limited to that host; new Gitea commit/nonempty playbook; new Mattermost card; same Insights system UUID eventually stops reporting the CVE |
 
-Approval cases must be observed **pending**, with downstream remediation not yet
-started. The test prints `WAIT` with the exact execution ID; a human reviews and
+Approval cases are **always skipped in unattended mode**. Only an explicitly
+requested manual run (`e2e_unattended=false`) can execute them. In manual mode,
+they must be observed **pending**, with downstream remediation not yet started. The test prints `WAIT` with the exact execution ID; a human reviews and
 submits the decision in AO. The playbook then waits for completion. It never
 auto-approves production changes. Unlike a subprocess runner, native Ansible
 prints the approval instruction immediately; there is no progress-file/tail step.
@@ -83,7 +84,8 @@ membership is required.
 ## Node-serving certificate repair before job execution
 
 CSR repair is currently **disabled** (`e2e_approve_kubelet_serving_csrs: false`).
-Set it to true to enable the native Ansible preflight for cases that execute AAP
+Unattended runs never approve CSRs, even if the approval flag is supplied.
+In manual mode, set it to true to enable the native Ansible preflight for cases that execute AAP
 jobs (it is skipped for integrations-only runs). It uses
 the mounted kubeconfig via `oc`, honoring `KUBECONFIG` or
 `healthcheck_kubeconfig`, and requires OpenSSL on the runner.
@@ -143,21 +145,33 @@ flags (`e2e_allow_changes`, `e2e_allow_disk_expand`, `e2e_allow_patching`) defau
 to **true** so the pod's launcher needs no extra E2E options. Set a flag to false
 explicitly to prohibit that class of change.
 
-Current defaults run **independent checks only**: the `integrations` case and
-RHEL gateway/node1–3 SSH connectivity (`e2e_check_rhel_connectivity: true`).
-CSR approval is disabled. No AAP jobs, disk filling, incident simulations or
-patching run in this mode. Set `e2e_check_rhel_connectivity: false` for API-only
-integration discovery without SSH checks.
+Current defaults run **five live-validated, unattended cases**:
 
-Disk, ticket and CVE workflows all launch AAP jobs, so they are explicitly
-excluded while execution-pod streaming is blocked by kubelet TLS. MOTD also
-remains excluded for its empty agent output. Excluded cases are listed in output
-and evidence, never counted as passed. Gateway/node connectivity is recorded
-separately in the evidence report. A successful independent run is **not** a
-claim that the full workflow E2E suite passed.
+- `integrations`: MCP tool and LLM model discovery.
+- `disk_healthy`: 50% alert, healthy branch, notification and ballast reset.
+- `disk_warning`: 85% alert, cleanup branch, notification and ballast reset.
+- `ticket_auto`: automatic remediation, ticket resolution and capacity cleanup.
+- `ticket_inform`: enrichment and handoff without remediation.
 
-After cluster execution is repaired, explicitly select the workflow cases to
-resume them. Re-enable `motd` only after its agent/model issue is fixed.
+AO/AAP authentication, project lookup and gateway/node1–3 SSH checks also run.
+The scheduled/link-triggered run needs no human decisions. CSR approval is off.
+The target cluster must already support healthy AAP pod execution/streaming;
+real failures in selected cases still fail the run rather than being hidden.
+
+With `e2e_unattended: true` (the default), these cases are filtered out even if
+an explicit `e2e_cases` list includes them:
+
+- `motd`: known empty structured agent output.
+- `disk_critical`: persistent volume growth is not safely repeatable on every trigger.
+- `ticket_approval`: requires a human decision.
+- `cve_dev`: needs additional service-account access and a fresh patchable CVE;
+  patching consumes the fixture and is not repeatable.
+- `cve_prod`: needs both a human decision and a fresh patchable CVE.
+
+Skipped cases and reasons appear in the final summary and evidence; they are
+never counted as passed. An all-skipped selection performs no authentication,
+launches or approval waits. For independent-only checks, select
+`e2e_cases=['integrations']`; also set `e2e_check_rhel_connectivity=false` to omit SSH.
 
 ```bash
 ansible-playbook -i localhost, qa-automation/e2e.yml \
@@ -169,15 +183,16 @@ with `bash qa-automation/run-e2e.sh`. The shell launcher only configures Ansible
 stdout callback; all testing logic is in Ansible tasks. Default callback output
 remains available via `ANSIBLE_STDOUT_CALLBACK=default`.
 
-The approval, critical-disk and CVE cases are supported but not selected by
-default. For the full ten-case suite, choose a **currently
+The optional cases are not part of the automatic link. For a deliberately
+supervised, full ten-case run, first fix the MOTD agent, provide working Insights
+authentication, and choose a **currently
 applicable, remediable critical CVE affecting node1 and node2**, as described in
 module 06, and set `E2E_CVE_ID` in the QA pod. Then:
 
 ```bash
 bash qa-automation/run-e2e.sh \
   -e @/run/secrets/provisioned-user-data.yml \
-  -e '{"e2e_cases":["integrations","motd","disk_healthy","disk_warning","disk_critical","ticket_auto","ticket_approval","ticket_inform","cve_dev","cve_prod"]}'
+  -e '{"e2e_unattended":false,"e2e_cases":["integrations","motd","disk_healthy","disk_warning","disk_critical","ticket_auto","ticket_approval","ticket_inform","cve_dev","cve_prod"]}'
 ```
 
 Explicitly disabled permissions, or missing CVE/GUID for selected CVE cases, fail
@@ -217,8 +232,8 @@ A private JSON evidence report is retained in the run's temporary workspace;
 not-passed cases, exact execution/job/incident IDs and CVE evidence where available.
 The final console summary separates individual passed checks (authentication,
 project, gateway, each RHEL node, integrations, required tools and model discovery)
-from `cases_passed`. It also lists `excluded_cases_not_tested` and whether CSR
-approval is enabled. A prerequisite check is recorded only after its validation
+from `cases_passed`. It also lists `excluded_cases_not_tested`, `skipped_cases` with reasons, the
+unattended mode and whether CSR approval is enabled. A prerequisite check is recorded only after its validation
 succeeds; discovery is never labeled as inference or workflow execution.
 
 In the JSON evidence, `checks` contains the detailed check ledger and `passed`
