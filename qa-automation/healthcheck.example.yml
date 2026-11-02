@@ -1,0 +1,53 @@
+---
+# Copy OUTSIDE the repository, replace values, then encrypt with ansible-vault.
+# Never commit a populated copy. URLs are examples, not inferred endpoints.
+ocp_url: https://api.cluster.example.com:6443
+ocp_console_url: https://console-openshift-console.apps.cluster.example.com
+ocp_token: REPLACE_WITH_OPENSHIFT_USER_TOKEN
+ao_url: https://ao.apps.cluster.example.com
+ao_username: admin
+ao_password: REPLACE_ME
+aap_url: https://aap.apps.cluster.example.com
+aap_username: admin
+aap_password: REPLACE_ME
+# Optional bearer token instead of AAP password:
+# aap_token: REPLACE_ME
+openflake_url: https://openflake.apps.cluster.example.com
+openflake_username: admin
+openflake_password: REPLACE_ME
+gitea_url: https://gitea.apps.cluster.example.com
+gitea_username: lab-user
+gitea_password: REPLACE_ME
+gitea_token: REPLACE_ME
+mattermost_url: https://mattermost.apps.cluster.example.com
+mattermost_username: admin
+mattermost_password: REPLACE_ME
+# Include /v1, matching litellm_api_base_url in user_data.
+llm_url: https://litellm.example.com/v1
+llm_api_key: REPLACE_ME
+aap_mcp_url: https://aap-mcp-aap.apps.cluster.example.com/mcp
+aap_mcp_token: REPLACE_ME
+openflake_mcp_url: https://openflake-mcp-openflake-mcp.apps.cluster.example.com/mcp
+openflake_mcp_token: REPLACE_ME
+lightspeed_mcp_url: https://lightspeed-mcp-lightspeed-mcp.apps.cluster.example.com/mcp
+lightspeed_mcp_token: REPLACE_ME
+lightspeed_client_id: REPLACE_ME
+lightspeed_client_secret: REPLACE_ME
+splunk_url: https://splunk.apps.cluster.example.com
+# Splunk management API must be reachable from the runner (e.g. a local tunnel).
+splunk_api_url: https://localhost:8089
+splunk_username: admin
+splunk_password: REPLACE_ME
+ao_webhook_accounts:
+  - name: Solutions webhook service account
+    client_id: REPLACE_ME
+    client_secret: REPLACE_ME
+  - name: Student webhook service account
+    client_id: REPLACE_ME
+    client_secret: REPLACE_ME
+# Trust the cluster CA on the runner. Opt out ONLY for disposable lab certs:
+# healthcheck_validate_certs: false
+# Explicitly disable only services not deployed by your catalog:
+# splunk_enabled: false
+# aap_eda_enabled: false
+# Override healthcheck_ocp_namespaces if your catalog uses different namespaces.

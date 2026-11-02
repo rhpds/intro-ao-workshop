@@ -1,0 +1,173 @@
+---
+# Override using a Vault-encrypted -e @file.yml. Environment variables are
+# convenient locally; empty credentials deliberately FAIL, never skip checks.
+healthcheck_validate_certs: true
+healthcheck_timeout: 15
+# Override when catalog namespaces differ. Every namespace must contain pods.
+healthcheck_ocp_namespaces:
+  - automation-orchestrator
+  - aap
+  - openflake
+  - openflake-mcp
+  - lightspeed-mcp
+  - mattermost
+  - gitea
+healthcheck_passed: []
+healthcheck_failed: []
+ocp_url: "{{ lookup('env', 'OCP_URL') | regex_replace('/+$', '') }}"
+ocp_token: "{{ lookup('env', 'OCP_TOKEN') }}"
+ocp_console_url: "{{ lookup('env', 'OCP_CONSOLE_URL') | regex_replace('/+$', '') }}"
+aap_url: "{{ lookup('env', 'AAP_URL') | regex_replace('/+$', '') }}"
+aap_username: "{{ lookup('env', 'AAP_USERNAME') | default('admin', true) }}"
+aap_password: "{{ lookup('env', 'AAP_PASSWORD') }}"
+aap_token: "{{ lookup('env', 'AAP_TOKEN') }}"
+# AAP 2.7 platform gateway paths; override for a standalone controller.
+aap_me_path: /api/gateway/v1/me/
+aap_controller_ping_path: /api/controller/v2/ping/
+aap_controller_me_path: /api/controller/v2/me/
+aap_eda_enabled: true
+aap_eda_path: /api/eda/v1/activations/
+openflake_url: "{{ lookup('env', 'OPENFLAKE_URL') | regex_replace('/+$', '') }}"
+openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default('admin', true) }}"
+openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') }}"
+gitea_url: "{{ lookup('env', 'GITEA_URL') | regex_replace('/+$', '') }}"
+gitea_username: "{{ lookup('env', 'GITEA_USERNAME') }}"
+gitea_password: "{{ lookup('env', 'GITEA_PASSWORD') }}"
+gitea_token: "{{ lookup('env', 'GITEA_TOKEN') }}"
+mattermost_url: "{{ lookup('env', 'MATTERMOST_URL') | regex_replace('/+$', '') }}"
+mattermost_username: "{{ lookup('env', 'MATTERMOST_USERNAME') | default('admin', true) }}"
+mattermost_password: "{{ lookup('env', 'MATTERMOST_PASSWORD') }}"
+llm_url: "{{ lookup('env', 'LLM_URL') | regex_replace('/+$', '') }}"
+llm_api_key: "{{ lookup('env', 'LLM_API_KEY') }}"
+splunk_enabled: true
+splunk_url: "{{ lookup('env', 'SPLUNK_URL') | regex_replace('/+$', '') }}"
+# Management API, NOT the web UI URL; expose/tunnel port 8089 if necessary.
+splunk_api_url: "{{ lookup('env', 'SPLUNK_API_URL') | regex_replace('/+$', '') }}"
+splunk_username: "{{ lookup('env', 'SPLUNK_USERNAME') | default('admin', true) }}"
+splunk_password: "{{ lookup('env', 'SPLUNK_PASSWORD') }}"
+aap_mcp_url: "{{ lookup('env', 'AAP_MCP_URL') }}"
+aap_mcp_token: "{{ lookup('env', 'AAP_MCP_TOKEN') }}"
+openflake_mcp_url: "{{ lookup('env', 'OPENFLAKE_MCP_URL') }}"
+openflake_mcp_token: "{{ lookup('env', 'OPENFLAKE_MCP_TOKEN') }}"
+lightspeed_mcp_url: "{{ lookup('env', 'LIGHTSPEED_MCP_URL') }}"
+lightspeed_mcp_token: "{{ lookup('env', 'LIGHTSPEED_MCP_TOKEN') }}"
+lightspeed_client_id: "{{ lookup('env', 'LIGHTSPEED_CLIENT_ID') }}"
+lightspeed_client_secret: "{{ lookup('env', 'LIGHTSPEED_CLIENT_SECRET') }}"
+healthcheck_mcp_servers:
+  - name: AAP MCP
+    url: "{{ aap_mcp_url }}"
+    token: "{{ aap_mcp_token }}"
+  - name: OpenFlake MCP
+    url: "{{ openflake_mcp_url }}"
+    token: "{{ openflake_mcp_token }}"
+  - name: Lightspeed MCP
+    url: "{{ lightspeed_mcp_url }}"
+    token: "{{ lightspeed_mcp_token }}"
+ao_webhook_accounts:
+  - name: Solutions webhook service account
+    client_id: "{{ lookup('env', 'AO_SOLUTIONS_CLIENT_ID') }}"
+    client_secret: "{{ lookup('env', 'AO_SOLUTIONS_CLIENT_SECRET') }}"
+  - name: Student webhook service account
+    client_id: "{{ lookup('env', 'AO_STUDENT_CLIENT_ID') }}"
+    client_secret: "{{ lookup('env', 'AO_STUDENT_CLIENT_SECRET') }}"
+
+healthcheck_http_probes:
+  - name: OpenShift API readiness
+    required: ["{{ ocp_url }}", "{{ ocp_token }}"]
+    request:
+      url: "{{ ocp_url }}/readyz"
+      headers: {Authorization: "Bearer {{ ocp_token }}"}
+    pattern: '^ok'
+  - name: OpenShift credential identity
+    required: ["{{ ocp_url }}", "{{ ocp_token }}"]
+    request:
+      url: "{{ ocp_url }}/apis/user.openshift.io/v1/users/~"
+      headers: {Authorization: "Bearer {{ ocp_token }}"}
+    json_key: metadata
+  - name: OpenShift console
+    required: ["{{ ocp_console_url }}"]
+    request:
+      url: "{{ ocp_console_url }}/health"
+  - name: AAP credentials
+    required: ["{{ aap_url }}", "{{ aap_token if aap_token | length > 0 else aap_password }}"]
+    request:
+      url: "{{ aap_url }}{{ aap_me_path }}"
+      headers: "{{ {'Authorization': 'Bearer ' ~ aap_token} if aap_token | length > 0 else {} }}"
+      url_username: "{{ aap_username }}"
+      url_password: "{{ aap_password }}"
+      force_basic_auth: "{{ aap_token | length == 0 }}"
+    nonempty_key: results
+  - name: AAP controller API
+    required: ["{{ aap_url }}"]
+    request:
+      url: "{{ aap_url }}{{ aap_controller_ping_path }}"
+      headers: "{{ {'Authorization': 'Bearer ' ~ aap_token} if aap_token | length > 0 else {} }}"
+      url_username: "{{ aap_username }}"
+      url_password: "{{ aap_password }}"
+      force_basic_auth: "{{ aap_token | length == 0 }}"
+    json_key: version
+  - name: AAP MCP bearer credential against controller
+    required: ["{{ aap_url }}", "{{ aap_mcp_token }}"]
+    request:
+      url: "{{ aap_url }}{{ aap_controller_me_path }}"
+      headers: {Authorization: "Bearer {{ aap_mcp_token }}"}
+    nonempty_key: results
+  - name: OpenFlake readiness
+    required: ["{{ openflake_url }}"]
+    request:
+      url: "{{ openflake_url }}/health/ready"
+  - name: OpenFlake credentials and incident API
+    required: ["{{ openflake_url }}", "{{ openflake_username }}", "{{ openflake_password }}"]
+    request:
+      url: "{{ openflake_url }}/api/flake/table/incident?sysparm_limit=1"
+      url_username: "{{ openflake_username }}"
+      url_password: "{{ openflake_password }}"
+      force_basic_auth: true
+    json_key: result
+  - name: Gitea password credentials
+    required: ["{{ gitea_url }}", "{{ gitea_username }}", "{{ gitea_password }}"]
+    request:
+      url: "{{ gitea_url }}/api/v1/user"
+      url_username: "{{ gitea_username }}"
+      url_password: "{{ gitea_password }}"
+      force_basic_auth: true
+    json_key: login
+  - name: Gitea lab API token
+    required: ["{{ gitea_url }}", "{{ gitea_token }}"]
+    request:
+      url: "{{ gitea_url }}/api/v1/user"
+      headers: {Authorization: "token {{ gitea_token }}"}
+    json_key: login
+  - name: Mattermost readiness
+    required: ["{{ mattermost_url }}"]
+    request:
+      url: "{{ mattermost_url }}/api/v4/system/ping"
+    json_key: status
+    pattern: '"status"\s*:\s*"OK"'
+  - name: Mattermost credentials
+    required: ["{{ mattermost_url }}", "{{ mattermost_username }}", "{{ mattermost_password }}"]
+    request:
+      url: "{{ mattermost_url }}/api/v4/users/login"
+      method: POST
+      body_format: json
+      body:
+        login_id: "{{ mattermost_username }}"
+        password: "{{ mattermost_password }}"
+    json_key: id
+  - name: LLM virtual key and model availability
+    required: ["{{ llm_url }}", "{{ llm_api_key }}"]
+    request:
+      url: "{{ llm_url }}/models"
+      headers: {Authorization: "Bearer {{ llm_api_key }}"}
+    nonempty_key: data
+  - name: Red Hat Lightspeed service account credentials
+    required: ["{{ lightspeed_client_id }}", "{{ lightspeed_client_secret }}"]
+    request:
+      url: https://sso.redhat.com/auth/realms/redhat-external/protocol/openid-connect/token
+      method: POST
+      body_format: form-urlencoded
+      body:
+        grant_type: client_credentials
+        client_id: "{{ lightspeed_client_id }}"
+        client_secret: "{{ lightspeed_client_secret }}"
+    nonempty_key: access_token

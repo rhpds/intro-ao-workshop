@@ -1,0 +1,121 @@
+---
+- name: Run service availability and credential checks
+  ansible.builtin.include_tasks: http-probe.yml
+  loop: "{{ healthcheck_http_probes }}"
+  loop_control:
+    loop_var: hc_probe
+    label: "{{ hc_probe.name }}"
+
+- name: Check AAP Automation Decisions availability and credentials
+  ansible.builtin.include_tasks: http-probe.yml
+  vars:
+    hc_probe:
+      name: AAP Automation Decisions API
+      required: ["{{ aap_url }}", "{{ aap_token if aap_token | length > 0 else aap_password }}"]
+      request:
+        url: "{{ aap_url }}{{ aap_eda_path }}"
+        headers: "{{ {'Authorization': 'Bearer ' ~ aap_token} if aap_token | length > 0 else {} }}"
+        url_username: "{{ aap_username }}"
+        url_password: "{{ aap_password }}"
+        force_basic_auth: "{{ aap_token | length == 0 }}"
+      json_key: results
+  when: aap_eda_enabled | bool
+
+- name: Check Splunk web and authenticated management API
+  ansible.builtin.include_tasks: http-probe.yml
+  loop:
+    - name: Splunk web UI
+      required: ["{{ splunk_url }}"]
+      request:
+        url: "{{ splunk_url }}/en-US/account/login"
+    - name: Splunk management credentials
+      required: ["{{ splunk_api_url }}", "{{ splunk_username }}", "{{ splunk_password }}"]
+      request:
+        url: "{{ splunk_api_url }}/services/authentication/current-context?output_mode=json"
+        url_username: "{{ splunk_username }}"
+        url_password: "{{ splunk_password }}"
+        force_basic_auth: true
+      nonempty_key: entry
+  loop_control:
+    loop_var: hc_probe
+    label: "{{ hc_probe.name }}"
+  when: splunk_enabled | bool
+
+- name: Check MCP protocol availability with the configured bearer token
+  ansible.builtin.include_tasks: http-probe.yml
+  vars:
+    hc_probe:
+      name: "{{ mcp.name }} protocol initialization"
+      kind: mcp
+      required: ["{{ mcp.url }}", "{{ mcp.token }}"]
+      request:
+        url: "{{ mcp.url }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ mcp.token }}"
+          Accept: application/json, text/event-stream
+        body_format: json
+        body:
+          jsonrpc: '2.0'
+          id: 1
+          method: initialize
+          params:
+            protocolVersion: '2024-11-05'
+            capabilities: {}
+            clientInfo: {name: lab-healthcheck, version: '1.0'}
+  loop: "{{ healthcheck_mcp_servers }}"
+  loop_control:
+    loop_var: mcp
+    label: "{{ mcp.name }}"
+
+- name: Verify both AO webhook client credentials without triggering workflows
+  ansible.builtin.include_tasks: http-probe.yml
+  vars:
+    hc_probe:
+      name: "{{ account.name }} credentials"
+      required: ["{{ ao_url }}", "{{ account.client_id }}", "{{ account.client_secret }}"]
+      request:
+        url: "{{ ao_url | regex_replace('/+$', '') }}/api/v1/auth/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: client_credentials
+          client_id: "{{ account.client_id }}"
+          client_secret: "{{ account.client_secret }}"
+      nonempty_key: access_token
+  loop: "{{ ao_webhook_accounts }}"
+  loop_control:
+    loop_var: account
+    label: "{{ account.name }}"
+
+- name: Check OpenShift nodes and operators
+  ansible.builtin.include_tasks: openshift-resource.yml
+  loop:
+    - name: OpenShift nodes Ready
+      path: /api/v1/nodes
+      condition: Ready
+      expected: 'True'
+    - name: OpenShift cluster operators Available
+      path: /apis/config.openshift.io/v1/clusteroperators
+      condition: Available
+      expected: 'True'
+    - name: OpenShift cluster operators not Degraded
+      path: /apis/config.openshift.io/v1/clusteroperators
+      condition: Degraded
+      expected: 'False'
+  loop_control:
+    loop_var: ocp_check
+    label: "{{ ocp_check.name }}"
+
+- name: Check lab namespace pod readiness including backing databases
+  ansible.builtin.include_tasks: openshift-resource.yml
+  vars:
+    ocp_check:
+      name: "OpenShift pods in {{ namespace }}"
+      path: "/api/v1/namespaces/{{ namespace }}/pods"
+      condition: Ready
+      expected: 'True'
+      pods: true
+  loop: "{{ healthcheck_ocp_namespaces + (['splunk'] if splunk_enabled | bool else []) }}"
+  loop_control:
+    loop_var: namespace

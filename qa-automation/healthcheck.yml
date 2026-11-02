@@ -1,13 +1,13 @@
 ---
-# HEALTHCHECK — Quick environment readiness check
+# HEALTHCHECK — Full lab service and credential readiness
 # Runs post-provisioning to verify the lab environment is functional.
-# Should complete in under 60 seconds.
+# Requests are bounded; total runtime depends on service count.
+# See qa-automation/README.md for full-lab inputs.
 #
 # Exit 0 = healthy, non-zero = unhealthy.
 #
-# This checks what ocp4_workload_automation_orchestrator_config built:
-# the `solutions` project and everything a student needs in order to
-# open it and press Run.
+# Checks OpenShift and the supporting lab services, then verifies what
+# ocp4_workload_automation_orchestrator_config built in `solutions`.
 #
 # Why this file asserts so much about node wiring: AO's own workflow
 # validation is structural only. A workflow whose nodes carry no
@@ -17,22 +17,33 @@
 # assertions below are the real test.
 #
 # Usage:
-#   ansible-playbook qa-automation/healthcheck.yml \
-#     -e ao_url=https://... -e ao_password=...
+#   ansible-playbook -i localhost, qa-automation/healthcheck.yml \
+#     -e @/path/to/encrypted-healthcheck.yml --ask-vault-pass
 
 - name: "Environment Health Check"
   hosts: localhost
   connection: local
   gather_facts: false
 
+  vars_files:
+    - vars/services.yml
+
+  module_defaults:
+    ansible.builtin.uri:
+      timeout: "{{ healthcheck_timeout }}"
+      follow_redirects: none
+      unredirected_headers: [Authorization]
+
   vars:
     ao_url: "{{ lookup('env', 'AO_URL') }}"
     ao_username: "{{ lookup('env', 'AO_USERNAME') | default('admin', true) }}"
     ao_password: "{{ lookup('env', 'AO_PASSWORD') }}"
-    ao_validate_certs: false
+    ao_validate_certs: "{{ healthcheck_validate_certs }}"
     ao_solutions_project: solutions
-    ao_service_account_name: aap-webhooks
-    ao_expected_credentials: 4
+    ao_expected_service_accounts:
+      - aap-solutions-webhooks
+      - aap-student-webhooks
+    ao_expected_credentials: 5
     ao_expected_integrations: 5
     ao_expected_workflows:
       - Message of the Day
@@ -46,6 +57,15 @@
       - aap_job_template
 
   tasks:
+    - name: Check all lab services and OpenShift before AO configuration
+      ansible.builtin.include_tasks: tasks/services.yml
+
+    - name: Report service readiness results
+      ansible.builtin.debug:
+        msg:
+          passed: "{{ healthcheck_passed }}"
+          failed: "{{ healthcheck_failed }}"
+
     - name: Fail early on missing connection details
       ansible.builtin.assert:
         that:
@@ -79,13 +99,10 @@
     # Project
     # ---------------------------------------------------------------
     - name: List projects
-      ansible.builtin.uri:
-        url: "{{ ao_api }}/projects"
-        method: GET
-        headers: "{{ ao_headers }}"
-        status_code: [200]
-        validate_certs: "{{ ao_validate_certs }}"
-      register: r_projects
+      ansible.builtin.include_tasks: tasks/ao-collection.yml
+      vars:
+        hc_collection_path: /projects
+        hc_collection_register: r_projects
 
     - name: Record the solutions project
       ansible.builtin.set_fact:
@@ -103,10 +120,9 @@
           {{ r_projects.json.resources | map(attribute='name') | join(', ') }}.
         success_msg: "Project '{{ ao_solutions_project }}' exists."
 
-    - name: Assert the student project was left alone
-      # The student builds credentials and integrations by hand in
-      # module-02 and the workflow in module-03. Seeding `default`
-      # would hand them the answers.
+    - name: Assert the student project exists
+      # Provisioning intentionally seeds three incomplete student workflows.
+      # Only solutions workflows are subject to the wiring assertions.
       ansible.builtin.assert:
         that: >-
           'default' in (r_projects.json.resources | map(attribute='name') | list)
@@ -116,13 +132,10 @@
     # Credentials
     # ---------------------------------------------------------------
     - name: List credentials
-      ansible.builtin.uri:
-        url: "{{ ao_api }}/credentials"
-        method: GET
-        headers: "{{ ao_headers }}"
-        status_code: [200]
-        validate_certs: "{{ ao_validate_certs }}"
-      register: r_credentials
+      ansible.builtin.include_tasks: tasks/ao-collection.yml
+      vars:
+        hc_collection_path: /credentials
+        hc_collection_register: r_credentials
 
     - name: Assert the solutions credentials exist
       vars:
@@ -144,13 +157,10 @@
     # Integrations — existence is not enough; they must have refreshed
     # ---------------------------------------------------------------
     - name: List integrations
-      ansible.builtin.uri:
-        url: "{{ ao_api }}/integrations"
-        method: GET
-        headers: "{{ ao_headers }}"
-        status_code: [200]
-        validate_certs: "{{ ao_validate_certs }}"
-      register: r_integrations
+      ansible.builtin.include_tasks: tasks/ao-collection.yml
+      vars:
+        hc_collection_path: /integrations
+        hc_collection_register: r_integrations
 
     - name: Assert the expected number of integrations
       ansible.builtin.assert:
@@ -161,9 +171,17 @@
           {{ r_integrations.json.resources | map(attribute='name') | join(', ') }}.
         success_msg: "{{ r_integrations.json.resources | length }} integration(s) present."
 
+    - name: Assert the required integration types exist
+      ansible.builtin.assert:
+        that:
+          - r_integrations.json.resources | selectattr('integration_type', 'equalto', 'mcp_server') | list | length >= 3
+          - r_integrations.json.resources | selectattr('integration_type', 'equalto', 'llm_provider') | list | length >= 1
+          - r_integrations.json.resources | selectattr('integration_type', 'equalto', 'ansible_automation_platform') | list | length >= 1
+        fail_msg: Expected three MCP servers, an LLM provider, and an AAP integration.
+
     - name: Check each MCP integration exposes tools
       ansible.builtin.uri:
-        url: "{{ ao_api }}/integrations/{{ item.id }}/tools?limit=200"
+        url: "{{ ao_api }}/integrations/{{ item.id }}/tools?limit=100"
         method: GET
         headers: "{{ ao_headers }}"
         status_code: [200]
@@ -175,23 +193,20 @@
       loop_control:
         label: "{{ item.name }}"
       register: r_tools
+      no_log: true
 
-    - name: Assert every MCP integration exposes at least one tool
+    - name: Assert each MCP integration exposes tools in a valid response
       vars:
-        # Tool descriptions contain raw control characters, which are
-        # illegal in JSON strings — scrub before parsing.
-        _empty: >-
-          {{ r_tools.results
-             | selectattr('content', 'defined')
-             | selectattr('content', 'search', '"resources":\s*\[\s*\]')
-             | map(attribute='item.name') | list }}
+        _tools_page: "{{ item.content | regex_replace('[\\x00-\\x1f]', ' ') | from_json }}"
       ansible.builtin.assert:
-        that: _empty | length == 0
-        fail_msg: >-
-          MCP integration(s) {{ _empty | join(', ') }} expose no tools. The
-          refresh either failed or the MCP endpoint is unreachable from AO;
-          any agentic node selecting a tool from them cannot run.
-        success_msg: "Every MCP integration exposes tools."
+        that:
+          - _tools_page.resources is defined
+          - _tools_page.resources | length > 0
+        fail_msg: MCP integration exposes no tools or an invalid response.
+      loop: "{{ r_tools.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      no_log: true
 
     - name: Check the LLM integration exposes models
       ansible.builtin.uri:
@@ -206,32 +221,27 @@
       loop_control:
         label: "{{ item.name }}"
       register: r_models
+      no_log: true
 
-    - name: Assert the LLM integration exposes models
-      vars:
-        _empty: >-
-          {{ r_models.results
-             | selectattr('json.resources', 'defined')
-             | selectattr('json.resources', 'eq', [])
-             | map(attribute='item.name') | list }}
+    - name: Assert every LLM integration exposes models
       ansible.builtin.assert:
-        that: _empty | length == 0
-        fail_msg: >-
-          LLM integration(s) {{ _empty | join(', ') }} expose no models.
-          Check the LiteLLM endpoint and the virtual key.
-        success_msg: "The LLM integration exposes models."
+        that:
+          - item.json.resources is defined
+          - item.json.resources | length > 0
+        fail_msg: LLM integration exposes no models or an invalid response.
+      loop: "{{ r_models.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      no_log: true
 
     # ---------------------------------------------------------------
     # Workflows — the real test
     # ---------------------------------------------------------------
     - name: List workflows
-      ansible.builtin.uri:
-        url: "{{ ao_api }}/workflows"
-        method: GET
-        headers: "{{ ao_headers }}"
-        status_code: [200]
-        validate_certs: "{{ ao_validate_certs }}"
-      register: r_workflows
+      ansible.builtin.include_tasks: tasks/ao-collection.yml
+      vars:
+        hc_collection_path: /workflows
+        hc_collection_register: r_workflows
 
     - name: Record the solutions workflows
       ansible.builtin.set_fact:
@@ -263,6 +273,7 @@
       loop_control:
         label: "{{ item.name }}"
       register: r_workflow_detail
+      no_log: true
 
     - name: Assert no workflow reports validation issues
       vars:
@@ -387,35 +398,39 @@
     # Service account
     # ---------------------------------------------------------------
     - name: List service accounts
-      ansible.builtin.uri:
-        url: "{{ ao_api }}/service_accounts"
-        method: GET
-        headers: "{{ ao_headers }}"
-        status_code: [200]
-        validate_certs: "{{ ao_validate_certs }}"
-      register: r_service_accounts
+      ansible.builtin.include_tasks: tasks/ao-collection.yml
+      vars:
+        hc_collection_path: /service_accounts
+        hc_collection_register: r_service_accounts
 
-    - name: Assert the AAP webhook service account exists and is active
+    - name: Assert both AAP webhook service accounts exist and are active
       vars:
         _sa: >-
           {{ (r_service_accounts.json.resources
-              | selectattr('name', 'equalto', ao_service_account_name)
+              | selectattr('name', 'equalto', item)
               | list | first) | default({}, true) }}
       ansible.builtin.assert:
         that:
           - _sa.id is defined
           - _sa.status | default('') == 'active'
         fail_msg: >-
-          Service account '{{ ao_service_account_name }}' is missing or not
+          Service account '{{ item }}' is missing or not
           active. AAP cannot trigger AO workflows over
           POST /api/v1/webhooks/{path}.
-        success_msg: "Service account '{{ ao_service_account_name }}' is active."
+        success_msg: "Service account '{{ item }}' is active."
+      loop: "{{ ao_expected_service_accounts }}"
+
+    - name: Fail if any service or credential check failed
+      ansible.builtin.assert:
+        that: healthcheck_failed | length == 0
+        fail_msg: "Unhealthy checks: {{ healthcheck_failed | join('; ') }}"
+        success_msg: All service availability, credential, and OpenShift checks passed.
 
     - name: Health check summary
       ansible.builtin.debug:
         msg: >-
           HEALTHY — project '{{ ao_solutions_project }}' has
-          {{ solutions_workflows | length }} runnable workflow(s),
-          {{ r_integrations.json.resources | length }} integration(s), and a
-          service account for AAP callbacks. The student's 'default'
-          project is untouched.
+          {{ solutions_workflows | length }} configured reference workflow(s),
+          {{ r_integrations.json.resources | length }} integration(s), and
+          service accounts for AAP callbacks. Student workflows are not executed
+          or modified. Readiness does not prove end-to-end execution.

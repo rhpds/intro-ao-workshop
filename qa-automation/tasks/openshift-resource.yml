@@ -1,0 +1,61 @@
+---
+- name: "Check {{ ocp_check.name }}"
+  block:
+    - name: Require OpenShift connection details
+      ansible.builtin.assert:
+        that:
+          - ocp_url | length > 0
+          - ocp_token | length > 0
+        quiet: true
+      no_log: true
+
+    - name: Read OpenShift resource status
+      ansible.builtin.uri:
+        url: "{{ ocp_url }}{{ ocp_check.path }}"
+        headers:
+          Authorization: "Bearer {{ ocp_token }}"
+        timeout: "{{ healthcheck_timeout }}"
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        follow_redirects: none
+        unredirected_headers: [Authorization]
+      register: hc_ocp_response
+      no_log: true
+
+    - name: Require a nonempty resource list
+      ansible.builtin.assert:
+        that:
+          - hc_ocp_response.json['items'] | length > 0
+        quiet: true
+      no_log: true
+
+    - name: Verify every resource has the expected condition
+      ansible.builtin.assert:
+        that:
+          - resource.metadata.deletionTimestamp is not defined
+          - >-
+            resource.status.conditions | default([])
+            | selectattr('type', 'equalto', ocp_check.condition)
+            | selectattr('status', 'equalto', ocp_check.expected)
+            | list | length == 1
+        quiet: true
+      loop: "{{ hc_ocp_response.json['items'] }}"
+      loop_control:
+        loop_var: resource
+        label: "{{ resource.metadata.name }}"
+      # Completed Jobs are healthy; Pending/Failed/terminating pods are not.
+      when: not (ocp_check.pods | default(false) and resource.status.phase | default('') == 'Succeeded')
+      no_log: true
+
+    - name: Record healthy OpenShift resources
+      ansible.builtin.set_fact:
+        healthcheck_passed: "{{ healthcheck_passed + [ocp_check.name] }}"
+
+  rescue:
+    - name: Record unhealthy or inaccessible OpenShift resources
+      ansible.builtin.set_fact:
+        healthcheck_failed: "{{ healthcheck_failed + [ocp_check.name ~ ' (API/RBAC failure, empty resources, or unhealthy condition)'] }}"
+
+  always:
+    - name: Report OpenShift check outcome
+      ansible.builtin.debug:
+        msg: "{{ 'PASS' if ocp_check.name in healthcheck_passed else 'FAIL' }} — {{ ocp_check.name }}"

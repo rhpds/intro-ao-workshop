@@ -1,0 +1,42 @@
+---
+# Recursive includes stop immediately when the cursor is exhausted.
+- name: Fetch a page only while the cursor remains
+  when: hc_ao_more | bool
+  block:
+    - name: Read AO collection page
+      ansible.builtin.uri:
+        url: "{{ ao_api }}{{ hc_collection_path }}?limit=100{{ ('&cursor=' ~ (hc_ao_cursor | urlencode)) if hc_ao_cursor | length > 0 else '' }}"
+        headers: "{{ ao_headers }}"
+        validate_certs: "{{ ao_validate_certs }}"
+        return_content: true
+      register: hc_ao_page_response
+      no_log: true
+
+    - name: Parse AO collection response including malformed tool descriptions
+      ansible.builtin.set_fact:
+        hc_ao_page: "{{ hc_ao_page_response.content | regex_replace('[\\x00-\\x1f]', ' ') | from_json }}"
+      no_log: true
+
+    - name: Verify collection envelope and advancing cursor
+      ansible.builtin.assert:
+        that:
+          - hc_ao_page.resources is defined
+          - hc_ao_page.resources is sequence
+          - hc_ao_page.resources is not string
+          - not (hc_ao_page.next | default('', true)) or hc_ao_page.next != hc_ao_cursor
+        quiet: true
+      no_log: true
+
+    - name: Append collection page
+      ansible.builtin.set_fact:
+        hc_ao_page_count: "{{ (hc_ao_page_count | int) + 1 }}"
+        hc_ao_resources: "{{ hc_ao_resources + hc_ao_page.resources }}"
+        hc_ao_cursor: "{{ hc_ao_page.next | default('', true) }}"
+        hc_ao_more: "{{ (hc_ao_page.next | default('', true) | length) > 0 }}"
+      no_log: true
+
+    - name: Fetch next AO collection page within safety budget
+      ansible.builtin.include_tasks: ao-collection-page.yml
+      when:
+        - hc_ao_more | bool
+        - hc_ao_page_count | int < 50
