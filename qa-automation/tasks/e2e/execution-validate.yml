@@ -24,6 +24,19 @@
     e2e_execution_terminal: "{{ e2e_execution_response.json.status | lower in (e2e_success_statuses + e2e_failed_statuses) }}"
     e2e_approval_observed: "{{ e2e_execution_response.json.status | lower in e2e_paused_statuses }}"
 
+- name: Clear active execution after a terminal AO outcome
+  ansible.builtin.set_fact:
+    e2e_active_execution: ''
+  when: e2e_execution_terminal | bool
+
+- name: Report AO's original workflow failure before inspecting optional node data
+  ansible.builtin.assert:
+    that: e2e_execution_response.json.status | lower not in e2e_failed_statuses
+    fail_msg: >-
+      AO execution {{ e2e_execution_id }} ended {{ e2e_execution_response.json.status }}:
+      {{ e2e_execution_response.json.error_details | default('No error details returned', true) }}
+    quiet: true
+
 - name: Inspect nodes at the approval boundary or completion
   ansible.builtin.include_tasks: execution-nodes.yml
 
@@ -68,6 +81,15 @@
       ansible.builtin.set_fact:
         e2e_execution_terminal: true
         e2e_execution_response: "{{ e2e_approved_execution_response }}"
+        e2e_active_execution: ''
+
+    - name: Require successful AO completion after the human decision
+      ansible.builtin.assert:
+        that: e2e_execution_response.json.status | lower in e2e_success_statuses
+        fail_msg: >-
+          AO execution {{ e2e_execution_id }} ended {{ e2e_execution_response.json.status }}:
+          {{ e2e_execution_response.json.error_details | default('No error details returned', true) }}
+        quiet: true
 
     - name: Read final node results
       ansible.builtin.include_tasks: execution-nodes.yml

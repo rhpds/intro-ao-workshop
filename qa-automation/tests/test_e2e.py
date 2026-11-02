@@ -154,7 +154,7 @@ class Handler(BaseHTTPRequestHandler):
                 lab.patched = True
             if lab.activity_contract:
                 result.pop('nodes')
-                result['activities'] = []
+                result['activities'] = None
             self.respond(result)
         elif path == '/api/controller/v2/job_templates/':
             self.respond({'results': [{'id': 100, 'name': query['name'][0]}]})
@@ -357,6 +357,23 @@ class NativeE2ETests(unittest.TestCase):
                                 "e2e_nodes | selectattr('node_id', 'equalto', 'triage_agent') | list | length == 1"]}}]
         rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['ticket_inform']})
         self.assertEqual(rc, 0, output)
+
+    def test_failed_execution_reports_ao_error_before_reading_null_activities(self):
+        self.server.lab.activity_contract = True
+        self.server.lab.start('Inform Only')
+        self.server.lab.execution['status'] = 'failed'
+        self.server.lab.execution['error_details'] = 'motd_agent.result.content.headline: Property headline not found'
+        tasks = self.initial_tasks() + [
+            {'set_fact': {'e2e_workflow': '{{ e2e_workflows.ticket }}',
+                          'e2e_definition': '{{ e2e_workflows.ticket.version.workflow_definition }}',
+                          'e2e_expects_approval': False,
+                          'e2e_execution_id': '11111111-1111-4111-8111-111111111111'}},
+            {'include_tasks': str(QA / 'tasks/e2e/execution-validate.yml')}]
+        rc, output, _ = self.run_ansible(tasks, {'e2e_cases': ['ticket_inform']})
+        self.assertEqual(rc, 2, output)
+        self.assertIn('Property headline not found', output)
+        self.assertNotIn('NoneType', output)
+        self.assertFalse(any('/activities' in path for method, path in self.server.lab.calls))
 
     def test_manual_launch_uses_deployed_schema_without_a_python_runner(self):
         tasks = self.initial_tasks() + [

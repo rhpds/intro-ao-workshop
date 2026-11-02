@@ -1,7 +1,7 @@
 ---
 - name: Read embedded node results when the execution includes them
   ansible.builtin.set_fact:
-    e2e_raw_nodes: "{{ e2e_execution_response.json.node_executions | default(e2e_execution_response.json.nodes | default(e2e_execution_response.json.steps | default(e2e_execution_response.json.activities | default([]), true), true), true) }}"
+    e2e_raw_nodes: "{{ e2e_execution_response.json.node_executions | default(e2e_execution_response.json.nodes | default(e2e_execution_response.json.steps | default(e2e_execution_response.json.activities | default([], true), true), true), true) }}"
     e2e_nodes: []
 
 - name: Require a node-list contract if results are not embedded
