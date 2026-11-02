@@ -11,8 +11,6 @@ view_switcher:
 tabs:
   - name: ">_ terminal"
     path: /wetty
-  - name: OCP Console
-    url: 'https://console-openshift-console.${DOMAIN}'
   - name: AAP
     url: "https://aap-aap.${DOMAIN}"
   - name: Automation orchestrator
