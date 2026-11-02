@@ -24,7 +24,11 @@ from pathlib import Path
 path = Path(os.environ['CSR_STATE'])
 state = json.loads(path.read_text())
 args = sys.argv[1:]
-if 'certificate' in args:
+if 'auth' in args:
+    allowed = state.get('rbac_allowed', True)
+    print('yes' if allowed else 'no')
+    sys.exit(0 if allowed else 1)
+elif 'certificate' in args:
     index = args.index('certificate')
     assert args[index + 1] == 'approve'
     name = args[index + 2]
@@ -138,6 +142,16 @@ class CSRTasksTests(unittest.TestCase):
                 self.assertEqual(rc, 2, output)
                 self.assertEqual(after['approved'], [])
                 self.assertIn('Refusing', output)
+
+    def test_namespace_only_identity_fails_with_actionable_permission_error(self):
+        state = self.state()
+        state['csrs'] = [request('csr-new', '2026-11-02T02:00:00Z')]
+        state['rbac_allowed'] = False
+        rc, output, after = self.run_tasks(state)
+        self.assertEqual(rc, 2, output)
+        self.assertEqual(after['approved'], [])
+        self.assertIn('namespace-only', output)
+        self.assertIn('healthcheck_kubeconfig', output)
 
     def test_wrong_cluster_kubeconfig_cannot_approve_anything(self):
         state = self.state()

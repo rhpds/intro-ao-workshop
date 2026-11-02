@@ -17,6 +17,30 @@
     fail_msg: Provide openshift_console_url so CSR approval can verify the mounted kubeconfig targets the lab.
     quiet: true
 
+- name: CSR preflight | Check the current kubeconfig can inspect this cluster and its CSRs
+  ansible.builtin.command:
+    argv: "{{ e2e_oc_argv + item }}"
+  loop:
+    - [auth, can-i, get, routes.route.openshift.io/console, '-n', openshift-console]
+    - [auth, can-i, list, certificatesigningrequests.certificates.k8s.io]
+  register: e2e_csr_permissions
+  changed_when: false
+  failed_when: false
+
+- name: CSR preflight | Explain insufficient kubeconfig privileges before any approval
+  ansible.builtin.assert:
+    that: item.rc == 0 and item.stdout | trim == 'yes'
+    fail_msg: >-
+      CSR repair needs an authorized lab kubeconfig with node/console/CSR read,
+      kubelet-serving approval and node-proxy health access. A namespace-only
+      Showroom service-account token is insufficient. Set healthcheck_kubeconfig
+      to a trusted lab admin kubeconfig, or provision appropriately scoped access.
+      No CSR was approved and this task does not automatically escalate RBAC.
+    quiet: true
+  loop: "{{ e2e_csr_permissions.results }}"
+  loop_control:
+    label: "{{ item.item | join(' ') }}"
+
 - name: CSR preflight | Read this cluster's console route before any approval
   ansible.builtin.command:
     argv: "{{ e2e_oc_argv + ['get', 'route', 'console', '-n', 'openshift-console', '-o', 'json'] }}"
