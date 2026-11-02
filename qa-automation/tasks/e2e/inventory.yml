@@ -48,6 +48,11 @@
     that: e2e_gateway_ping.ping | default('') == 'pong'
     quiet: true
 
+- name: Inventory | Record verified gateway connectivity
+  ansible.builtin.set_fact:
+    e2e_gateway_verified: true
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'RHEL gateway SSH connectivity', 'status': 'passed'}] }}"
+
 - name: Inventory | Discover internal-node SSH settings from the gateway's existing config
   ansible.builtin.command:
     argv: [ssh, '-G', "{{ item }}"]
@@ -99,8 +104,12 @@
 
 - name: Inventory | Record independent gateway and RHEL connectivity evidence
   ansible.builtin.set_fact:
-    e2e_gateway_verified: true
     e2e_rhel_nodes_verified: [node1, node2, node3]
+
+- name: Inventory | Record each verified RHEL node in the check ledger
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': item ~ ' SSH connectivity and RHEL identity', 'status': 'passed'}] }}"
+  loop: "{{ e2e_rhel_nodes_verified }}"
 
 - name: Inventory | Independent validation - Success
   ansible.builtin.debug:

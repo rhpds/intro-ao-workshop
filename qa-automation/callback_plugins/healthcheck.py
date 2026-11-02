@@ -40,6 +40,16 @@ class CallbackModule(CallbackBase):
             self.summary_seen = True
             passed, failed = message['passed'], message['failed']
             self._display.display(f'\nSummary: {len(passed)} passed, {len(failed)} failed')
+            if 'cases_passed' in message:
+                self._display.display('Scope: ' + str(message.get('scope', 'selected cases only')))
+                self._display.display('Passed checks:')
+                for check in passed:
+                    self._display.display('  - ' + str(check))
+                self._display.display('Cases passed: ' + ', '.join(message['cases_passed']))
+                excluded = message.get('excluded_cases_not_tested', [])
+                if excluded:
+                    self._display.display('Excluded (not tested): ' + ', '.join(excluded))
+                self._display.display('CSR approval: ' + ('enabled' if message.get('csr_approval_enabled') else 'disabled'))
             if failed:
                 self._display.display('Failed / not validated:')
                 for check in failed:

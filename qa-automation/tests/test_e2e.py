@@ -48,6 +48,7 @@ class Lab:
         self.pending_approval = False
         self.matching_chat = True
         self.mm_no_teams = False
+        self.empty_models = False
         self.ticket_scenario = 'inform_only'
         self.manual_body = None
         self.schema_mode = 'json'
@@ -126,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/api/v1/integrations/mcp/tools':
             self.respond({'resources': [{'name': n} for n in ('job_templates_list', 'hosts_list', 'hosts_variable_data_retrieve')]})
         elif path == '/api/v1/integrations/llm/models':
-            self.respond({'resources': [{'name': 'qwen3-235b'}]})
+            self.respond({'resources': [] if lab.empty_models else [{'name': 'qwen3-235b'}]})
         elif path in ('/openapi.json', '/api/v1/openapi.json', '/api/openapi.json'):
             schema = {'paths': {'/api/v1/executions': {'post': {'requestBody': {'content': {'application/json': {'schema': {'$ref': '#/components/schemas/Launch'}}}}}}},
                       'components': {'schemas': {'Launch': {'properties': {'workflow_id': {}, 'input_data': {}, 'trigger_id': {}}, 'required': ['workflow_id', 'input_data']}}}}
@@ -293,7 +294,7 @@ class NativeE2ETests(unittest.TestCase):
                 'mattermost_url': self.base, 'e2e_approve_kubelet_serving_csrs': False, 'e2e_check_rhel_connectivity': False, 'e2e_poll_interval': 1, 'e2e_timeout': 2,
                 'ansible_python_interpreter': os.sys.executable}
 
-    def run_ansible(self, tasks=None, extra=None, root=False):
+    def run_ansible(self, tasks=None, extra=None, root=False, compact=False):
         with tempfile.TemporaryDirectory() as directory:
             root_dir = Path(directory)
             variables = {**self.variables(), **(extra or {}), 'e2e_report_path': str(root_dir / 'evidence.json')}
@@ -313,7 +314,10 @@ class NativeE2ETests(unittest.TestCase):
             binary.chmod(0o700)
             env = dict(os.environ)
             env['PATH'] = str(root_dir) + os.pathsep + env['PATH']
-            result = subprocess.run(['ansible-playbook', '-i', 'localhost,', str(path), '-e', '@' + str(inputs)],
+            env.pop('ANSIBLE_STDOUT_CALLBACK', None)
+            command = (['bash', str(QA / 'run-e2e.sh')] if compact and root
+                       else ['ansible-playbook', '-i', 'localhost,', str(path)])
+            result = subprocess.run(command + ['-e', '@' + str(inputs)],
                                     env=env, capture_output=True, text=True, timeout=90)
             report = json.loads((root_dir / 'evidence.json').read_text()) if (root_dir / 'evidence.json').exists() else None
             return result.returncode, result.stdout + result.stderr, report
@@ -327,8 +331,39 @@ class NativeE2ETests(unittest.TestCase):
         rc, output, report = self.run_ansible(root=True, extra={'e2e_cases': ['integrations']})
         self.assertEqual(rc, 0, output)
         self.assertEqual(report['passed'][0]['case'], 'integrations')
+        checks = {item['check']: item for item in report['checks']}
+        self.assertEqual(len(checks), 9)
+        self.assertIn('AO authentication', checks)
+        self.assertIn('AAP authentication', checks)
+        self.assertIn('AO project exists: solutions', checks)
+        self.assertIn('AAP MCP tool discovered: job_templates_list', checks)
+        self.assertEqual(checks['LLM model discovery']['models'], ['qwen3-235b'])
+        self.assertIn('cases_passed', output)
+        self.assertIn('excluded_cases_not_tested', output)
+        self.assertIn('Independent checks only; no workflows executed', output)
         self.assertTrue(any('cursor=page2' in path for _, path in self.server.lab.calls))
         self.assertNotIn('scripts/e2e.py', output)
+
+    def test_compact_summary_lists_checks_cases_and_exclusions(self):
+        rc, output, report = self.run_ansible(root=True, compact=True, extra={'e2e_cases': ['integrations']})
+        self.assertEqual(rc, 0, output)
+        self.assertIn('Passed checks:', output)
+        self.assertIn('AO authentication', output)
+        self.assertIn('AAP authentication', output)
+        self.assertIn('Cases passed: integrations', output)
+        self.assertIn('Excluded (not tested):', output)
+        self.assertIn('CSR approval: disabled', output)
+        self.assertEqual(len(report['checks']), 9)
+
+    def test_failed_discovery_is_not_reported_as_a_passed_check(self):
+        self.server.lab.empty_models = True
+        rc, output, report = self.run_ansible(root=True, extra={'e2e_cases': ['integrations']})
+        self.assertEqual(rc, 2, output)
+        names = [item['check'] for item in report['checks']]
+        self.assertIn('AO authentication', names)
+        self.assertNotIn('LLM model discovery', names)
+        self.assertEqual(report['passed'], [])
+        self.assertNotIn('PASS — integrations', output)
 
     def test_schema_discovery_handles_html_fallback_text_json_and_malformed_json(self):
         for mode, suffix in (('html_fallback', '/api/v1/openapi.json'),
@@ -424,6 +459,8 @@ class NativeE2ETests(unittest.TestCase):
                                       "hostvars['e2e_gateway'].ansible_port | int == 30852",
                                       "hostvars['e2e_node1'].ansible_host == 'node1'",
                                       "hostvars['e2e_node1'].ansible_user == 'appuser'",
+                                      "'RHEL gateway SSH connectivity' in (e2e_checks | map(attribute='check') | list)",
+                                      "'node1 SSH connectivity and RHEL identity' in (e2e_checks | map(attribute='check') | list)",
                                       "'ProxyCommand' in hostvars['e2e_node1'].ansible_ssh_common_args",
                                       "'gateway.example' in hostvars['e2e_node3'].ansible_ssh_common_args"]}}]
         rc, output, _ = self.run_ansible(tasks, {'ssh_command': 'ssh student@gateway.example -p 30852',

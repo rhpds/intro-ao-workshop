@@ -18,6 +18,10 @@
       - e2e_integrations | selectattr('name', 'equalto', e2e_llm_name) | selectattr('integration_type', 'equalto', 'llm_provider') | list | length == 1
     quiet: true
 
+- name: Module 02 | Record both integration existence checks
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP MCP integration exists: ' ~ e2e_mcp_name, 'status': 'passed'}, {'check': 'LLM integration exists: ' ~ e2e_llm_name, 'status': 'passed'}] }}"
+
 - name: Module 02 | Discover actual AAP MCP tools
   ansible.builtin.include_tasks: collection.yml
   vars:
@@ -28,6 +32,11 @@
   ansible.builtin.assert:
     that: "['job_templates_list', 'hosts_list', 'hosts_variable_data_retrieve'] | difference(e2e_collection | map(attribute='name') | list) | length == 0"
     quiet: true
+
+- name: Module 02 | Record each required tool discovery check
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP MCP tool discovered: ' ~ item, 'status': 'passed'}] }}"
+  loop: [job_templates_list, hosts_list, hosts_variable_data_retrieve]
 
 - name: Module 02 | Discover enabled LLM models
   ansible.builtin.include_tasks: collection.yml
@@ -43,6 +52,7 @@
 - name: Module 02 | Record success
   ansible.builtin.set_fact:
     e2e_results: "{{ e2e_results + [{'case': 'integrations', 'status': 'passed'}] }}"
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'LLM model discovery', 'status': 'passed', 'models': e2e_collection | map(attribute='name') | list}] }}"
 
 - name: Module 02 | Validation - Success
   ansible.builtin.debug:

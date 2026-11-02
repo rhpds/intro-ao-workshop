@@ -215,8 +215,16 @@ GUID/domain or missing-host skip is used to turn an incomplete run into a pass.
 A private JSON evidence report is retained in the run's temporary workspace;
 `e2e_report_path` overrides the destination. It records passed cases, failed task,
 not-passed cases, exact execution/job/incident IDs and CVE evidence where available.
-The temporary proxy password is removed separately, not the evidence directory.
-Logging is enabled: no `no_log: true`; verbose Ansible output can expose secrets.
+The final console summary separates individual passed checks (authentication,
+project, gateway, each RHEL node, integrations, required tools and model discovery)
+from `cases_passed`. It also lists `excluded_cases_not_tested` and whether CSR
+approval is enabled. A prerequisite check is recorded only after its validation
+succeeds; discovery is never labeled as inference or workflow execution.
+
+In the JSON evidence, `checks` contains the detailed check ledger and `passed`
+retains the case-level evidence. The temporary proxy password is removed
+separately, not the evidence directory. Logging is enabled: no `no_log: true`;
+verbose Ansible output can expose secrets.
 
 ## API compatibility
 

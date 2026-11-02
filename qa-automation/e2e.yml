@@ -47,6 +47,7 @@
       ansible.builtin.set_fact:
         e2e_run_id: "{{ e2e_workspace.path | basename }}"
         e2e_results: []
+        e2e_checks: []
         e2e_failure: ''
         e2e_ao_api: "{{ ao_url | regex_replace('/+$', '') }}/api/v1"
         e2e_aap_api: "{{ aap_url | regex_replace('/+$', '') }}/api/controller/v2"
@@ -115,6 +116,7 @@
             mode: '0600'
             content: >-
               {{ {'run_id': e2e_run_id, 'project': e2e_project, 'passed': e2e_results,
+                  'checks': e2e_checks,
                   'failure': e2e_failure,
                   'not_passed': e2e_cases | difference(e2e_results | map(attribute='case') | list),
                   'excluded_cases': e2e_supported_cases | difference(e2e_cases),
@@ -132,12 +134,12 @@
     - name: E2E | Final summary
       ansible.builtin.debug:
         msg:
-          passed: "{{ e2e_results | map(attribute='case') | list }}"
+          scope: "{{ 'Independent checks only; no workflows executed' if e2e_cases | difference(['integrations']) | length == 0 else 'Selected checks and workflow cases only' }}"
+          passed: "{{ e2e_checks | selectattr('status', 'equalto', 'passed') | map(attribute='check') | list }}"
+          cases_passed: "{{ e2e_results | map(attribute='case') | list }}"
           failed: "{{ [e2e_failure] if e2e_failure | length > 0 else [] }}"
-
-    - name: E2E | Report intentionally excluded cases without marking them passed
-      ansible.builtin.debug:
-        msg: "E2E — excluded cases (not tested): {{ e2e_supported_cases | difference(e2e_cases) | sort | join(', ') }}"
+          excluded_cases_not_tested: "{{ e2e_supported_cases | difference(e2e_cases) | sort }}"
+          csr_approval_enabled: "{{ e2e_approve_kubelet_serving_csrs | bool }}"
 
     - name: E2E | Evidence report location
       ansible.builtin.debug:
