@@ -237,7 +237,7 @@ class NativeE2ETests(unittest.TestCase):
         return {'ao_url': self.base, 'ao_admin_user': 'admin', 'ao_admin_password': 'mock-password',
                 'aap_controller_web_url': self.base, 'aap_controller_admin_user': 'admin', 'aap_controller_admin_password': 'mock-password',
                 'openflake_url': self.base, 'openflake_admin_username': 'admin', 'openflake_admin_password': 'mock-password',
-                'mattermost_url': self.base, 'e2e_allow_changes': True, 'e2e_poll_interval': 1, 'e2e_timeout': 2,
+                'mattermost_url': self.base, 'e2e_poll_interval': 1, 'e2e_timeout': 2,
                 'ansible_python_interpreter': os.sys.executable}
 
     def run_ansible(self, tasks=None, extra=None, root=False):
@@ -383,8 +383,19 @@ class NativeE2ETests(unittest.TestCase):
                 rc, output, _ = self.run_ansible(tasks)
                 self.assertEqual(rc, 0 if match else 2, output)
 
+    def test_default_run_needs_no_e2e_options_and_has_no_manual_or_cve_cases(self):
+        tasks = [{'assert': {'that': [
+            'e2e_allow_changes | bool', 'e2e_allow_patching | bool', 'e2e_allow_disk_expand | bool',
+            "e2e_cases == ['integrations', 'motd', 'disk_healthy', 'disk_warning', 'ticket_auto', 'ticket_inform']"]}}]
+        rc, output, _ = self.run_ansible(tasks)
+        self.assertEqual(rc, 0, output)
+        self.assertEqual(self.server.lab.calls, [])
+
     def test_consent_and_irreversible_flags_fail_before_http_requests(self):
-        for extra in ({'e2e_allow_changes': False}, {'e2e_cases': ['disk_critical']}, {'e2e_cases': ['cve_dev']}):
+        for extra in ({'e2e_allow_changes': False},
+                      {'e2e_cases': ['disk_critical'], 'e2e_allow_disk_expand': False},
+                      {'e2e_cases': ['cve_dev'], 'e2e_allow_patching': False},
+                      {'e2e_cases': ['cve_dev'], 'e2e_cve_id': ''}):
             with self.subTest(extra=extra):
                 self.server.lab.calls = []
                 rc, output, _ = self.run_ansible(root=True, extra=extra)

@@ -1,10 +1,19 @@
 ---
-e2e_allow_changes: false
-e2e_allow_patching: false
-e2e_allow_disk_expand: false
+# Invoking e2e.yml authorizes changes to this disposable workshop lab.
+# Set any permission to false explicitly to prohibit that class of change.
+e2e_allow_changes: true
+e2e_allow_patching: true
+e2e_allow_disk_expand: true
 e2e_project: solutions
 e2e_supported_cases: [integrations, motd, disk_healthy, disk_warning, disk_critical, ticket_auto, ticket_approval, ticket_inform, cve_dev, cve_prod]
-e2e_cases: "{{ e2e_supported_cases }}"
+# Unattended defaults: no human approval wait and no guessed CVE fixture.
+e2e_cases:
+  - integrations
+  - motd
+  - disk_healthy
+  - disk_warning
+  - ticket_auto
+  - ticket_inform
 e2e_cve_id: "{{ lookup('env', 'E2E_CVE_ID') }}"
 e2e_lab_guid: "{{ guid | default(lookup('env', 'guid'), true) }}"
 e2e_timeout: 900

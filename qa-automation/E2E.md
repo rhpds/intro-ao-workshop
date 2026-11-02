@@ -98,13 +98,20 @@ password is not placed in `sshpass -p` process arguments. `always` removes this
 file on normal/task/delegated-connection failure. Force-killing the runner may
 leave the private workspace behind; remove it manually after stopping active work.
 
-## Run a smaller suite first
+## Default unattended run
+
+Invoking `e2e.yml` authorizes changes to this disposable lab. The permission
+flags (`e2e_allow_changes`, `e2e_allow_disk_expand`, `e2e_allow_patching`) default
+to **true** so the pod's launcher needs no extra E2E options. Set a flag to false
+explicitly to prohibit that class of change.
+
+The six default cases are `integrations`, `motd`, `disk_healthy`, `disk_warning`,
+`ticket_auto`, and `ticket_inform`. They do not require a human approval or a CVE
+fixture; they still update MOTD, allocate disk ballast, and create incidents.
 
 ```bash
 ansible-playbook -i localhost, qa-automation/e2e.yml \
-  -e @/run/secrets/provisioned-user-data.yml \
-  -e e2e_allow_changes=true \
-  -e '{"e2e_cases":["integrations","motd","disk_healthy","disk_warning","ticket_auto","ticket_inform"]}'
+  -e @/run/secrets/provisioned-user-data.yml
 ```
 
 For compact output, replace `ansible-playbook -i localhost, qa-automation/e2e.yml`
@@ -112,19 +119,19 @@ with `bash qa-automation/run-e2e.sh`. The shell launcher only configures Ansible
 stdout callback; all testing logic is in Ansible tasks. Default callback output
 remains available via `ANSIBLE_STDOUT_CALLBACK=default`.
 
-The default selection is all ten cases. For the full suite, choose a **currently
+The approval, critical-disk and CVE cases are supported but not selected by
+default. For the full ten-case suite, choose a **currently
 applicable, remediable critical CVE affecting node1 and node2**, as described in
 module 06, and set `E2E_CVE_ID` in the QA pod. Then:
 
 ```bash
 bash qa-automation/run-e2e.sh \
   -e @/run/secrets/provisioned-user-data.yml \
-  -e e2e_allow_changes=true \
-  -e e2e_allow_disk_expand=true \
-  -e e2e_allow_patching=true
+  -e '{"e2e_cases":["integrations","motd","disk_healthy","disk_warning","disk_critical","ticket_auto","ticket_approval","ticket_inform","cve_dev","cve_prod"]}'
 ```
 
-Missing consent, flags, CVE or lab GUID fails before contacting APIs. API, workflow,
+Explicitly disabled permissions, or missing CVE/GUID for selected CVE cases, fail
+before contacting APIs. API, workflow,
 simulator and CVE preflight checks run before module operations. No placeholder
 GUID/domain or missing-host skip is used to turn an incomplete run into a pass.
 

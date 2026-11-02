@@ -483,8 +483,10 @@ The health check verifies service availability and supplied credentials, not
 workflow execution. For live behavioral tests derived from Showroom modules
 02–06, see `qa-automation/E2E.md` and `qa-automation/run-e2e.sh`. The E2E suite
 executes published workflows, follows linked AAP jobs, and verifies host, incident,
-chat and CVE outcomes. It requires explicit change consent; volume growth and
-patching need separate opt-ins. Approval cases require a human decision.
+chat and CVE outcomes. Running E2E authorizes changes to the disposable lab;
+permission flags default to enabled. Six non-interactive cases run by default.
+Critical-disk, approval and CVE cases must be selected explicitly; CVE cases
+also require an applicable CVE and lab GUID. Approval cases need a human decision.
 
 Neither suite edits student workflows. Offline wiring-transform checks remain
 covered by `tests/test_ao_workflow.py` above.
