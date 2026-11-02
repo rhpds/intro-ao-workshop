@@ -292,6 +292,7 @@ class NativeE2ETests(unittest.TestCase):
                 'aap_controller_web_url': self.base, 'aap_controller_admin_user': 'admin', 'aap_controller_admin_password': 'mock-password',
                 'openflake_url': self.base, 'openflake_admin_username': 'admin', 'openflake_admin_password': 'mock-password',
                 'mattermost_url': self.base, 'e2e_approve_kubelet_serving_csrs': False, 'e2e_check_rhel_connectivity': False, 'e2e_poll_interval': 1, 'e2e_timeout': 2,
+                'e2e_unattended': False,  # Optional-case fixtures explicitly exercise manual mode.
                 'ansible_python_interpreter': os.sys.executable}
 
     def run_ansible(self, tasks=None, extra=None, root=False, compact=False):
@@ -593,10 +594,37 @@ class NativeE2ETests(unittest.TestCase):
     def test_default_run_needs_no_e2e_options_and_has_no_manual_or_cve_cases(self):
         tasks = [{'assert': {'that': [
             'e2e_allow_changes | bool', 'e2e_allow_patching | bool', 'e2e_allow_disk_expand | bool',
-            "e2e_cases == ['integrations']", 'not e2e_approve_kubelet_serving_csrs | bool']}}]
-        rc, output, _ = self.run_ansible(tasks)
+            "e2e_cases == ['integrations', 'disk_healthy', 'disk_warning', 'ticket_auto', 'ticket_inform']",
+            'e2e_run_cases == e2e_cases', 'e2e_unattended | bool',
+            'not e2e_approve_kubelet_serving_csrs | bool']}}]
+        rc, output, _ = self.run_ansible(tasks, {'e2e_unattended': True})
         self.assertEqual(rc, 0, output)
         self.assertEqual(self.server.lab.calls, [])
+
+    def test_unattended_filters_manual_broken_and_one_shot_cases(self):
+        tasks = [{'assert': {'that': [
+            "e2e_run_cases == ['integrations', 'disk_healthy', 'disk_warning', 'ticket_auto', 'ticket_inform']"]}}]
+        rc, output, _ = self.run_ansible(tasks, {
+            'e2e_unattended': True,
+            'e2e_cases': ['integrations', 'motd', 'disk_healthy', 'disk_warning', 'disk_critical',
+                          'ticket_auto', 'ticket_approval', 'ticket_inform', 'cve_dev', 'cve_prod']})
+        self.assertEqual(rc, 0, output)
+        self.assertEqual(self.server.lab.calls, [])
+
+    def test_all_skipped_run_does_not_authenticate_launch_or_wait(self):
+        requested = ['motd', 'disk_critical', 'ticket_approval', 'cve_dev', 'cve_prod']
+        rc, output, report = self.run_ansible(root=True, extra={
+            'e2e_cases': requested, 'e2e_unattended': True,
+            'e2e_allow_patching': False, 'e2e_allow_disk_expand': False,
+            'e2e_approve_kubelet_serving_csrs': True})
+        self.assertEqual(rc, 0, output)
+        self.assertEqual(self.server.lab.calls, [])
+        self.assertEqual(report['passed'], [])
+        self.assertEqual(report['run_cases'], [])
+        self.assertEqual(report['checks'], [])
+        self.assertIn('Requires a human approval decision', report['skipped_cases']['ticket_approval'])
+        self.assertIn('no workflows executed', output)
+        self.assertNotIn('WAIT —', output)
 
     def test_consent_and_irreversible_flags_fail_before_http_requests(self):
         for extra in ({'e2e_allow_changes': False},

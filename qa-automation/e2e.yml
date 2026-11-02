@@ -27,10 +27,10 @@
           - e2e_cases | length > 0
           - e2e_cases | difference(e2e_supported_cases) | length == 0
           - e2e_cases | unique | length == e2e_cases | length
-          - "'disk_critical' not in e2e_cases or e2e_allow_disk_expand | bool"
-          - "not (e2e_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_allow_patching | bool"
-          - "not (e2e_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_cve_id is match('^CVE-[0-9]{4}-[0-9]{4,}$')"
-          - "not (e2e_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_lab_guid | length > 0"
+          - "'disk_critical' not in e2e_run_cases or e2e_allow_disk_expand | bool"
+          - "not (e2e_run_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_allow_patching | bool"
+          - "not (e2e_run_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_cve_id is match('^CVE-[0-9]{4}-[0-9]{4,}$')"
+          - "not (e2e_run_cases | intersect(['cve_dev', 'cve_prod'])) or e2e_lab_guid | length > 0"
           - e2e_timeout | int > 0 and e2e_poll_interval | int > 0
         fail_msg: >-
           Use a disposable lab and e2e_allow_changes=true. Critical disk tests
@@ -48,49 +48,56 @@
         e2e_run_id: "{{ e2e_workspace.path | basename }}"
         e2e_results: []
         e2e_checks: []
+        e2e_skipped_cases: {}
         e2e_failure: ''
         e2e_ao_api: "{{ ao_url | regex_replace('/+$', '') }}/api/v1"
         e2e_aap_api: "{{ aap_url | regex_replace('/+$', '') }}/api/controller/v2"
         e2e_password_file: "{{ e2e_workspace.path }}/ssh-password"
 
+    - name: Record skipped cases and reasons without counting them as passed
+      ansible.builtin.set_fact:
+        e2e_skipped_cases: "{{ e2e_skipped_cases | combine({item: e2e_unattended_exclusions.get(item, 'Not selected for this run') if e2e_unattended | bool else 'Not selected for this run'}) }}"
+      loop: "{{ e2e_supported_cases | difference(e2e_run_cases) | sort }}"
+
     - name: Solve and validate the selected Showroom modules
       block:
         - name: Preflight | Approve validated node-serving CSRs using the mounted lab kubeconfig
           ansible.builtin.include_tasks: tasks/e2e/kubelet-csrs.yml
-          when: e2e_approve_kubelet_serving_csrs | bool and e2e_cases | difference(['integrations']) | length > 0
+          when: not e2e_unattended | bool and e2e_approve_kubelet_serving_csrs | bool and e2e_run_cases | difference(['integrations']) | length > 0
 
         - name: Preflight | Authenticate APIs and resolve workflow contracts
           ansible.builtin.include_tasks: tasks/e2e/preflight.yml
+          when: e2e_run_cases | length > 0
 
         - name: Build gateway and internal-node inventory
           ansible.builtin.include_tasks: tasks/e2e/inventory.yml
-          when: e2e_check_rhel_connectivity | bool or e2e_cases | difference(['integrations', 'cve_dev', 'cve_prod']) | length > 0
+          when: e2e_run_cases | length > 0 and (e2e_check_rhel_connectivity | bool or e2e_run_cases | difference(['integrations', 'cve_dev', 'cve_prod']) | length > 0)
 
         - name: Module 02 | Integrations and credentials
           ansible.builtin.include_tasks: tasks/e2e/integrations.yml
-          when: "'integrations' in e2e_cases"
+          when: "'integrations' in e2e_run_cases"
 
         - name: Module 03 | Message of the Day
           ansible.builtin.include_tasks: tasks/e2e/motd.yml
-          when: "'motd' in e2e_cases"
+          when: "'motd' in e2e_run_cases"
 
         - name: Module 04 | Disk utilization remediation
           ansible.builtin.include_tasks: tasks/e2e/disk.yml
-          loop: "{{ ['disk_healthy', 'disk_warning', 'disk_critical'] | select('in', e2e_cases) | list }}"
+          loop: "{{ ['disk_healthy', 'disk_warning', 'disk_critical'] | select('in', e2e_run_cases) | list }}"
           loop_control:
             loop_var: e2e_case
             label: "{{ e2e_case }}"
 
         - name: Module 05 | Ticket enrichment
           ansible.builtin.include_tasks: tasks/e2e/ticket.yml
-          loop: "{{ ['ticket_auto', 'ticket_approval', 'ticket_inform'] | select('in', e2e_cases) | list }}"
+          loop: "{{ ['ticket_auto', 'ticket_approval', 'ticket_inform'] | select('in', e2e_run_cases) | list }}"
           loop_control:
             loop_var: e2e_case
             label: "{{ e2e_case }}"
 
         - name: Module 06 | CVE remediation
           ansible.builtin.include_tasks: tasks/e2e/cve.yml
-          loop: "{{ ['cve_dev', 'cve_prod'] | select('in', e2e_cases) | list }}"
+          loop: "{{ ['cve_dev', 'cve_prod'] | select('in', e2e_run_cases) | list }}"
           loop_control:
             loop_var: e2e_case
             label: "{{ e2e_case }}"
@@ -118,8 +125,10 @@
               {{ {'run_id': e2e_run_id, 'project': e2e_project, 'passed': e2e_results,
                   'checks': e2e_checks,
                   'failure': e2e_failure,
-                  'not_passed': e2e_cases | difference(e2e_results | map(attribute='case') | list),
-                  'excluded_cases': e2e_supported_cases | difference(e2e_cases),
+                  'requested_cases': e2e_cases, 'run_cases': e2e_run_cases,
+                  'not_passed': e2e_run_cases | difference(e2e_results | map(attribute='case') | list),
+                  'excluded_cases': e2e_supported_cases | difference(e2e_run_cases),
+                  'skipped_cases': e2e_skipped_cases, 'unattended': e2e_unattended | bool,
                   'active_execution': e2e_active_execution | default(''),
                   'active_aap_job': e2e_active_aap_job | default(''),
                   'current_execution': e2e_execution_id | default(''),
@@ -134,12 +143,14 @@
     - name: E2E | Final summary
       ansible.builtin.debug:
         msg:
-          scope: "{{ 'Independent checks only; no workflows executed' if e2e_cases | difference(['integrations']) | length == 0 else 'Selected checks and workflow cases only' }}"
+          scope: "{{ 'All requested cases skipped; no workflows executed' if e2e_run_cases | length == 0 else ('Independent checks only; no workflows executed' if e2e_run_cases | difference(['integrations']) | length == 0 else 'Selected checks and workflow cases only') }}"
+          unattended: "{{ e2e_unattended | bool }}"
           passed: "{{ e2e_checks | selectattr('status', 'equalto', 'passed') | map(attribute='check') | list }}"
           cases_passed: "{{ e2e_results | map(attribute='case') | list }}"
           failed: "{{ [e2e_failure] if e2e_failure | length > 0 else [] }}"
-          excluded_cases_not_tested: "{{ e2e_supported_cases | difference(e2e_cases) | sort }}"
-          csr_approval_enabled: "{{ e2e_approve_kubelet_serving_csrs | bool }}"
+          excluded_cases_not_tested: "{{ e2e_supported_cases | difference(e2e_run_cases) | sort }}"
+          skipped_cases: "{{ e2e_skipped_cases }}"
+          csr_approval_enabled: "{{ e2e_approve_kubelet_serving_csrs | bool and not e2e_unattended | bool }}"
 
     - name: E2E | Evidence report location
       ansible.builtin.debug:
@@ -149,6 +160,6 @@
       ansible.builtin.assert:
         that:
           - e2e_failure | length == 0
-          - e2e_cases | difference(e2e_results | map(attribute='case') | list) | length == 0
+          - e2e_run_cases | difference(e2e_results | map(attribute='case') | list) | length == 0
         fail_msg: E2E failed or incomplete. Inspect the failed task and evidence report; do not rerun over active work.
-        success_msg: All selected cases passed; intentionally excluded cases were not executed.
+        success_msg: "{{ 'No runnable cases; all requested cases were skipped.' if e2e_run_cases | length == 0 else 'All runnable cases passed; skipped cases were not executed.' }}"

@@ -81,7 +81,7 @@
 
 - name: Preflight | Verify selected workflow definitions without modifying them
   ansible.builtin.include_tasks: workflow-preflight.yml
-  loop: "{{ e2e_cases | map('regex_replace', '_.*$', '') | unique | difference(['integrations']) }}"
+  loop: "{{ e2e_run_cases | map('regex_replace', '_.*$', '') | unique | difference(['integrations']) }}"
   loop_control:
     loop_var: e2e_kind
 
@@ -96,11 +96,11 @@
     - {kind: ticket, name: Ticket Enrichment Simulate Alert}
   loop_control:
     loop_var: e2e_simulator
-  when: e2e_simulator.kind in (e2e_cases | map('regex_replace', '_.*$', '') | list)
+  when: e2e_simulator.kind in (e2e_run_cases | map('regex_replace', '_.*$', '') | list)
 
 - name: Preflight | Authenticate Mattermost and select the notification channel
   ansible.builtin.include_tasks: chat-login.yml
-  when: e2e_cases | select('match', '^(disk_|cve_)') | list | length > 0
+  when: e2e_run_cases | select('match', '^(disk_|cve_)') | list | length > 0
 
 - name: Preflight | Validate OpenFlake credentials
   ansible.builtin.uri:
@@ -112,19 +112,19 @@
     timeout: "{{ healthcheck_timeout }}"
     follow_redirects: none
   register: e2e_flake_preflight
-  when: e2e_cases | select('match', '^ticket_') | list | length > 0
+  when: e2e_run_cases | select('match', '^ticket_') | list | length > 0
 
 - name: Preflight | Require authenticated incident-list response
   ansible.builtin.assert:
     that: e2e_flake_preflight.json.result is sequence and e2e_flake_preflight.json.result is not string
     quiet: true
-  when: e2e_cases | select('match', '^ticket_') | list | length > 0
+  when: e2e_run_cases | select('match', '^ticket_') | list | length > 0
 
 - name: Preflight | Verify CVE applicability and host environment before any patching
   ansible.builtin.include_tasks: cve-target.yml
   vars:
     e2e_cve_host: "{{ 'node1' if e2e_cve_case == 'cve_dev' else 'node2' }}"
     e2e_cve_env: "{{ 'dev' if e2e_cve_case == 'cve_dev' else 'production' }}"
-  loop: "{{ ['cve_dev', 'cve_prod'] | select('in', e2e_cases) | list }}"
+  loop: "{{ ['cve_dev', 'cve_prod'] | select('in', e2e_run_cases) | list }}"
   loop_control:
     loop_var: e2e_cve_case

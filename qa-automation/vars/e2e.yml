@@ -11,12 +11,24 @@ e2e_csr_retries: 30
 e2e_csr_poll_interval: 2
 e2e_project: solutions
 e2e_supported_cases: [integrations, motd, disk_healthy, disk_warning, disk_critical, ticket_auto, ticket_approval, ticket_inform, cve_dev, cve_prod]
-# Independent-only defaults while AAP execution-pod TLS is blocked. Workflow
-# cases remain supported but are explicitly excluded, not counted as passed.
-# MOTD also remains excluded for its empty structured agent output.
+# Scheduled/link-triggered runs must not need a person or consume one-shot
+# fixtures. Optional manual tests require e2e_unattended=false explicitly.
+e2e_unattended: true
+e2e_unattended_exclusions:
+  motd: 'Agent returns empty structured output; upstream workflow defect'
+  disk_critical: 'Permanent volume growth; not safely repeatable on every trigger'
+  ticket_approval: 'Requires a human approval decision'
+  cve_dev: 'Requires service-account access and a fresh patchable CVE; patching is not repeatable'
+  cve_prod: 'Requires a human approval decision and a fresh patchable CVE'
 e2e_check_rhel_connectivity: true
 e2e_cases:
   - integrations
+  - disk_healthy
+  - disk_warning
+  - ticket_auto
+  - ticket_inform
+# Do not overwrite e2e_cases with set_fact: explicit extra vars take precedence.
+e2e_run_cases: "{{ e2e_cases | reject('in', e2e_unattended_exclusions) | list if e2e_unattended | bool else e2e_cases }}"
 e2e_cve_id: "{{ lookup('env', 'E2E_CVE_ID') }}"
 e2e_lab_guid: "{{ guid | default(lookup('env', 'guid'), true) }}"
 e2e_timeout: 900

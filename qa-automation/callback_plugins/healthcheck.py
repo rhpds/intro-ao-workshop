@@ -47,7 +47,12 @@ class CallbackModule(CallbackBase):
                     self._display.display('  - ' + str(check))
                 self._display.display('Cases passed: ' + ', '.join(message['cases_passed']))
                 excluded = message.get('excluded_cases_not_tested', [])
-                if excluded:
+                skipped = message.get('skipped_cases', {})
+                if skipped:
+                    self._display.display('Excluded (not tested):')
+                    for case, reason in sorted(skipped.items()):
+                        self._display.display('  - ' + case + ': ' + str(reason))
+                elif excluded:
                     self._display.display('Excluded (not tested): ' + ', '.join(excluded))
                 self._display.display('CSR approval: ' + ('enabled' if message.get('csr_approval_enabled') else 'disabled'))
             if failed:
