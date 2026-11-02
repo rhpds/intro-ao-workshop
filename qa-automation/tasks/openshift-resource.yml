@@ -7,7 +7,6 @@
           - ocp_url | length > 0
           - ocp_token | length > 0
         quiet: true
-      no_log: true
 
     - name: Read OpenShift resource status
       ansible.builtin.uri:
@@ -19,14 +18,12 @@
         follow_redirects: none
         unredirected_headers: [Authorization]
       register: hc_ocp_response
-      no_log: true
 
     - name: Require a nonempty resource list
       ansible.builtin.assert:
         that:
           - hc_ocp_response.json['items'] | length > 0
         quiet: true
-      no_log: true
 
     - name: Verify every resource has the expected condition
       ansible.builtin.assert:
@@ -44,7 +41,6 @@
         label: "{{ resource.metadata.name }}"
       # Completed Jobs are healthy; Pending/Failed/terminating pods are not.
       when: not (ocp_check.pods | default(false) and resource.status.phase | default('') == 'Succeeded')
-      no_log: true
 
     - name: Record healthy OpenShift resources
       ansible.builtin.set_fact:

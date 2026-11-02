@@ -1,5 +1,5 @@
 ---
-# Request/response details may contain secrets. Only the name and status escape.
+# Logging is enabled for troubleshooting; output may contain credentials.
 - name: "Check {{ hc_probe.name }}"
   block:
     - name: Validate probe inputs
@@ -9,7 +9,6 @@
           - hc_probe.required | default([]) | select('match', '^(REPLACE_|YOUR_|<Change Me>)') | list | length == 0
           - hc_probe.request.url is match('^https?://[^/]+')
         quiet: true
-      no_log: true
 
     - name: Make bounded service request
       ansible.builtin.uri:
@@ -28,7 +27,6 @@
         unredirected_headers: [Authorization]
         return_content: true
       register: hc_response
-      no_log: true
       changed_when: false
 
     - name: Verify response is not an HTML login page or an API error
@@ -39,14 +37,13 @@
           - hc_probe.pattern is not defined or (hc_response.content is search(hc_probe.pattern | default('')))
           - hc_probe.kind | default('') != 'mcp' or (hc_response.content is search('"serverInfo"') and hc_response.content is search('"result"') and not hc_response.content is search('"error"\s*:'))
         quiet: true
-      no_log: true
 
     - name: Record successful check
       ansible.builtin.set_fact:
         healthcheck_passed: "{{ healthcheck_passed + [hc_probe.name] }}"
 
   rescue:
-    - name: Record failure without exposing credentials or response bodies
+    - name: Record probe failure category
       ansible.builtin.set_fact:
         healthcheck_failed: >-
           {{ healthcheck_failed + [hc_probe.name ~

@@ -56,8 +56,9 @@ All defaults/environment variable names are in `vars/services.yml`. For example,
 `GITEA_TOKEN`, and `LLM_API_KEY` can be exported instead of passed in a vars file.
 `llm_url` / `LLM_URL` must include the provider's `/v1` suffix; MCP URLs include
 `/mcp`. Do not put real credentials on command lines or in version control.
-Request/response tasks use `no_log`; only check names and outcomes are reported.
-Avoid debug callbacks that dump all Ansible variables.
+Task logging is enabled for troubleshooting. Output may expose passwords,
+bearer tokens, authentication responses, and other sensitive API data, especially
+with verbose/debug callbacks. Restrict log access and do not share raw logs.
 
 ### Provisioning variable compatibility
 
@@ -90,8 +91,8 @@ client pairs. Supply those separately using the canonical inputs. Insights
 username/password are not treated as OAuth client credentials; console/ingress
 URLs are not used to guess an API endpoint. Missing inputs remain failures,
 reported as **not validated**, rather than being silently skipped. Probe failures
-also distinguish request failures from response-validation failures without
-printing credentials or response bodies.
+also distinguish request failures from response-validation failures. Task output
+is not censored and may include credentials or response bodies.
 
 TLS verification defaults to **on**. Trust your cluster CA on the runner. For
 disposable environments only, explicitly set `healthcheck_validate_certs: false`.
@@ -146,6 +147,6 @@ python3 -m unittest discover -s qa-automation/tests -v
 The tests run the real reusable Ansible tasks against a local mock HTTP server:
 valid/invalid credentials, HTML masquerading as a successful API response, empty
 model listings, missing inputs, JSON-RPC errors, SSE initialization, unhealthy
-nodes, completed Job pods, empty namespaces, pagination, and secret redaction.
+nodes, completed Job pods, empty namespaces, pagination, and uncensored failures.
 They do not verify the live lab's API contracts; run against a provisioned lab
 before declaring it ready.

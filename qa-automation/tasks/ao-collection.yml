@@ -5,7 +5,6 @@
     hc_ao_cursor: ''
     hc_ao_more: true
     hc_ao_page_count: 0
-  no_log: true
 
 - name: Read bounded AO collection pages
   ansible.builtin.include_tasks: ao-collection-page.yml
@@ -20,4 +19,3 @@
     "{{ hc_collection_register }}":
       json:
         resources: "{{ hc_ao_resources }}"
-  no_log: true

@@ -83,14 +83,12 @@
         status_code: [200]
         validate_certs: "{{ ao_validate_certs }}"
       register: r_login
-      no_log: true
 
     - name: Build the API base and auth header
       ansible.builtin.set_fact:
         ao_api: "{{ ao_url | regex_replace('/$', '') }}/api/v1"
         ao_headers:
           Authorization: "Bearer {{ r_login.json.access_token }}"
-      no_log: true
 
     # ---------------------------------------------------------------
     # Project
@@ -190,7 +188,6 @@
       loop_control:
         label: "{{ item.name }}"
       register: r_tools
-      no_log: true
 
     - name: Assert each MCP integration exposes tools in a valid response
       vars:
@@ -203,7 +200,6 @@
       loop: "{{ r_tools.results }}"
       loop_control:
         label: "{{ item.item.name }}"
-      no_log: true
 
     - name: Check the LLM integration exposes models
       ansible.builtin.uri:
@@ -218,7 +214,6 @@
       loop_control:
         label: "{{ item.name }}"
       register: r_models
-      no_log: true
 
     - name: Assert every LLM integration exposes models
       ansible.builtin.assert:
@@ -229,7 +224,6 @@
       loop: "{{ r_models.results }}"
       loop_control:
         label: "{{ item.item.name }}"
-      no_log: true
 
     # ---------------------------------------------------------------
     # Workflows — the real test
@@ -270,7 +264,6 @@
       loop_control:
         label: "{{ item.name }}"
       register: r_workflow_detail
-      no_log: true
 
     - name: Assert no workflow reports validation issues
       vars:
