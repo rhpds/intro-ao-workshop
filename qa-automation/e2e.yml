@@ -113,6 +113,7 @@
               {{ {'run_id': e2e_run_id, 'project': e2e_project, 'passed': e2e_results,
                   'failure': e2e_failure,
                   'not_passed': e2e_cases | difference(e2e_results | map(attribute='case') | list),
+                  'excluded_cases': e2e_supported_cases | difference(e2e_cases),
                   'active_execution': e2e_active_execution | default(''),
                   'active_aap_job': e2e_active_aap_job | default(''),
                   'current_execution': e2e_execution_id | default(''),
@@ -126,6 +127,10 @@
         msg:
           passed: "{{ e2e_results | map(attribute='case') | list }}"
           failed: "{{ [e2e_failure] if e2e_failure | length > 0 else [] }}"
+
+    - name: E2E | Report intentionally excluded cases without marking them passed
+      ansible.builtin.debug:
+        msg: "E2E — excluded cases (not tested): {{ e2e_supported_cases | difference(e2e_cases) | sort | join(', ') }}"
 
     - name: E2E | Evidence report location
       ansible.builtin.debug:

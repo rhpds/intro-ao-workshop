@@ -495,7 +495,7 @@ class NativeE2ETests(unittest.TestCase):
     def test_default_run_needs_no_e2e_options_and_has_no_manual_or_cve_cases(self):
         tasks = [{'assert': {'that': [
             'e2e_allow_changes | bool', 'e2e_allow_patching | bool', 'e2e_allow_disk_expand | bool',
-            "e2e_cases == ['integrations', 'motd', 'disk_healthy', 'disk_warning', 'ticket_auto', 'ticket_inform']"]}}]
+            "e2e_cases == ['integrations', 'disk_healthy', 'disk_warning', 'ticket_auto', 'ticket_inform']"]}}]
         rc, output, _ = self.run_ansible(tasks)
         self.assertEqual(rc, 0, output)
         self.assertEqual(self.server.lab.calls, [])

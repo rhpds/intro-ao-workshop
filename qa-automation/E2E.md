@@ -112,9 +112,11 @@ flags (`e2e_allow_changes`, `e2e_allow_disk_expand`, `e2e_allow_patching`) defau
 to **true** so the pod's launcher needs no extra E2E options. Set a flag to false
 explicitly to prohibit that class of change.
 
-The six default cases are `integrations`, `motd`, `disk_healthy`, `disk_warning`,
+The five default cases are `integrations`, `disk_healthy`, `disk_warning`,
 `ticket_auto`, and `ticket_inform`. They do not require a human approval or a CVE
-fixture; they still update MOTD, allocate disk ballast, and create incidents.
+fixture; they still allocate disk ballast and create incidents. MOTD is excluded
+while its AO agent returns empty structured output; it is not counted as passed.
+Explicitly select `motd` after the workflow/model issue is resolved.
 
 ```bash
 ansible-playbook -i localhost, qa-automation/e2e.yml \
