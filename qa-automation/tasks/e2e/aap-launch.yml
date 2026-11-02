@@ -1,0 +1,69 @@
+---
+# Inputs e2e_template_id, e2e_extra_vars. Outputs e2e_last_job and stdout.
+- name: Record an unknown launch outcome until AAP returns a job ID
+  ansible.builtin.set_fact:
+    e2e_active_aap_job: unknown - inspect AAP before retrying
+
+- name: Launch the AAP job template once (never retry POST)
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/job_templates/{{ e2e_template_id }}/launch/"
+    method: POST
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    body_format: json
+    body: {extra_vars: "{{ e2e_extra_vars }}"}
+    status_code: [200, 201, 202]
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_aap_launch
+
+- name: Record launched AAP job ID
+  ansible.builtin.set_fact:
+    e2e_active_aap_job: "{{ e2e_aap_launch.json.id }}"
+
+- name: Reject ignored launch variables
+  ansible.builtin.assert:
+    that: e2e_aap_launch.json.ignored_fields | default({}) | length == 0
+    fail_msg: AAP ignored launch fields. Inspect the recorded job; do not blindly relaunch it.
+    quiet: true
+
+- name: Wait for AAP job to reach a terminal state
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/jobs/{{ e2e_active_aap_job }}/"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_aap_job_response
+  until: e2e_aap_job_response.json.status in (['successful'] + e2e_failed_statuses)
+  retries: "{{ e2e_retries }}"
+  delay: "{{ e2e_poll_interval }}"
+  changed_when: false
+
+- name: Record completed simulator result
+  ansible.builtin.set_fact:
+    e2e_last_job: "{{ e2e_aap_job_response.json }}"
+    e2e_active_aap_job: ''
+
+- name: Require successful AAP execution
+  ansible.builtin.assert:
+    that: e2e_last_job.status == 'successful'
+    fail_msg: "AAP job {{ e2e_last_job.id }} ended {{ e2e_last_job.status }}."
+    quiet: true
+
+- name: Read simulator stdout for exact execution and incident correlation
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/jobs/{{ e2e_last_job.id }}/stdout/?format=txt"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    return_content: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_last_stdout
+  changed_when: false

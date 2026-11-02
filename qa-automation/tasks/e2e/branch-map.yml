@@ -1,0 +1,28 @@
+---
+- name: Find the routing switch in the actual workflow definition
+  ansible.builtin.set_fact:
+    e2e_switches: "{{ e2e_definition.nodes | selectattr('type', 'equalto', 'switch') | list }}"
+    e2e_branches: {}
+    e2e_follow_edges: "{{ (e2e_definition.edges | rejectattr('from_port', 'defined') | list) + (e2e_definition.edges | selectattr('from_port', 'defined') | selectattr('from_port', 'equalto', 'approved') | list) }}"
+
+- name: Require one routing switch
+  ansible.builtin.assert:
+    that: e2e_switches | length == 1
+    quiet: true
+
+- name: Map each branch through its approved/linear edges
+  ansible.builtin.include_tasks: branch-one.yml
+  loop: "{{ e2e_switches[0].parameters.cases }}"
+  loop_control:
+    loop_var: e2e_route_case
+    label: "{{ e2e_route_case.label }}"
+
+- name: Require the expected named branch
+  ansible.builtin.assert:
+    that: e2e_expected_route in e2e_branches
+    quiet: true
+
+- name: Record required and forbidden branch nodes
+  ansible.builtin.set_fact:
+    e2e_required_nodes: "{{ e2e_branches[e2e_expected_route] }}"
+    e2e_forbidden_nodes: "{{ e2e_branches.values() | list | flatten | unique | difference(e2e_branches[e2e_expected_route]) }}"

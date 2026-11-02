@@ -1,0 +1,93 @@
+---
+- name: "Module 06 | Prepare {{ e2e_case }}"
+  ansible.builtin.set_fact:
+    e2e_workflow: "{{ e2e_workflows.cve }}"
+    e2e_definition: "{{ e2e_workflows.cve.version.workflow_definition }}"
+    e2e_cve_host: "{{ 'node1' if e2e_case == 'cve_dev' else 'node2' }}"
+    e2e_cve_env: "{{ 'dev' if e2e_case == 'cve_dev' else 'production' }}"
+    e2e_expected_route: "{{ 'Auto-Patch (Dev)' if e2e_case == 'cve_dev' else 'Approval Required (Prod)' }}"
+    e2e_expects_approval: "{{ e2e_case == 'cve_prod' }}"
+    e2e_execution_terminal: false
+
+- name: Module 06 | Recheck current applicability before this patch run
+  ansible.builtin.include_tasks: cve-target.yml
+
+- name: Module 06 | Map the expected branch
+  ansible.builtin.include_tasks: branch-map.yml
+
+- name: Module 06 | Snapshot existing Mattermost posts
+  ansible.builtin.include_tasks: chat-snapshot.yml
+
+- name: Module 06 | Set the trigger inputs from provided lab data
+  ansible.builtin.set_fact:
+    e2e_inputs: {host: "{{ e2e_cve_host }}", cve_id: "{{ e2e_cve_id }}", lab_tag: "{{ e2e_lab_guid }}"}
+
+- name: Module 06 | Run the selected CVE workflow
+  ansible.builtin.include_tasks: manual-launch.yml
+
+- name: Module 06 | Validate branch, human gate and linked patch jobs
+  ansible.builtin.include_tasks: execution-validate.yml
+
+- name: Module 06 | Prove the actual patch job was limited to the intended host
+  ansible.builtin.assert:
+    that: e2e_jobs | selectattr('name', 'equalto', 'CVE Remediation - ' ~ e2e_cve_id ~ ' - ' ~ e2e_cve_host) | selectattr('limit', 'equalto', e2e_cve_host) | list | length == 1
+    quiet: true
+
+- name: Module 06 | Read the repository's new commit
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ e2e_gitea_repo }}/commits?limit=1"
+    headers: {Authorization: "token {{ gitea_token }}"}
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_git_after
+
+- name: Module 06 | Require a new commit from this scenario
+  ansible.builtin.assert:
+    that: e2e_git_after.json[0].sha != e2e_git_before.json[0].sha
+    quiet: true
+
+- name: Module 06 | Read the generated remediation playbook at that commit
+  ansible.builtin.uri:
+    url: "{{ gitea_url }}/api/v1/repos/{{ e2e_gitea_repo }}/contents/remediation-{{ e2e_cve_id }}.yml?ref={{ e2e_git_after.json[0].sha }}"
+    headers: {Authorization: "token {{ gitea_token }}"}
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_git_playbook
+
+- name: Module 06 | Require nonempty remediation content
+  ansible.builtin.assert:
+    that: e2e_git_playbook.json.content | b64decode | trim | length > 0
+    quiet: true
+
+- name: Module 06 | Validate the new Mattermost remediation card
+  ansible.builtin.include_tasks: chat-validate.yml
+  vars:
+    e2e_chat_terms: ["{{ e2e_cve_id }}", "{{ e2e_cve_host }}", "{{ e2e_cve_env }}", remediat]
+
+- name: Module 06 | Wait for Insights to stop reporting this CVE on the same system UUID
+  ansible.builtin.uri:
+    url: "{{ e2e_insights_url }}/api/vulnerability/v1/systems/{{ e2e_insights_system_id }}/cves?{{ {'filter': e2e_cve_id, 'limit': 100} | urlencode }}"
+    url_username: "{{ e2e_insights_username }}"
+    url_password: "{{ e2e_insights_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_cves_after
+  until:
+    - e2e_cves_after.json.data is defined
+    - e2e_cves_after.json.data is sequence and e2e_cves_after.json.data is not string
+    - e2e_cve_id not in (e2e_cves_after.json.data | map(attribute='id') | list)
+  retries: "{{ e2e_retries }}"
+  delay: "{{ e2e_poll_interval }}"
+  changed_when: false
+
+- name: Module 06 | Record cross-system evidence
+  ansible.builtin.set_fact:
+    e2e_results: "{{ e2e_results + [{'case': e2e_case, 'status': 'passed', 'execution_id': e2e_execution_id, 'jobs': e2e_jobs | map(attribute='id') | list, 'branch': e2e_expected_route, 'approval_observed': e2e_approval_observed, 'host': e2e_cve_host, 'cve_id': e2e_cve_id, 'insights_system_id': e2e_insights_system_id, 'gitea_commit': e2e_git_after.json[0].sha}] }}"
+
+- name: Module 06 | Validation - Success
+  ansible.builtin.debug:
+    msg: "PASS — {{ e2e_case }} ({{ e2e_cve_id }} on {{ e2e_cve_host }}, AAP/Gitea/Mattermost/Insights verified)"

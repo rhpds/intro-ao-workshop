@@ -1,0 +1,34 @@
+---
+- name: Require the node's actual AAP job ID (never search historic jobs)
+  ansible.builtin.assert:
+    that: e2e_node_result.output.job_id | default(e2e_node_result.output.result.job_id | default(0)) | int > 0
+    fail_msg: Expected output.job_id in the AO node result. Check the deployed node-output API contract.
+    quiet: true
+
+- name: Record the linked ID even if its status validation fails
+  ansible.builtin.set_fact:
+    e2e_job_ids: "{{ e2e_job_ids + [e2e_node_result.output.job_id | default(e2e_node_result.output.result.job_id)] }}"
+
+- name: Read the linked AAP job
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/jobs/{{ e2e_node_result.output.job_id | default(e2e_node_result.output.result.job_id) }}/"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_linked_job
+
+- name: Require the linked job and static template identity to match
+  vars:
+    e2e_expected_template: "{{ (e2e_definition.nodes | selectattr('id', 'equalto', e2e_node_result.node_id) | first).parameters.job_template_name }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_linked_job.json.status == 'successful'
+      - e2e_expected_template is match('^\$\{') or e2e_linked_job.json.name == e2e_expected_template
+    quiet: true
+
+- name: Retain compact linked-job evidence and measured artifacts
+  ansible.builtin.set_fact:
+    e2e_jobs: "{{ e2e_jobs + [{'id': e2e_linked_job.json.id, 'name': e2e_linked_job.json.name, 'limit': e2e_linked_job.json.limit | default(''), 'artifacts': e2e_linked_job.json.artifacts | default({})}] }}"

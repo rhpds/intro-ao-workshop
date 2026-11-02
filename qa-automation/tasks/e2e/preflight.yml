@@ -1,0 +1,119 @@
+---
+- name: Preflight | Require provided AO and AAP connection details
+  ansible.builtin.assert:
+    that:
+      - ao_url | length > 0 and ao_password | length > 0
+      - aap_url | length > 0 and aap_password | length > 0
+      - e2e_disk_host in ['node1', 'node2', 'node3']
+      - e2e_ticket_host in ['node1', 'node2', 'node3']
+    quiet: true
+
+- name: Preflight | Authenticate to AO
+  ansible.builtin.uri:
+    url: "{{ e2e_ao_api }}/auth/login"
+    method: POST
+    body_format: json
+    body: {username: "{{ ao_username }}", password: "{{ ao_password }}"}
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_ao_login
+
+- name: Preflight | Record API headers and run state
+  ansible.builtin.set_fact:
+    e2e_ao_headers: {Authorization: "Bearer {{ e2e_ao_login.json.access_token }}"}
+    e2e_workflows: {}
+    e2e_templates: {}
+    e2e_active_execution: ''
+    e2e_active_aap_job: ''
+
+- name: Preflight | Verify supplied AAP credentials
+  ansible.builtin.uri:
+    url: "{{ aap_url | regex_replace('/+$', '') }}/api/gateway/v1/me/"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_aap_me
+
+- name: Preflight | Require an authenticated AAP user
+  ansible.builtin.assert:
+    that: e2e_aap_me.json.results | default([]) | length > 0
+    quiet: true
+
+- name: Preflight | Find the requested AO project
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/projects?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+- name: Preflight | Require a unique project
+  ansible.builtin.assert:
+    that: e2e_collection | selectattr('name', 'equalto', e2e_project) | list | length == 1
+    quiet: true
+
+- name: Preflight | Record selected project ID
+  ansible.builtin.set_fact:
+    e2e_project_id: "{{ (e2e_collection | selectattr('name', 'equalto', e2e_project) | first).id }}"
+
+- name: Preflight | List workflows across all pages
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/workflows?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+- name: Preflight | Record project workflows
+  ansible.builtin.set_fact:
+    e2e_project_workflows: "{{ e2e_collection | selectattr('project_id', 'equalto', e2e_project_id) | list }}"
+
+- name: Preflight | Verify selected workflow definitions without modifying them
+  ansible.builtin.include_tasks: workflow-preflight.yml
+  loop: "{{ e2e_cases | map('regex_replace', '_.*$', '') | unique | difference(['integrations']) }}"
+  loop_control:
+    loop_var: e2e_kind
+
+- name: Preflight | Check AO execution API contracts
+  ansible.builtin.include_tasks: contracts.yml
+  when: e2e_workflows | length > 0
+
+- name: Preflight | Resolve AAP simulator templates before launching anything
+  ansible.builtin.include_tasks: template-preflight.yml
+  loop:
+    - {kind: disk, name: Disk Utilization Simulate Alert}
+    - {kind: ticket, name: Ticket Enrichment Simulate Alert}
+  loop_control:
+    loop_var: e2e_simulator
+  when: e2e_simulator.kind in (e2e_cases | map('regex_replace', '_.*$', '') | list)
+
+- name: Preflight | Authenticate Mattermost and select the notification channel
+  ansible.builtin.include_tasks: chat-login.yml
+  when: e2e_cases | select('match', '^(disk_|cve_)') | list | length > 0
+
+- name: Preflight | Validate OpenFlake credentials
+  ansible.builtin.uri:
+    url: "{{ openflake_url }}/api/flake/table/incident?sysparm_limit=1"
+    url_username: "{{ openflake_username }}"
+    url_password: "{{ openflake_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_flake_preflight
+  when: e2e_cases | select('match', '^ticket_') | list | length > 0
+
+- name: Preflight | Require authenticated incident-list response
+  ansible.builtin.assert:
+    that: e2e_flake_preflight.json.result is sequence and e2e_flake_preflight.json.result is not string
+    quiet: true
+  when: e2e_cases | select('match', '^ticket_') | list | length > 0
+
+- name: Preflight | Verify CVE applicability and host environment before any patching
+  ansible.builtin.include_tasks: cve-target.yml
+  vars:
+    e2e_cve_host: "{{ 'node1' if e2e_cve_case == 'cve_dev' else 'node2' }}"
+    e2e_cve_env: "{{ 'dev' if e2e_cve_case == 'cve_dev' else 'production' }}"
+  loop: "{{ ['cve_dev', 'cve_prod'] | select('in', e2e_cases) | list }}"
+  loop_control:
+    loop_var: e2e_cve_case

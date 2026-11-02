@@ -1,0 +1,119 @@
+---
+- name: "Module 05 | Prepare {{ e2e_case }}"
+  ansible.builtin.set_fact:
+    e2e_workflow: "{{ e2e_workflows.ticket }}"
+    e2e_definition: "{{ e2e_workflows.ticket.version.workflow_definition }}"
+    e2e_expected_route: "{{ e2e_ticket_cases[e2e_case].route }}"
+    e2e_expects_approval: "{{ e2e_case == 'ticket_approval' }}"
+    e2e_execution_terminal: false
+
+- name: Module 05 | Map the expected branch
+  ansible.builtin.include_tasks: branch-map.yml
+
+- name: Module 05 | Refuse to overwrite an existing simulator fixture
+  ansible.builtin.command:
+    argv:
+      - test
+      - '!'
+      - '-e'
+      - "{{ '/var/log/capacity_test.log' if e2e_case == 'ticket_auto' else '/tmp/runaway_process.pid' }}"
+  delegate_to: "e2e_{{ e2e_ticket_host }}"
+  register: e2e_fixture_check
+  changed_when: false
+  when: e2e_case != 'ticket_inform'
+
+- name: Module 05 | Require successful fixture precheck before changing the host
+  ansible.builtin.assert:
+    that: e2e_fixture_check.rc | default(1) == 0
+    quiet: true
+  when: e2e_case != 'ticket_inform'
+
+- name: Module 05 | Mark trigger outcome unknown before launching the simulator
+  ansible.builtin.set_fact:
+    e2e_active_execution: unknown - simulator may have fired AO; inspect AAP output
+
+- name: Module 05 | Launch Ticket Enrichment Simulate Alert
+  ansible.builtin.include_tasks: aap-launch.yml
+  vars:
+    e2e_template_id: "{{ e2e_templates.ticket }}"
+    e2e_extra_vars:
+      scenario_list: "{{ e2e_ticket_cases[e2e_case].scenario }}"
+      target_host: "{{ e2e_ticket_host }}"
+      webhook_target: "{{ 'solutions' if e2e_project == 'solutions' else 'student' }}"
+
+- name: Module 05 | Correlate this simulator's exact AO run
+  ansible.builtin.include_tasks: simulator-result.yml
+
+- name: Module 05 | Identify this simulator's incident number
+  ansible.builtin.set_fact:
+    e2e_incident_numbers: "{{ e2e_last_stdout.content | regex_findall('\\bINC[0-9]+\\b') | unique | list }}"
+
+- name: Module 05 | Require exactly one incident for this target
+  ansible.builtin.assert:
+    that: e2e_incident_numbers | length == 1
+    quiet: true
+
+- name: Module 05 | Validate AO route, human gate if required, and Controller jobs
+  ansible.builtin.include_tasks: execution-validate.yml
+
+- name: Module 05 | Read the exact created incident
+  ansible.builtin.uri:
+    url: "{{ openflake_url }}/api/flake/table/incident?{{ {'sysparm_query': 'number=' ~ e2e_incident_numbers[0], 'sysparm_limit': 2} | urlencode }}"
+    url_username: "{{ openflake_username }}"
+    url_password: "{{ openflake_password }}"
+    force_basic_auth: true
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_incident_response
+
+- name: Module 05 | Validate ticket state, enrichment and resolution or handoff
+  ansible.builtin.assert:
+    that:
+      - e2e_incident_response.json.result | length == 1
+      - e2e_incident_response.json.result[0].number == e2e_incident_numbers[0]
+      - e2e_incident_response.json.result[0].state | string == e2e_ticket_cases[e2e_case].state
+      - e2e_incident_response.json.result[0].work_notes | default('') | length > 0
+      - "e2e_case != 'ticket_inform' or e2e_incident_response.json.result[0].comments | default('') | length > 0"
+      - "e2e_case == 'ticket_inform' or e2e_incident_response.json.result[0].close_notes | default('') | length > 0"
+    quiet: true
+
+- name: Module 05 | Verify capacity ballast was removed by remediation
+  ansible.builtin.command: test ! -e /var/log/capacity_test.log
+  delegate_to: "e2e_{{ e2e_ticket_host }}"
+  register: e2e_capacity_check
+  changed_when: false
+  when: e2e_case == 'ticket_auto'
+
+- name: Module 05 | Require confirmed ballast removal
+  ansible.builtin.assert:
+    that: e2e_capacity_check.rc | default(1) == 0
+    quiet: true
+  when: e2e_case == 'ticket_auto'
+
+- name: Module 05 | Verify the runaway process stopped (without permission-denied false positives)
+  ansible.builtin.shell: |
+    pid=$(cat /tmp/runaway_process.pid 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      case "$pid" in *[!0-9]*) exit 1;; esac
+      state=$(ps -p "$pid" -o stat=)
+      case "$state" in ''|Z*) ;; *) exit 1;; esac
+    fi
+  delegate_to: "e2e_{{ e2e_ticket_host }}"
+  register: e2e_process_check
+  changed_when: false
+  when: e2e_case == 'ticket_approval'
+
+- name: Module 05 | Require a confirmed stopped process
+  ansible.builtin.assert:
+    that: e2e_process_check.rc | default(1) == 0
+    quiet: true
+  when: e2e_case == 'ticket_approval'
+
+- name: Module 05 | Record incident and execution evidence
+  ansible.builtin.set_fact:
+    e2e_results: "{{ e2e_results + [{'case': e2e_case, 'status': 'passed', 'execution_id': e2e_execution_id, 'simulator_job': e2e_simulator_job_id, 'jobs': e2e_jobs | map(attribute='id') | list, 'branch': e2e_expected_route, 'incident': e2e_incident_numbers[0], 'state': e2e_ticket_cases[e2e_case].state, 'approval_observed': e2e_approval_observed}] }}"
+
+- name: Module 05 | Validation - Success
+  ansible.builtin.debug:
+    msg: "PASS — {{ e2e_case }} ({{ e2e_incident_numbers[0] }}, {{ e2e_expected_route }}, state {{ e2e_ticket_cases[e2e_case].state }})"

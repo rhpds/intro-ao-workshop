@@ -1,0 +1,34 @@
+---
+- name: Read embedded node results when the execution includes them
+  ansible.builtin.set_fact:
+    e2e_raw_nodes: "{{ e2e_execution_response.json.node_executions | default(e2e_execution_response.json.nodes | default(e2e_execution_response.json.steps | default(e2e_execution_response.json.activities | default([]), true), true), true) }}"
+    e2e_nodes: []
+
+- name: Require a node-list contract if results are not embedded
+  ansible.builtin.assert:
+    that: e2e_steps_path | length > 0
+    fail_msg: Execution contains no node results. Set e2e_ao_steps_path from the deployed API schema.
+    quiet: true
+  when: e2e_raw_nodes | length == 0
+
+- name: Fetch node results from the discovered endpoint
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}{{ e2e_steps_path | replace('{execution_id}', e2e_execution_id) }}?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+  when: e2e_raw_nodes | length == 0
+
+- name: Use fetched node results
+  ansible.builtin.set_fact:
+    e2e_raw_nodes: "{{ e2e_collection }}"
+  when: e2e_raw_nodes | length == 0
+
+- name: Normalize node IDs, states and output without retaining full HTTP results
+  ansible.builtin.set_fact:
+    e2e_nodes: >-
+      {{ e2e_nodes + [{'node_id': item.node_id | default(item.activity_id | default(item.id | default(''))),
+                      'status': item.status | lower | replace('-', '_') | replace(' ', '_'),
+                      'output': item.output | default(item.outputs | default({}), true)}] }}
+  loop: "{{ e2e_raw_nodes }}"
+  loop_control:
+    label: "{{ item.node_id | default(item.activity_id | default('node')) }}"

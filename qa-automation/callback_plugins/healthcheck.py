@@ -28,7 +28,9 @@ class CallbackModule(CallbackBase):
         self.summary_seen = False
 
     def v2_playbook_on_play_start(self, play):
-        self._display.display('Health check — service availability and credentials\n')
+        heading = ('E2E tests — Showroom workflow behavior' if 'End-to-End' in play.get_name() or 'E2E' in play.get_name()
+                   else 'Health check — service availability and credentials')
+        self._display.display(heading + '\n')
 
     def v2_runner_on_ok(self, result):
         if result._task.action not in ('debug', 'ansible.builtin.debug'):
@@ -42,7 +44,10 @@ class CallbackModule(CallbackBase):
                 self._display.display('Failed / not validated:')
                 for check in failed:
                     self._display.display('  - ' + str(check))
-        elif isinstance(message, str) and message.startswith(('PASS', 'FAIL')):
+        elif isinstance(message, list):
+            for line in message:
+                self._display.display(str(line))
+        elif isinstance(message, str) and message.startswith(('PASS', 'FAIL', 'WAIT', 'E2E')):
             self._display.display(message)
 
     def v2_runner_on_failed(self, result, ignore_errors=False):

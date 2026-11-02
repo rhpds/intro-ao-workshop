@@ -1,5 +1,8 @@
 # Service and credential health check
 
+For the separate, opt-in Showroom workflow execution suite, see [E2E.md](E2E.md).
+The health check below does not execute workflows; `e2e.yml` does.
+
 `healthcheck.yml` verifies availability and the supplied credentials for:
 
 | Service | Checks |

@@ -1,0 +1,53 @@
+---
+- name: Module 03 | Select MOTD workflow and correlate the generated banner
+  ansible.builtin.set_fact:
+    e2e_workflow: "{{ e2e_workflows.motd }}"
+    e2e_definition: "{{ e2e_workflows.motd.version.workflow_definition }}"
+    e2e_expects_approval: false
+    e2e_execution_terminal: false
+    e2e_forbidden_nodes: []
+    e2e_inputs:
+      banner_request: "Lab maintenance Saturday 02:00 UTC, reboot expected, contact Platform Team. Begin the notice with E2E-{{ e2e_run_id }} verbatim."
+
+- name: Module 03 | Require every configured step to execute
+  ansible.builtin.set_fact:
+    e2e_required_nodes: "{{ e2e_definition.nodes | map(attribute='id') | list }}"
+    e2e_motd_agents: "{{ e2e_definition.nodes | selectattr('type', 'equalto', 'agentic') | list }}"
+
+- name: Module 03 | Launch the workflow
+  ansible.builtin.include_tasks: manual-launch.yml
+
+- name: Module 03 | Validate AO execution and linked AAP jobs
+  ansible.builtin.include_tasks: execution-validate.yml
+
+- name: Module 03 | Require one banner-writing agent
+  ansible.builtin.assert:
+    that: e2e_motd_agents | length == 1
+    quiet: true
+
+- name: Module 03 | Read structured AI banner output
+  ansible.builtin.set_fact:
+    e2e_motd_answer: "{{ (e2e_nodes | selectattr('node_id', 'equalto', e2e_motd_agents[0].id) | first).output.result.content }}"
+
+- name: Module 03 | Validate the schema and this run's reference
+  ansible.builtin.assert:
+    that:
+      - e2e_motd_answer.headline | length > 0
+      - e2e_motd_answer.notice | length > 0
+      - e2e_motd_answer.owner | length > 0
+      - "('E2E-' ~ e2e_run_id) in e2e_motd_answer.notice"
+    quiet: true
+
+- name: Module 03 | Inspect /etc/motd on each internal RHEL host
+  ansible.builtin.include_tasks: motd-host.yml
+  loop: [node1, node2, node3]
+  loop_control:
+    loop_var: e2e_host
+
+- name: Module 03 | Record execution and job evidence
+  ansible.builtin.set_fact:
+    e2e_results: "{{ e2e_results + [{'case': 'motd', 'status': 'passed', 'execution_id': e2e_execution_id, 'jobs': e2e_jobs | map(attribute='id') | list, 'hosts': ['node1', 'node2', 'node3']}] }}"
+
+- name: Module 03 | Validation - Success
+  ansible.builtin.debug:
+    msg: PASS — motd (AI banner verified on node1, node2 and node3)

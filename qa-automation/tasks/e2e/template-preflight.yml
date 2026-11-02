@@ -1,0 +1,17 @@
+---
+- name: "Preflight | Find {{ e2e_simulator.name }}"
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_aap_api }}/job_templates/?{{ {'name': e2e_simulator.name} | urlencode }}"
+    e2e_collection_key: results
+    e2e_collection_user: "{{ aap_username }}"
+    e2e_collection_password: "{{ aap_password }}"
+
+- name: Preflight | Require an unambiguous simulator template
+  ansible.builtin.assert:
+    that: e2e_collection | selectattr('name', 'equalto', e2e_simulator.name) | list | length == 1
+    quiet: true
+
+- name: Preflight | Cache simulator template ID
+  ansible.builtin.set_fact:
+    e2e_templates: "{{ e2e_templates | combine({e2e_simulator.kind: (e2e_collection | selectattr('name', 'equalto', e2e_simulator.name) | first).id}) }}"

@@ -1,0 +1,20 @@
+---
+- name: "Module 03 | Read {{ e2e_host }} banner through the gateway"
+  ansible.builtin.slurp:
+    src: /etc/motd
+  delegate_to: "e2e_{{ e2e_host }}"
+  register: e2e_motd_file
+
+- name: Module 03 | Validate generated content and host facts
+  vars:
+    e2e_banner: "{{ e2e_motd_file.content | b64decode | regex_replace('\\x1b\\[[0-9;]*m', '') | regex_replace('\\s+', ' ') }}"
+    e2e_headline: "{{ e2e_motd_answer.headline | upper | truncate([62 - 7 - (e2e_host | length), 8] | max, true, '', 0) }}"
+    e2e_notice: "{{ e2e_motd_answer.notice | truncate(400, true, '', 0) | regex_replace('\\s+', ' ') }}"
+  ansible.builtin.assert:
+    that:
+      - e2e_headline in e2e_banner
+      - e2e_notice in e2e_banner
+      - e2e_motd_answer.owner in e2e_banner
+      - "'kernel' in e2e_banner | lower"
+    fail_msg: "{{ e2e_host }} MOTD does not contain this execution's banner and host facts."
+    quiet: true

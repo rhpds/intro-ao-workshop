@@ -1,0 +1,126 @@
+---
+- name: "Module 04 | Prepare {{ e2e_case }}"
+  ansible.builtin.set_fact:
+    e2e_workflow: "{{ e2e_workflows.disk }}"
+    e2e_definition: "{{ e2e_workflows.disk.version.workflow_definition }}"
+    e2e_expected_route: "{{ e2e_disk_cases[e2e_case].route }}"
+    e2e_expects_approval: false
+    e2e_execution_terminal: false
+    e2e_disk_seeded: false
+    e2e_ballast_path: "/var/log/messages-{{ e2e_run_id }}-{{ e2e_case }}"
+
+- name: Module 04 | Map expected switch branch before seeding a disk alert
+  ansible.builtin.include_tasks: branch-map.yml
+
+- name: Module 04 | Snapshot existing chat posts
+  ansible.builtin.include_tasks: chat-snapshot.yml
+
+- name: Module 04 | Measure real filesystem before the scenario
+  ansible.builtin.command: df -PB1 /
+  delegate_to: "e2e_{{ e2e_disk_host }}"
+  register: e2e_df_before
+  changed_when: false
+
+- name: Module 04 | Require a reachable target before creating ballast
+  ansible.builtin.assert:
+    that: e2e_df_before.rc | default(1) == 0
+    quiet: true
+
+- name: Module 04 | Seed, execute and validate the disk route
+  block:
+    - name: Mark simulator outcome unknown before launching it
+      ansible.builtin.set_fact:
+        e2e_disk_seeded: true
+        e2e_active_execution: unknown - simulator may have fired AO; inspect AAP output
+
+    - name: Module 04 | Launch Disk Utilization Simulate Alert
+      ansible.builtin.include_tasks: aap-launch.yml
+      vars:
+        e2e_template_id: "{{ e2e_templates.disk }}"
+        e2e_extra_vars:
+          disk_fill_target: "{{ e2e_disk_cases[e2e_case].percent }}"
+          target_host: "{{ e2e_disk_host }}"
+          ballast_path: "{{ e2e_ballast_path }}"
+          webhook_target: "{{ 'solutions' if e2e_project == 'solutions' else 'student' }}"
+
+    - name: Module 04 | Correlate the simulator's exact AO execution
+      ansible.builtin.include_tasks: simulator-result.yml
+
+    - name: Module 04 | Validate branch and linked job outcomes
+      ansible.builtin.include_tasks: execution-validate.yml
+
+    - name: Module 04 | Require measured tier artifacts
+      ansible.builtin.set_fact:
+        e2e_disk_artifacts: "{{ e2e_jobs | map(attribute='artifacts') | selectattr('disk_tier', 'defined') | selectattr('disk_tier', 'equalto', e2e_disk_cases[e2e_case].tier) | list }}"
+
+    - name: Module 04 | Validate tier and actual warning cleanup
+      ansible.builtin.assert:
+        that:
+          - e2e_disk_artifacts | length > 0
+          - "e2e_case != 'disk_warning' or (e2e_disk_artifacts | selectattr('total_reclaimed_mb', 'defined') | map(attribute='total_reclaimed_mb') | map('float') | sum > 0)"
+        quiet: true
+
+    - name: Module 04 | Require volume-growth measurements on the critical path
+      ansible.builtin.assert:
+        that: e2e_disk_artifacts | selectattr('volume_size_before_gb', 'defined') | selectattr('volume_size_after_gb', 'defined') | list | length > 0
+        quiet: true
+      when: e2e_case == 'disk_critical'
+
+    - name: Module 04 | Validate real expansion and lower disk utilization artifacts
+      ansible.builtin.assert:
+        that:
+          - item.volume_size_after_gb | float > item.volume_size_before_gb | float
+          - item.volume_size_before_gb | float > 0
+          - item.disk_use_percent_after | float < item.disk_use_percent_before | float
+        quiet: true
+      loop: "{{ e2e_disk_artifacts | selectattr('volume_size_before_gb', 'defined') | selectattr('volume_size_after_gb', 'defined') | list }}"
+      when: e2e_case == 'disk_critical'
+
+    - name: Module 04 | Validate new Mattermost notification
+      ansible.builtin.include_tasks: chat-validate.yml
+      vars:
+        e2e_chat_terms: ["{{ e2e_disk_host }}", "{{ e2e_disk_cases[e2e_case].tier }}"]
+
+    - name: Module 04 | Inspect the filesystem directly after remediation
+      ansible.builtin.command: df -PB1 /
+      delegate_to: "e2e_{{ e2e_disk_host }}"
+      register: e2e_df_after
+      changed_when: false
+
+    - name: Module 04 | Require post-remediation host connectivity
+      ansible.builtin.assert:
+        that: e2e_df_after.rc | default(1) == 0
+        quiet: true
+
+    - name: Module 04 | Prove filesystem expansion independently of reported artifacts
+      ansible.builtin.assert:
+        that: e2e_df_after.stdout_lines[-1].split()[1] | int > e2e_df_before.stdout_lines[-1].split()[1] | int
+        quiet: true
+      when: e2e_case == 'disk_critical'
+
+  always:
+    - name: Module 04 | Reset only this run's ballast after the workflow has stopped
+      ansible.builtin.include_tasks: aap-launch.yml
+      vars:
+        e2e_template_id: "{{ e2e_templates.disk }}"
+        e2e_extra_vars:
+          disk_fill_target: '0'
+          target_host: "{{ e2e_disk_host }}"
+          ballast_path: "{{ e2e_ballast_path }}"
+      when:
+        - e2e_disk_seeded | bool
+        - e2e_execution_terminal | bool
+        - e2e_active_aap_job | length == 0
+
+    - name: Module 04 | Explain deferred cleanup for active or unknown work
+      ansible.builtin.debug:
+        msg: "FAIL — disk cleanup deferred: wait for recorded AO/AAP work to stop, then reset {{ e2e_ballast_path }} on {{ e2e_disk_host }}."
+      when: e2e_disk_seeded | bool and not e2e_execution_terminal | bool
+
+- name: Module 04 | Record successful scenario evidence
+  ansible.builtin.set_fact:
+    e2e_results: "{{ e2e_results + [{'case': e2e_case, 'status': 'passed', 'execution_id': e2e_execution_id, 'simulator_job': e2e_simulator_job_id, 'jobs': e2e_jobs | map(attribute='id') | list, 'branch': e2e_expected_route, 'ballast_reset': true}] }}"
+
+- name: Module 04 | Validation - Success
+  ansible.builtin.debug:
+    msg: "PASS — {{ e2e_case }} ({{ e2e_expected_route }}, linked AAP jobs, host measurements, Mattermost, ballast reset)"

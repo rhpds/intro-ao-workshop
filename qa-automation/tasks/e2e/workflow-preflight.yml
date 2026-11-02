@@ -1,0 +1,27 @@
+---
+- name: "Preflight | Require one {{ e2e_workflow_names[e2e_kind] }} in {{ e2e_project }}"
+  ansible.builtin.assert:
+    that: e2e_project_workflows | selectattr('name', 'equalto', e2e_workflow_names[e2e_kind]) | list | length == 1
+    quiet: true
+
+- name: "Preflight | Read {{ e2e_workflow_names[e2e_kind] }}"
+  ansible.builtin.uri:
+    url: "{{ e2e_ao_api }}/workflows/{{ (e2e_project_workflows | selectattr('name', 'equalto', e2e_workflow_names[e2e_kind]) | first).id }}"
+    headers: "{{ e2e_ao_headers }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_workflow_detail
+
+- name: Preflight | Require the actual AO readback schema and a valid workflow
+  ansible.builtin.assert:
+    that:
+      - e2e_workflow_detail.json.version.workflow_definition.nodes is sequence
+      - e2e_workflow_detail.json.version.workflow_definition.nodes | length > 0
+      - not e2e_workflow_detail.json.has_validation_issues | default(false) | bool
+    fail_msg: Expected version.workflow_definition.nodes with no validation issues. Finish and publish the selected workflow first.
+    quiet: true
+
+- name: Preflight | Cache the workflow and its definition
+  ansible.builtin.set_fact:
+    e2e_workflows: "{{ e2e_workflows | combine({e2e_kind: e2e_workflow_detail.json}) }}"

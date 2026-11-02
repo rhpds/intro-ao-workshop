@@ -1,0 +1,25 @@
+---
+- name: Validate a new Mattermost post containing every expected term in the same card
+  vars:
+    e2e_matching_posts: >-
+      {% set found = namespace(ids=[]) %}
+      {% for id, post in e2e_chat_after.json.posts.items() %}
+      {% set match = namespace(ok=(id not in e2e_chat_baseline)) %}
+      {% set text = ({'message': post.message | default(''), 'props': post.props | default({})} | to_json | lower) %}
+      {% for term in e2e_chat_terms %}
+      {% if (term | string | lower) not in text %}{% set match.ok = false %}{% endif %}
+      {% endfor %}
+      {% if match.ok %}{% set found.ids = found.ids + [id] %}{% endif %}
+      {% endfor %}
+      {{ found.ids }}
+  ansible.builtin.uri:
+    url: "{{ mattermost_url }}/api/v4/channels/{{ e2e_chat_channel }}/posts?per_page=100"
+    headers: "{{ e2e_chat_headers }}"
+    timeout: "{{ healthcheck_timeout }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    follow_redirects: none
+  register: e2e_chat_after
+  until: e2e_matching_posts | string | from_yaml | length > 0
+  retries: "{{ e2e_retries }}"
+  delay: "{{ e2e_poll_interval }}"
+  changed_when: false
