@@ -1,6 +1,9 @@
 ---
 # Override using a Vault-encrypted -e @file.yml. Environment variables are
 # convenient locally; empty credentials deliberately FAIL, never skip checks.
+# Canonical extra vars override these defaults. Uppercase environment variables
+# take precedence over provisioning aliases (Ansible vars or lowercase env).
+# Never map Insights login credentials to Lightspeed OAuth client credentials.
 healthcheck_validate_certs: true
 healthcheck_timeout: 15
 # Override when catalog namespaces differ. Every namespace must contain pods.
@@ -14,12 +17,15 @@ healthcheck_ocp_namespaces:
   - gitea
 healthcheck_passed: []
 healthcheck_failed: []
+ao_url: "{{ lookup('env', 'AO_URL') | default(lookup('env', 'ao_url'), true) | regex_replace('/+$', '') }}"
+ao_username: "{{ lookup('env', 'AO_USERNAME') | default(ao_admin_user | default(lookup('env', 'ao_admin_user'), true), true) | default('admin', true) }}"
+ao_password: "{{ lookup('env', 'AO_PASSWORD') | default(ao_admin_password | default(lookup('env', 'ao_admin_password'), true), true) }}"
 ocp_url: "{{ lookup('env', 'OCP_URL') | regex_replace('/+$', '') }}"
 ocp_token: "{{ lookup('env', 'OCP_TOKEN') }}"
-ocp_console_url: "{{ lookup('env', 'OCP_CONSOLE_URL') | regex_replace('/+$', '') }}"
-aap_url: "{{ lookup('env', 'AAP_URL') | regex_replace('/+$', '') }}"
-aap_username: "{{ lookup('env', 'AAP_USERNAME') | default('admin', true) }}"
-aap_password: "{{ lookup('env', 'AAP_PASSWORD') }}"
+ocp_console_url: "{{ lookup('env', 'OCP_CONSOLE_URL') | default(openshift_console_url | default(lookup('env', 'openshift_console_url'), true), true) | regex_replace('/+$', '') }}"
+aap_url: "{{ lookup('env', 'AAP_URL') | default(aap_controller_web_url | default(lookup('env', 'aap_controller_web_url'), true), true) | regex_replace('/+$', '') }}"
+aap_username: "{{ lookup('env', 'AAP_USERNAME') | default(aap_controller_admin_user | default(lookup('env', 'aap_controller_admin_user'), true), true) | default('admin', true) }}"
+aap_password: "{{ lookup('env', 'AAP_PASSWORD') | default(aap_controller_admin_password | default(lookup('env', 'aap_controller_admin_password'), true), true) }}"
 aap_token: "{{ lookup('env', 'AAP_TOKEN') }}"
 # AAP 2.7 platform gateway paths; override for a standalone controller.
 aap_me_path: /api/gateway/v1/me/
@@ -27,29 +33,29 @@ aap_controller_ping_path: /api/controller/v2/ping/
 aap_controller_me_path: /api/controller/v2/me/
 aap_eda_enabled: true
 aap_eda_path: /api/eda/v1/activations/
-openflake_url: "{{ lookup('env', 'OPENFLAKE_URL') | regex_replace('/+$', '') }}"
-openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default('admin', true) }}"
-openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') }}"
-gitea_url: "{{ lookup('env', 'GITEA_URL') | regex_replace('/+$', '') }}"
-gitea_username: "{{ lookup('env', 'GITEA_USERNAME') }}"
-gitea_password: "{{ lookup('env', 'GITEA_PASSWORD') }}"
-gitea_token: "{{ lookup('env', 'GITEA_TOKEN') }}"
-mattermost_url: "{{ lookup('env', 'MATTERMOST_URL') | regex_replace('/+$', '') }}"
-mattermost_username: "{{ lookup('env', 'MATTERMOST_USERNAME') | default('admin', true) }}"
-mattermost_password: "{{ lookup('env', 'MATTERMOST_PASSWORD') }}"
-llm_url: "{{ lookup('env', 'LLM_URL') | regex_replace('/+$', '') }}"
-llm_api_key: "{{ lookup('env', 'LLM_API_KEY') }}"
+openflake_url: "{{ lookup('env', 'OPENFLAKE_URL') | default(lookup('env', 'openflake_url'), true) | default(openflake_instance_url | default(lookup('env', 'openflake_instance_url'), true), true) | regex_replace('/+$', '') }}"
+openflake_username: "{{ lookup('env', 'OPENFLAKE_USERNAME') | default(openflake_admin_username | default(lookup('env', 'openflake_admin_username'), true), true) | default('admin', true) }}"
+openflake_password: "{{ lookup('env', 'OPENFLAKE_PASSWORD') | default(openflake_admin_password | default(lookup('env', 'openflake_admin_password'), true), true) }}"
+gitea_url: "{{ lookup('env', 'GITEA_URL') | default(gitea_console_url | default(lookup('env', 'gitea_console_url'), true), true) | regex_replace('/+$', '') }}"
+gitea_username: "{{ lookup('env', 'GITEA_USERNAME') | default(gitea_user | default(lookup('env', 'gitea_user'), true), true) }}"
+gitea_password: "{{ lookup('env', 'GITEA_PASSWORD') | default(lookup('env', 'gitea_password'), true) }}"
+gitea_token: "{{ lookup('env', 'GITEA_TOKEN') | default(gitea_api_token | default(lookup('env', 'gitea_api_token'), true), true) }}"
+mattermost_url: "{{ lookup('env', 'MATTERMOST_URL') | default(lookup('env', 'mattermost_url'), true) | regex_replace('/+$', '') }}"
+mattermost_username: "{{ lookup('env', 'MATTERMOST_USERNAME') | default(lookup('env', 'mattermost_username'), true) | default('admin', true) }}"
+mattermost_password: "{{ lookup('env', 'MATTERMOST_PASSWORD') | default(lookup('env', 'mattermost_password'), true) }}"
+llm_url: "{{ lookup('env', 'LLM_URL') | default(litellm_api_base_url | default(lookup('env', 'litellm_api_base_url'), true), true) | regex_replace('/+$', '') }}"
+llm_api_key: "{{ lookup('env', 'LLM_API_KEY') | default(litellm_virtual_key | default(lookup('env', 'litellm_virtual_key'), true), true) }}"
 splunk_enabled: true
-splunk_url: "{{ lookup('env', 'SPLUNK_URL') | regex_replace('/+$', '') }}"
+splunk_url: "{{ lookup('env', 'SPLUNK_URL') | default(lookup('env', 'splunk_url'), true) | regex_replace('/+$', '') }}"
 # Management API, NOT the web UI URL; expose/tunnel port 8089 if necessary.
 splunk_api_url: "{{ lookup('env', 'SPLUNK_API_URL') | regex_replace('/+$', '') }}"
-splunk_username: "{{ lookup('env', 'SPLUNK_USERNAME') | default('admin', true) }}"
-splunk_password: "{{ lookup('env', 'SPLUNK_PASSWORD') }}"
-aap_mcp_url: "{{ lookup('env', 'AAP_MCP_URL') }}"
+splunk_username: "{{ lookup('env', 'SPLUNK_USERNAME') | default(lookup('env', 'splunk_username'), true) | default('admin', true) }}"
+splunk_password: "{{ lookup('env', 'SPLUNK_PASSWORD') | default(lookup('env', 'splunk_password'), true) }}"
+aap_mcp_url: "{{ lookup('env', 'AAP_MCP_URL') | default(lookup('env', 'aap_mcp_url'), true) }}"
 aap_mcp_token: "{{ lookup('env', 'AAP_MCP_TOKEN') }}"
-openflake_mcp_url: "{{ lookup('env', 'OPENFLAKE_MCP_URL') }}"
-openflake_mcp_token: "{{ lookup('env', 'OPENFLAKE_MCP_TOKEN') }}"
-lightspeed_mcp_url: "{{ lookup('env', 'LIGHTSPEED_MCP_URL') }}"
+openflake_mcp_url: "{{ lookup('env', 'OPENFLAKE_MCP_URL') | default(openflake_mcp_endpoint | default(lookup('env', 'openflake_mcp_endpoint'), true), true) }}"
+openflake_mcp_token: "{{ lookup('env', 'OPENFLAKE_MCP_TOKEN') | default(openflake_mcp_bearer_token | default(lookup('env', 'openflake_mcp_bearer_token'), true), true) }}"
+lightspeed_mcp_url: "{{ lookup('env', 'LIGHTSPEED_MCP_URL') | default(lightspeed_mcp_endpoint | default(lookup('env', 'lightspeed_mcp_endpoint'), true), true) }}"
 lightspeed_mcp_token: "{{ lookup('env', 'LIGHTSPEED_MCP_TOKEN') }}"
 lightspeed_client_id: "{{ lookup('env', 'LIGHTSPEED_CLIENT_ID') }}"
 lightspeed_client_secret: "{{ lookup('env', 'LIGHTSPEED_CLIENT_SECRET') }}"

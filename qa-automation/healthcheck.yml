@@ -35,9 +35,6 @@
       unredirected_headers: [Authorization]
 
   vars:
-    ao_url: "{{ lookup('env', 'AO_URL') }}"
-    ao_username: "{{ lookup('env', 'AO_USERNAME') | default('admin', true) }}"
-    ao_password: "{{ lookup('env', 'AO_PASSWORD') }}"
     ao_validate_certs: "{{ healthcheck_validate_certs }}"
     ao_solutions_project: solutions
     ao_expected_service_accounts:
@@ -72,8 +69,8 @@
           - ao_url | length > 0
           - ao_password | length > 0
         fail_msg: >-
-          Set ao_url and ao_password (or AO_URL / AO_PASSWORD in the
-          environment).
+          Set ao_url and ao_password, AO_URL / AO_PASSWORD, or provisioning
+          variables ao_url / ao_admin_password (Ansible vars or environment).
 
     - name: Authenticate to Automation Orchestrator
       ansible.builtin.uri:

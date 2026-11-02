@@ -53,7 +53,11 @@
   rescue:
     - name: Record unhealthy or inaccessible OpenShift resources
       ansible.builtin.set_fact:
-        healthcheck_failed: "{{ healthcheck_failed + [ocp_check.name ~ ' (API/RBAC failure, empty resources, or unhealthy condition)'] }}"
+        healthcheck_failed: >-
+          {{ healthcheck_failed + [ocp_check.name ~
+             (' (not validated: missing OpenShift API URL or user token)'
+              if ansible_failed_task.name == 'Require OpenShift connection details'
+              else ' (API/RBAC failure, empty resources, or unhealthy condition)')] }}
 
   always:
     - name: Report OpenShift check outcome

@@ -59,6 +59,40 @@ All defaults/environment variable names are in `vars/services.yml`. For example,
 Request/response tasks use `no_log`; only check names and outcomes are reported.
 Avoid debug callbacks that dump all Ansible variables.
 
+### Provisioning variable compatibility
+
+Provisioning values may be passed as Ansible extra vars or injected as lowercase
+pod environment variables. Merely mounting a user-data file does not load it;
+the runner must pass the values to Ansible. Canonical health-check extra vars
+have highest precedence, followed by uppercase environment variables, then the
+provisioning aliases below.
+
+| Health-check input | Provisioning alias |
+| --- | --- |
+| `ao_username`, `ao_password` | `ao_admin_user`, `ao_admin_password` |
+| `aap_url`, `aap_username`, `aap_password` | `aap_controller_web_url`, `aap_controller_admin_user`, `aap_controller_admin_password` |
+| `ocp_console_url` | `openshift_console_url` |
+| `openflake_url` | `openflake_instance_url` (fallback) |
+| `openflake_username`, `openflake_password` | `openflake_admin_username`, `openflake_admin_password` |
+| `gitea_url`, `gitea_username`, `gitea_token` | `gitea_console_url`, `gitea_user`, `gitea_api_token` |
+| `llm_url`, `llm_api_key` | `litellm_api_base_url`, `litellm_virtual_key` |
+| `openflake_mcp_url`, `openflake_mcp_token` | `openflake_mcp_endpoint`, `openflake_mcp_bearer_token` |
+| `lightspeed_mcp_url` | `lightspeed_mcp_endpoint` |
+
+Lowercase environment variables are also accepted for already-matching pod keys:
+`ao_url`, `openflake_url`, `aap_mcp_url`, `gitea_password`, `mattermost_url`,
+`mattermost_username`, `mattermost_password`, `splunk_url`, `splunk_username`,
+and `splunk_password`.
+
+These aliases do **not** supply the OpenShift API URL/user token, AAP MCP token,
+Lightspeed MCP token/SSO client pair, Splunk management API URL, or AO webhook
+client pairs. Supply those separately using the canonical inputs. Insights
+username/password are not treated as OAuth client credentials; console/ingress
+URLs are not used to guess an API endpoint. Missing inputs remain failures,
+reported as **not validated**, rather than being silently skipped. Probe failures
+also distinguish request failures from response-validation failures without
+printing credentials or response bodies.
+
 TLS verification defaults to **on**. Trust your cluster CA on the runner. For
 disposable environments only, explicitly set `healthcheck_validate_certs: false`.
 The default request timeout is 15 seconds (`healthcheck_timeout`); there is no

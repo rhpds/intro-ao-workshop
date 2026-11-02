@@ -111,11 +111,11 @@
   ansible.builtin.include_tasks: openshift-resource.yml
   vars:
     ocp_check:
-      name: "OpenShift pods in {{ namespace }}"
-      path: "/api/v1/namespaces/{{ namespace }}/pods"
+      name: "OpenShift pods in {{ hc_namespace }}"
+      path: "/api/v1/namespaces/{{ hc_namespace }}/pods"
       condition: Ready
       expected: 'True'
       pods: true
   loop: "{{ healthcheck_ocp_namespaces + (['splunk'] if splunk_enabled | bool else []) }}"
   loop_control:
-    loop_var: namespace
+    loop_var: hc_namespace
