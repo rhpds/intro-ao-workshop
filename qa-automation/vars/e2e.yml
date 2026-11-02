@@ -6,20 +6,17 @@ e2e_allow_patching: true
 e2e_allow_disk_expand: true
 # Repair only validated node-serving certificate requests on the mounted lab
 # kubeconfig before AAP jobs need kubelet exec/streaming. Never approve client CSRs.
-e2e_approve_kubelet_serving_csrs: true
+e2e_approve_kubelet_serving_csrs: false
 e2e_csr_retries: 30
 e2e_csr_poll_interval: 2
 e2e_project: solutions
 e2e_supported_cases: [integrations, motd, disk_healthy, disk_warning, disk_critical, ticket_auto, ticket_approval, ticket_inform, cve_dev, cve_prod]
-# Unattended defaults: no human approval wait and no guessed CVE fixture.
-# MOTD is excluded while its AO agent returns empty structured output. It remains
-# supported and can be explicitly selected after the workflow/model is repaired.
+# Independent-only defaults while AAP execution-pod TLS is blocked. Workflow
+# cases remain supported but are explicitly excluded, not counted as passed.
+# MOTD also remains excluded for its empty structured agent output.
+e2e_check_rhel_connectivity: true
 e2e_cases:
   - integrations
-  - disk_healthy
-  - disk_warning
-  - ticket_auto
-  - ticket_inform
 e2e_cve_id: "{{ lookup('env', 'E2E_CVE_ID') }}"
 e2e_lab_guid: "{{ guid | default(lookup('env', 'guid'), true) }}"
 e2e_timeout: 900

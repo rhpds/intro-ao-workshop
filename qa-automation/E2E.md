@@ -82,8 +82,9 @@ membership is required.
 
 ## Node-serving certificate repair before job execution
 
-`e2e_approve_kubelet_serving_csrs: true` enables a native Ansible preflight for
-cases that execute AAP jobs (it is skipped for integrations-only runs). It uses
+CSR repair is currently **disabled** (`e2e_approve_kubelet_serving_csrs: false`).
+Set it to true to enable the native Ansible preflight for cases that execute AAP
+jobs (it is skipped for integrations-only runs). It uses
 the mounted kubeconfig via `oc`, honoring `KUBECONFIG` or
 `healthcheck_kubeconfig`, and requires OpenSSL on the runner.
 
@@ -127,7 +128,7 @@ node connection; private keys are not copied from the gateway. New host keys are
 accepted; changed host keys are rejected.
 
 Requirements: `ansible-core`, OpenSSH and **sshpass on the QA runner**, plus `oc`
-and OpenSSL for the enabled node-serving certificate repair, and Python
+and OpenSSL if node-serving certificate repair is enabled, and Python
 on the managed RHEL hosts for normal Ansible modules. No pexpect dependency or
 custom SSH script is used by E2E. The health check's separate SSH helper is
 unchanged. A mode-0600 temporary password file supplies the gateway proxy; the
@@ -142,11 +143,21 @@ flags (`e2e_allow_changes`, `e2e_allow_disk_expand`, `e2e_allow_patching`) defau
 to **true** so the pod's launcher needs no extra E2E options. Set a flag to false
 explicitly to prohibit that class of change.
 
-The five default cases are `integrations`, `disk_healthy`, `disk_warning`,
-`ticket_auto`, and `ticket_inform`. They do not require a human approval or a CVE
-fixture; they still allocate disk ballast and create incidents. MOTD is excluded
-while its AO agent returns empty structured output; it is not counted as passed.
-Explicitly select `motd` after the workflow/model issue is resolved.
+Current defaults run **independent checks only**: the `integrations` case and
+RHEL gateway/node1–3 SSH connectivity (`e2e_check_rhel_connectivity: true`).
+CSR approval is disabled. No AAP jobs, disk filling, incident simulations or
+patching run in this mode. Set `e2e_check_rhel_connectivity: false` for API-only
+integration discovery without SSH checks.
+
+Disk, ticket and CVE workflows all launch AAP jobs, so they are explicitly
+excluded while execution-pod streaming is blocked by kubelet TLS. MOTD also
+remains excluded for its empty agent output. Excluded cases are listed in output
+and evidence, never counted as passed. Gateway/node connectivity is recorded
+separately in the evidence report. A successful independent run is **not** a
+claim that the full workflow E2E suite passed.
+
+After cluster execution is repaired, explicitly select the workflow cases to
+resume them. Re-enable `motd` only after its agent/model issue is fixed.
 
 ```bash
 ansible-playbook -i localhost, qa-automation/e2e.yml \

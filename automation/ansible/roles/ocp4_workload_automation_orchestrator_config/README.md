@@ -484,8 +484,9 @@ workflow execution. For live behavioral tests derived from Showroom modules
 02–06, see `qa-automation/E2E.md` and `qa-automation/run-e2e.sh`. The E2E suite
 executes published workflows, follows linked AAP jobs, and verifies host, incident,
 chat and CVE outcomes. Running E2E authorizes changes to the disposable lab;
-permission flags default to enabled. Five non-interactive cases run by default;
-MOTD is explicitly excluded pending repair of its empty structured agent output.
+permission flags default to enabled. Current defaults run independent integration
+and RHEL SSH checks only; CSR approval and AAP-dependent workflow cases are
+excluded pending execution-pod TLS repair. MOTD also needs its agent output repaired.
 Critical-disk, approval and CVE cases must be selected explicitly; CVE cases
 also require an applicable CVE and lab GUID. Approval cases need a human decision.
 

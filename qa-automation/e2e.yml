@@ -63,7 +63,7 @@
 
         - name: Build gateway and internal-node inventory
           ansible.builtin.include_tasks: tasks/e2e/inventory.yml
-          when: e2e_cases | difference(['integrations', 'cve_dev', 'cve_prod']) | length > 0
+          when: e2e_check_rhel_connectivity | bool or e2e_cases | difference(['integrations', 'cve_dev', 'cve_prod']) | length > 0
 
         - name: Module 02 | Integrations and credentials
           ansible.builtin.include_tasks: tasks/e2e/integrations.yml
@@ -123,6 +123,8 @@
                   'current_execution': e2e_execution_id | default(''),
                   'current_job_ids': e2e_job_ids | default([]),
                   'approved_kubelet_serving_csrs': e2e_approved_serving_csrs | default([]),
+                  'gateway_verified': e2e_gateway_verified | default(false),
+                  'rhel_nodes_verified': e2e_rhel_nodes_verified | default([]),
                   'disk_ballast_path': e2e_ballast_path | default(''),
                   'disk_host': e2e_disk_host, 'ticket_host': e2e_ticket_host}
                  | to_nice_json }}
@@ -147,4 +149,4 @@
           - e2e_failure | length == 0
           - e2e_cases | difference(e2e_results | map(attribute='case') | list) | length == 0
         fail_msg: E2E failed or incomplete. Inspect the failed task and evidence report; do not rerun over active work.
-        success_msg: All selected Showroom cases passed.
+        success_msg: All selected cases passed; intentionally excluded cases were not executed.
