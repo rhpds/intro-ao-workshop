@@ -212,14 +212,30 @@
       retries: "{{ ocp4_workload_cnv_insights_host_registration_retries }}"
       delay: "{{ ocp4_workload_cnv_insights_host_registration_delay }}"
       no_log: true
+      # Fix 2: soft-fail — inventory API (above) is the authoritative check; legacy
+      # endpoint propagation can lag several minutes on the RH backend side.
+      ignore_errors: true
+
+    - name: "{{ _node }} — Warn if legacy endpoint not yet visible"
+      ansible.builtin.debug:
+        msg: >-
+          Legacy Insights endpoint returned HTTP
+          {{ _insights_legacy_registration.status | default('no response') }} for {{ _node }}.
+          Inventory API confirmed registration (HTTP 200). Proceeding with upload —
+          insights-client --group will self-heal any remaining propagation lag.
+      when: >-
+        (_insights_legacy_registration.status | default(-1) | int) != 200 or
+        (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is not none
+
   rescue:
-    - name: "{{ _node }} — Report Insights registration failure"
+    # Rescue fires only when the authoritative inventory-API wait (above) fails.
+    # Legacy endpoint soft-failures are absorbed by ignore_errors and never reach here.
+    - name: "{{ _node }} — Report Insights inventory registration failure"
       ansible.builtin.fail:
         msg: >-
-          Insights registration did not become ready on {{ _node }}.
+          Insights inventory registration did not become ready on {{ _node }}.
           Failed task: {{ ansible_failed_task.name }}.
           Last inventory HTTP status: {{ _insights_inventory.status | default('unavailable') }}.
-          Last legacy HTTP status: {{ _insights_legacy_registration.status | default('unavailable') }}.
           Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
 
 - name: "{{ _node }} — Apply group tag and upload to Insights"
