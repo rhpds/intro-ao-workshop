@@ -1,0 +1,43 @@
+---
+# Inputs: e2e_cp_name (AO project name), e2e_cp_integrations (list of specs),
+#         e2e_cp_workflows (list of expected workflow names).
+# Reads:  e2e_cached_projects, e2e_cached_workflows, e2e_cached_integrations (host facts).
+
+- name: "Project {{ e2e_cp_name }} | Require project exists in AO"
+  ansible.builtin.assert:
+    that: e2e_cached_projects | selectattr('name', 'equalto', e2e_cp_name) | list | length == 1
+    fail_msg: "AO project '{{ e2e_cp_name }}' not found. Check the project name or AO configuration."
+    quiet: true
+
+- name: "Project {{ e2e_cp_name }} | Record project ID"
+  ansible.builtin.set_fact:
+    e2e_cp_project_id: "{{ (e2e_cached_projects | selectattr('name', 'equalto', e2e_cp_name) | first).id }}"
+    e2e_checks: "{{ e2e_checks + [{'check': 'Project exists: ' ~ e2e_cp_name, 'status': 'passed'}] }}"
+
+# ── Integration and credential checks ────────────────────────────────────────
+- name: "Project {{ e2e_cp_name }} | Check each integration"
+  ansible.builtin.include_tasks: check-integration.yml
+  loop: "{{ e2e_cp_integrations }}"
+  loop_control:
+    loop_var: e2e_ci_spec
+    label: "{{ e2e_ci_spec.name }}"
+
+# ── Workflow existence checks ─────────────────────────────────────────────────
+- name: "Project {{ e2e_cp_name }} | Build workflow name list for this project"
+  ansible.builtin.set_fact:
+    e2e_cp_workflow_names: >-
+      {{ e2e_cached_workflows
+         | selectattr('project_id', 'equalto', e2e_cp_project_id)
+         | map(attribute='name') | list }}
+
+- name: "Project {{ e2e_cp_name }} | Require each expected workflow"
+  ansible.builtin.assert:
+    that: item in e2e_cp_workflow_names
+    fail_msg: "Workflow '{{ item }}' not found in project '{{ e2e_cp_name }}'."
+    quiet: true
+  loop: "{{ e2e_cp_workflows }}"
+
+- name: "Project {{ e2e_cp_name }} | Record workflow existence checks"
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks + [{'check': 'Workflow exists in ' ~ e2e_cp_name ~ ': ' ~ item, 'status': 'passed'}] }}"
+  loop: "{{ e2e_cp_workflows }}"

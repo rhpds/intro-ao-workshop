@@ -1,0 +1,66 @@
+---
+# Verify that the Ticket Enrichment Demo workflow in the solutions project has
+# all three expected routes. No workflow execution occurs.
+
+- name: Ticket route check | Locate solutions project
+  ansible.builtin.set_fact:
+    e2e_ticket_check_project_id: "{{ (e2e_cached_projects | selectattr('name', 'equalto', 'solutions') | first).id }}"
+
+- name: Ticket route check | Require Ticket Enrichment Demo workflow exists
+  ansible.builtin.assert:
+    that: >-
+      e2e_cached_workflows
+      | selectattr('project_id', 'equalto', e2e_ticket_check_project_id)
+      | selectattr('name', 'equalto', 'Ticket Enrichment Demo')
+      | list | length == 1
+    fail_msg: "'Ticket Enrichment Demo' not found in solutions project."
+    quiet: true
+
+- name: Ticket route check | Fetch full workflow definition
+  ansible.builtin.uri:
+    url: >-
+      {{ e2e_ao_api }}/workflows/{{
+      (e2e_cached_workflows
+       | selectattr('project_id', 'equalto', e2e_ticket_check_project_id)
+       | selectattr('name', 'equalto', 'Ticket Enrichment Demo')
+       | first).id }}
+    headers: "{{ e2e_ao_headers }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_ticket_check_detail
+  changed_when: false
+
+- name: Ticket route check | Require a valid published workflow
+  ansible.builtin.assert:
+    that:
+      - e2e_ticket_check_detail.json.version.workflow_definition.nodes is sequence
+      - not e2e_ticket_check_detail.json.has_validation_issues | default(false) | bool
+    fail_msg: Ticket Enrichment Demo workflow has validation issues or is unpublished.
+    quiet: true
+
+- name: Ticket route check | Locate routing switch
+  ansible.builtin.set_fact:
+    e2e_ticket_switches: >-
+      {{ e2e_ticket_check_detail.json.version.workflow_definition.nodes
+         | selectattr('type', 'equalto', 'switch') | list }}
+
+- name: Ticket route check | Require exactly one routing switch
+  ansible.builtin.assert:
+    that: e2e_ticket_switches | length == 1
+    fail_msg: Expected exactly one switch node in Ticket Enrichment Demo.
+    quiet: true
+
+- name: "Ticket route check | Require route: {{ item }}"
+  ansible.builtin.assert:
+    that: >-
+      e2e_ticket_switches[0].parameters.cases
+      | selectattr('label', 'equalto', item) | list | length == 1
+    fail_msg: "Ticket Enrichment Demo workflow is missing the '{{ item }}' route."
+    quiet: true
+  loop: "{{ e2e_ticket_expected_routes }}"
+
+- name: Ticket route check | Record each route check
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks + [{'check': 'Ticket workflow route: ' ~ item, 'status': 'passed'}] }}"
+  loop: "{{ e2e_ticket_expected_routes }}"

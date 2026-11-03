@@ -1,0 +1,71 @@
+---
+# Verify that the Disk Utilization Remediation workflow in the solutions project
+# has the '>95%' expansion route configured. No disk fill or workflow execution occurs.
+
+- name: Disk route check | Require solutions project exists
+  ansible.builtin.assert:
+    that: e2e_cached_projects | selectattr('name', 'equalto', 'solutions') | list | length == 1
+    quiet: true
+
+- name: Disk route check | Locate Disk Utilization Remediation workflow
+  ansible.builtin.set_fact:
+    e2e_disk_check_project_id: "{{ (e2e_cached_projects | selectattr('name', 'equalto', 'solutions') | first).id }}"
+
+- name: Disk route check | Require workflow exists in solutions project
+  ansible.builtin.assert:
+    that: >-
+      e2e_cached_workflows
+      | selectattr('project_id', 'equalto', e2e_disk_check_project_id)
+      | selectattr('name', 'equalto', 'Disk Utilization Remediation')
+      | list | length == 1
+    fail_msg: "'Disk Utilization Remediation' not found in solutions project."
+    quiet: true
+
+- name: Disk route check | Fetch full workflow definition
+  ansible.builtin.uri:
+    url: >-
+      {{ e2e_ao_api }}/workflows/{{
+      (e2e_cached_workflows
+       | selectattr('project_id', 'equalto', e2e_disk_check_project_id)
+       | selectattr('name', 'equalto', 'Disk Utilization Remediation')
+       | first).id }}
+    headers: "{{ e2e_ao_headers }}"
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_disk_check_detail
+  changed_when: false
+
+- name: Disk route check | Require a valid published workflow
+  ansible.builtin.assert:
+    that:
+      - e2e_disk_check_detail.json.version.workflow_definition.nodes is sequence
+      - not e2e_disk_check_detail.json.has_validation_issues | default(false) | bool
+    fail_msg: Disk Utilization Remediation workflow has validation issues or is unpublished.
+    quiet: true
+
+- name: Disk route check | Locate routing switch
+  ansible.builtin.set_fact:
+    e2e_disk_switches: >-
+      {{ e2e_disk_check_detail.json.version.workflow_definition.nodes
+         | selectattr('type', 'equalto', 'switch') | list }}
+
+- name: Disk route check | Require exactly one routing switch
+  ansible.builtin.assert:
+    that: e2e_disk_switches | length == 1
+    fail_msg: Expected exactly one switch node in Disk Utilization Remediation.
+    quiet: true
+
+- name: "Disk route check | Require '{{ e2e_disk_expand_route }}' expansion route"
+  ansible.builtin.assert:
+    that: >-
+      e2e_disk_switches[0].parameters.cases
+      | selectattr('label', 'equalto', e2e_disk_expand_route) | list | length == 1
+    fail_msg: >-
+      Disk Utilization Remediation workflow has no '{{ e2e_disk_expand_route }}' route.
+      The expansion path for ≥95% disk usage is not configured.
+    quiet: true
+
+- name: Disk route check | Record result
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks + [{'check': 'Disk workflow expansion route exists: ' ~ e2e_disk_expand_route, 'status': 'passed'}] }}"

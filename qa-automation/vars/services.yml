@@ -37,6 +37,10 @@ splunk_username: "{{ lookup('env', 'SPLUNK_USERNAME') | default(lookup('env', 's
 splunk_password: "{{ lookup('env', 'SPLUNK_PASSWORD') | default(lookup('env', 'splunk_password'), true) }}"
 openflake_mcp_url: "{{ lookup('env', 'OPENFLAKE_MCP_URL') | default(openflake_mcp_endpoint | default(lookup('env', 'openflake_mcp_endpoint'), true), true) }}"
 openflake_mcp_token: "{{ lookup('env', 'OPENFLAKE_MCP_TOKEN') | default(openflake_mcp_bearer_token | default(lookup('env', 'openflake_mcp_bearer_token'), true), true) }}"
+lightspeed_mcp_url: "{{ lookup('env', 'LIGHTSPEED_MCP_URL') | default(lightspeed_mcp_endpoint | default(lookup('env', 'lightspeed_mcp_endpoint'), true), true) | regex_replace('/+$', '') }}"
+# lightspeed_mcp_bearer_token is NOT yet surfaced by ocp4_workload_lightspeed_mcp_server agnosticd_user_info.
+# Pass LIGHTSPEED_MCP_TOKEN as an env var, or add the bearer token to the role's user_info data block.
+lightspeed_mcp_token: "{{ lookup('env', 'LIGHTSPEED_MCP_TOKEN') | default(lightspeed_mcp_bearer_token | default(lookup('env', 'lightspeed_mcp_bearer_token'), true), true) }}"
 healthcheck_ssh_command: "{{ lookup('env', 'SSH_COMMAND') | default(ssh_command | default(lookup('env', 'ssh_command'), true), true) }}"
 healthcheck_ssh_password: "{{ lookup('env', 'SSH_PASSWORD') | default(ssh_password | default(lookup('env', 'ssh_password'), true), true) }}"
 # All targets are contacted from the SSH access node, never from the runner.
@@ -123,6 +127,24 @@ healthcheck_http_probes:
       method: POST
       headers:
         Authorization: "Bearer {{ openflake_mcp_token }}"
+        Accept: application/json, text/event-stream
+      body_format: json
+      body:
+        jsonrpc: '2.0'
+        id: 1
+        method: initialize
+        params:
+          protocolVersion: '2024-11-05'
+          capabilities: {}
+          clientInfo: {name: lab-healthcheck, version: '1.0'}
+  - name: Lightspeed MCP protocol and bearer credential
+    kind: mcp
+    required: ["{{ lightspeed_mcp_url }}", "{{ lightspeed_mcp_token }}"]
+    request:
+      url: "{{ lightspeed_mcp_url }}"
+      method: POST
+      headers:
+        Authorization: "Bearer {{ lightspeed_mcp_token }}"
         Accept: application/json, text/event-stream
       body_format: json
       body:

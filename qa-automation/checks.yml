@@ -1,0 +1,110 @@
+---
+# Read-only lab readiness checks. No workflows are executed and no lab state is changed.
+#
+# Verifies:
+#   - Integration discovery + credential availability (solutions and default projects)
+#   - Workflow existence (solutions and default projects)
+#   - Disk Utilization Remediation routing structure ('>95%' expansion route)
+#   - Ticket Enrichment Demo routing (Auto Remediate, Needs Approval, Inform Only)
+#   - RHEL CVE Remediation node routing + CVE applicability on both hosts
+#
+# Required vars: same credential set as healthcheck.yml plus e2e_insights_username,
+#   e2e_insights_password, and e2e_lab_guid (or guid) for the CVE host lookup.
+
+- name: Lab readiness checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - vars/services.yml
+    - vars/e2e.yml
+  tasks:
+    - name: Initialize check state
+      ansible.builtin.set_fact:
+        e2e_checks: []
+
+    - name: Authenticate to AO
+      ansible.builtin.uri:
+        url: "{{ e2e_ao_api }}/auth/login"
+        method: POST
+        body_format: json
+        body: {username: "{{ ao_username }}", password: "{{ ao_password }}"}
+        validate_certs: "{{ healthcheck_validate_certs }}"
+        timeout: "{{ healthcheck_timeout }}"
+        follow_redirects: none
+      register: e2e_ao_login
+
+    - name: Require AO access token
+      ansible.builtin.assert:
+        that: e2e_ao_login.json.access_token | default('') | length > 0
+        quiet: true
+
+    - name: Record AO headers
+      ansible.builtin.set_fact:
+        e2e_ao_headers: {Authorization: "Bearer {{ e2e_ao_login.json.access_token }}"}
+        e2e_checks: "{{ e2e_checks + [{'check': 'AO authentication', 'status': 'passed'}] }}"
+
+    - name: Fetch all AO integrations (single request shared across project checks)
+      ansible.builtin.include_tasks: tasks/e2e/collection.yml
+      vars:
+        e2e_collection_url: "{{ e2e_ao_api }}/integrations?limit=100"
+        e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+    - name: Cache integration list
+      ansible.builtin.set_fact:
+        e2e_cached_integrations: "{{ e2e_collection }}"
+
+    - name: Fetch all AO projects
+      ansible.builtin.include_tasks: tasks/e2e/collection.yml
+      vars:
+        e2e_collection_url: "{{ e2e_ao_api }}/projects?limit=100"
+        e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+    - name: Cache project list
+      ansible.builtin.set_fact:
+        e2e_cached_projects: "{{ e2e_collection }}"
+
+    - name: Fetch all AO workflows
+      ansible.builtin.include_tasks: tasks/e2e/collection.yml
+      vars:
+        e2e_collection_url: "{{ e2e_ao_api }}/workflows?limit=100"
+        e2e_collection_headers: "{{ e2e_ao_headers }}"
+
+    - name: Cache workflow list
+      ansible.builtin.set_fact:
+        e2e_cached_workflows: "{{ e2e_collection }}"
+
+    - name: Check solutions project — integrations, credentials, and workflows
+      ansible.builtin.include_tasks: tasks/e2e/check-project.yml
+      vars:
+        e2e_cp_name: solutions
+        e2e_cp_integrations: "{{ e2e_solutions_integration_checks }}"
+        e2e_cp_workflows: "{{ e2e_solutions_workflows }}"
+
+    - name: Check default project — integrations, credentials, and workflows
+      ansible.builtin.include_tasks: tasks/e2e/check-project.yml
+      vars:
+        e2e_cp_name: default
+        e2e_cp_integrations: "{{ e2e_default_integration_checks }}"
+        e2e_cp_workflows: "{{ e2e_default_workflows }}"
+
+    - name: Check Disk Utilization Remediation has the '>95%' expansion route
+      ansible.builtin.include_tasks: tasks/e2e/check-disk-route.yml
+
+    - name: Check Ticket Enrichment Demo has all three routes
+      ansible.builtin.include_tasks: tasks/e2e/check-ticket-routes.yml
+
+    - name: "Check CVE Remediation routing and {{ e2e_check_cve_id }} applicability"
+      ansible.builtin.include_tasks: tasks/e2e/check-cve-nodes.yml
+
+    - name: Checks summary
+      ansible.builtin.debug:
+        msg:
+          passed: "{{ e2e_checks | selectattr('status', 'equalto', 'passed') | map(attribute='check') | list }}"
+          total: "{{ e2e_checks | length }}"
+
+    - name: Require every check to pass
+      ansible.builtin.assert:
+        that: e2e_checks | rejectattr('status', 'equalto', 'passed') | list | length == 0
+        fail_msg: "{{ e2e_checks | rejectattr('status', 'equalto', 'passed') | map(attribute='check') | list | join('; ') }}"
+        success_msg: All lab readiness checks passed.

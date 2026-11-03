@@ -76,8 +76,65 @@ e2e_node_password: "{{ healthcheck_ssh_password }}"
 e2e_disk_cases:
   disk_healthy: {percent: '50', route: '<80%', tier: ok}
   disk_warning: {percent: '85', route: '80-95%', tier: warn}
+  disk_expand: {percent: '95', route: '>95%', tier: critical}
   disk_critical: {percent: '97', route: '>95%', tier: critical}
 e2e_ticket_cases:
   ticket_auto: {scenario: auto_remediate, route: Auto Remediate, state: '6'}
   ticket_approval: {scenario: needs_approval, route: Needs Approval, state: '6'}
   ticket_inform: {scenario: inform_only, route: Inform Only, state: '2'}
+
+# ── checks.yml configuration ─────────────────────────────────────────────────
+# CVE to use for read-only applicability checks and full E2E runs.
+e2e_check_cve_id: CVE-2024-7532
+e2e_check_cve_dev_host: node1
+e2e_check_cve_prod_host: node2
+
+# Disk route label verified in check-disk-route.yml (no disk fill performed).
+e2e_disk_expand_route: '>95%'
+
+# Ticket routes verified in check-ticket-routes.yml.
+e2e_ticket_expected_routes:
+  - Auto Remediate
+  - Needs Approval
+  - Inform Only
+
+# Workflows expected in each AO project.
+e2e_solutions_workflows:
+  - Message of the Day
+  - Disk Utilization Remediation
+  - Ticket Enrichment Demo
+  - RHEL CVE Remediation
+e2e_default_workflows:
+  - Disk Utilization Remediation
+  - Ticket Enrichment Demo
+  - RHEL CVE Remediation
+
+# Integration check specs — override name/type to match your AO deployment.
+# type: mcp_server → credentials verified by listing tools
+# type: llm_provider → credentials verified by listing models
+# type: aap → credentials verified by integration existence only
+e2e_solutions_integration_checks:
+  - name: Solutions AAP MCP
+    type: mcp_server
+    required_tools: [job_templates_list, hosts_list, hosts_variable_data_retrieve]
+  - name: Solutions LLM
+    type: llm_provider
+    check_models: true
+  - name: Solutions AAP
+    type: aap
+  - name: Solutions Lightspeed MCP
+    type: mcp_server
+    required_tools: []
+  - name: Solutions OpenFlake MCP
+    type: mcp_server
+    required_tools: []
+
+e2e_default_integration_checks:
+  - name: Student AAP
+    type: aap
+  - name: Student Lightspeed MCP
+    type: mcp_server
+    required_tools: []
+  - name: Student OpenFlake MCP
+    type: mcp_server
+    required_tools: []

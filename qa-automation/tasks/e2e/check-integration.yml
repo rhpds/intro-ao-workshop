@@ -1,0 +1,86 @@
+---
+# Input: e2e_ci_spec = {name, type, required_tools (optional), check_models (optional)}
+# Reads: e2e_cached_integrations, e2e_ao_headers, e2e_ao_api, e2e_checks (host facts).
+#
+# Integration discovery: integration exists with the expected type.
+# Credential availability: type-specific connectivity probe.
+#   mcp_server  → /integrations/{id}/tools must return ≥1 tool (required_tools checked if non-empty)
+#   llm_provider → /integrations/{id}/models must return ≥1 model (when check_models: true)
+#   aap          → existence alone confirms credentials are configured in AO
+
+- name: "Integration discovery | Locate {{ e2e_ci_spec.name }} ({{ e2e_ci_spec.type }})"
+  ansible.builtin.assert:
+    that: >-
+      e2e_cached_integrations
+      | selectattr('name', 'equalto', e2e_ci_spec.name)
+      | selectattr('integration_type', 'equalto', e2e_ci_spec.type)
+      | list | length == 1
+    fail_msg: >-
+      Integration '{{ e2e_ci_spec.name }}' of type '{{ e2e_ci_spec.type }}' not found.
+      Check the integration name and type in the AO UI.
+    quiet: true
+
+- name: "Integration discovery | Record {{ e2e_ci_spec.name }}"
+  ansible.builtin.set_fact:
+    e2e_ci_id: >-
+      {{ (e2e_cached_integrations
+          | selectattr('name', 'equalto', e2e_ci_spec.name)
+          | selectattr('integration_type', 'equalto', e2e_ci_spec.type)
+          | first).id }}
+    e2e_checks: "{{ e2e_checks + [{'check': 'Integration discovery: ' ~ e2e_ci_spec.name ~ ' (' ~ e2e_ci_spec.type ~ ')', 'status': 'passed'}] }}"
+
+# ── MCP server: verify tools are reachable ────────────────────────────────────
+- name: "Credential availability | List tools for {{ e2e_ci_spec.name }}"
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/integrations/{{ e2e_ci_id }}/tools?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+  when: e2e_ci_spec.type == 'mcp_server'
+
+- name: "Credential availability | Require ≥1 tool for {{ e2e_ci_spec.name }}"
+  ansible.builtin.assert:
+    that: e2e_collection | length > 0
+    fail_msg: "MCP integration '{{ e2e_ci_spec.name }}' returned no tools — credentials may be invalid or the server is unreachable."
+    quiet: true
+  when: e2e_ci_spec.type == 'mcp_server'
+
+- name: "Credential availability | Require specific tools for {{ e2e_ci_spec.name }}"
+  ansible.builtin.assert:
+    that: >-
+      e2e_ci_spec.required_tools | difference(e2e_collection | map(attribute='name') | list) | length == 0
+    fail_msg: >-
+      Missing tools on '{{ e2e_ci_spec.name }}':
+      {{ e2e_ci_spec.required_tools | difference(e2e_collection | map(attribute='name') | list) | join(', ') }}
+    quiet: true
+  when: e2e_ci_spec.type == 'mcp_server' and e2e_ci_spec.required_tools | default([]) | length > 0
+
+- name: "Credential availability | Record MCP tool check for {{ e2e_ci_spec.name }}"
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks + [{'check': 'Credential availability: ' ~ e2e_ci_spec.name ~ ' (' ~ (e2e_collection | length | string) ~ ' tools)', 'status': 'passed'}] }}"
+  when: e2e_ci_spec.type == 'mcp_server'
+
+# ── LLM provider: verify models are reachable ─────────────────────────────────
+- name: "Credential availability | List models for {{ e2e_ci_spec.name }}"
+  ansible.builtin.include_tasks: collection.yml
+  vars:
+    e2e_collection_url: "{{ e2e_ao_api }}/integrations/{{ e2e_ci_id }}/models?limit=100"
+    e2e_collection_headers: "{{ e2e_ao_headers }}"
+  when: e2e_ci_spec.type == 'llm_provider' and e2e_ci_spec.check_models | default(false) | bool
+
+- name: "Credential availability | Require ≥1 model for {{ e2e_ci_spec.name }}"
+  ansible.builtin.assert:
+    that: e2e_collection | length > 0
+    fail_msg: "LLM integration '{{ e2e_ci_spec.name }}' returned no models — check virtual key validity."
+    quiet: true
+  when: e2e_ci_spec.type == 'llm_provider' and e2e_ci_spec.check_models | default(false) | bool
+
+- name: "Credential availability | Record LLM model check for {{ e2e_ci_spec.name }}"
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks + [{'check': 'Credential availability: ' ~ e2e_ci_spec.name ~ ' (' ~ (e2e_collection | length | string) ~ ' models)', 'status': 'passed'}] }}"
+  when: e2e_ci_spec.type == 'llm_provider' and e2e_ci_spec.check_models | default(false) | bool
+
+# ── AAP: integration existence confirms credentials are stored ─────────────────
+- name: "Credential availability | Record AAP integration for {{ e2e_ci_spec.name }}"
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks + [{'check': 'Credential availability: ' ~ e2e_ci_spec.name ~ ' (configured)', 'status': 'passed'}] }}"
+  when: e2e_ci_spec.type == 'aap'
