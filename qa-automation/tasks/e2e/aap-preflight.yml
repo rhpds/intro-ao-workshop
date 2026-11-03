@@ -1,0 +1,113 @@
+---
+# Verify AAP-side prerequisites before any workflow launches.
+# Checks: projects (status), credentials (existence), inventory (hosts).
+# Uses e2e_aap_api and basic auth (aap_username / aap_password).
+
+# ── Projects ──────────────────────────────────────────────────────────────────
+- name: AAP preflight | Fetch projects
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/projects/?page_size=100"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_aap_projects
+  changed_when: false
+
+- name: AAP preflight | Require Lab Setup project is successful
+  ansible.builtin.assert:
+    that: >-
+      e2e_aap_projects.json.results
+      | selectattr('name', 'equalto', 'Lab Setup')
+      | selectattr('status', 'equalto', 'successful')
+      | list | length == 1
+    fail_msg: >-
+      AAP project 'Lab Setup' is missing or not in 'successful' status.
+      Run a project sync before launching E2E workflows.
+    quiet: true
+
+- name: AAP preflight | Record project check
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP project Lab Setup (successful)', 'status': 'passed'}] }}"
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+- name: AAP preflight | Fetch credentials
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/credentials/?page_size=100"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_aap_credentials
+  changed_when: false
+
+- name: AAP preflight | Require each expected credential
+  ansible.builtin.assert:
+    that: >-
+      e2e_aap_credentials.json.results
+      | selectattr('name', 'equalto', item) | list | length == 1
+    fail_msg: "AAP credential '{{ item }}' not found."
+    quiet: true
+  loop:
+    - Workshop Credential
+    - OpenShift
+    - OpenFlake
+    - Automation Orchestrator (Solutions)
+    - Automation Orchestrator (Student)
+    - Gitea
+    - Mattermost
+    - Red Hat Lightspeed
+
+- name: AAP preflight | Record credential check
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP credentials present (' ~ (e2e_aap_credentials.json.results | map(attribute='name') | list | length | string) ~ ' total)', 'status': 'passed'}] }}"
+
+# ── Inventory ─────────────────────────────────────────────────────────────────
+- name: AAP preflight | Fetch inventories
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/inventories/?name=Workshop%20Inventory"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_aap_inventories
+  changed_when: false
+
+- name: AAP preflight | Require Workshop Inventory exists
+  ansible.builtin.assert:
+    that: e2e_aap_inventories.json.results | length == 1
+    fail_msg: "'Workshop Inventory' not found in AAP."
+    quiet: true
+
+- name: AAP preflight | Fetch Workshop Inventory hosts
+  ansible.builtin.uri:
+    url: "{{ e2e_aap_api }}/inventories/{{ e2e_aap_inventories.json.results[0].id }}/hosts/?page_size=20"
+    url_username: "{{ aap_username }}"
+    url_password: "{{ aap_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ healthcheck_validate_certs }}"
+    timeout: "{{ healthcheck_timeout }}"
+    follow_redirects: none
+  register: e2e_aap_inv_hosts
+  changed_when: false
+
+- name: AAP preflight | Require node1, node2, node3 in Workshop Inventory
+  ansible.builtin.assert:
+    that: >-
+      e2e_aap_inv_hosts.json.results
+      | map(attribute='name') | list
+      | intersect(['node1', 'node2', 'node3']) | length == 3
+    fail_msg: >-
+      Workshop Inventory is missing one or more of node1/node2/node3.
+      Found: {{ e2e_aap_inv_hosts.json.results | map(attribute='name') | list | join(', ') }}
+    quiet: true
+
+- name: AAP preflight | Record inventory check
+  ansible.builtin.set_fact:
+    e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP Workshop Inventory has node1/node2/node3', 'status': 'passed'}] }}"

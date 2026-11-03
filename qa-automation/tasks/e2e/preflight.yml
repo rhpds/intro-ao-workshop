@@ -53,6 +53,9 @@
   ansible.builtin.set_fact:
     e2e_checks: "{{ e2e_checks | default([]) + [{'check': 'AAP authentication', 'status': 'passed'}] }}"
 
+- name: Preflight | Verify AAP projects, credentials, and inventory
+  ansible.builtin.include_tasks: aap-preflight.yml
+
 - name: Preflight | Find the requested AO project
   ansible.builtin.include_tasks: collection.yml
   vars:
