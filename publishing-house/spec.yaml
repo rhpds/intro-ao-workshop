@@ -32,7 +32,7 @@ spec:
   - id: module-01
     title: "Overview and Interface Tour"
     duration_min: 20
-    status: not_started
+    status: in_progress
   - id: module-02
     title: "Set Up Integrations and Credentials"
     duration_min: 20
