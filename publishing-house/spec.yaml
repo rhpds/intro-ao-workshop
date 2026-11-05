@@ -36,7 +36,7 @@ spec:
   - id: module-02
     title: "Set Up Integrations and Credentials"
     duration_min: 20
-    status: in_progress
+    status: complete
   - id: module-03
     title: "Build the Workflow"
     duration_min: 40
