@@ -1,81 +1,76 @@
-# Module 04 — Run and Monitor
+# Module 04 — Disk Utilization Remediation
 
 ### Brief Overview
 
-With the workflow built and saved, this module puts it into motion. Participants simulate an incoming incident by sending a test payload to the workflow's webhook trigger URL, then follow the execution through the AO monitoring view in real time — watching the AI triage agent assess the incident, pausing at the approval gate to make a human decision, and observing the AAP job template run to completion. The module closes with a review of the final execution results and incident resolution status. This module reinforces what AO's end-to-end execution experience looks like for an operator on call.
+Participants complete a partially built Disk Utilization Remediation workflow that uses a webhook trigger, an AAP job template to check disk usage, and a switch step to route execution down one of four paths based on the utilization percentage. Three of the four switch routes are already configured; participants add the two missing steps in the critical (>95%) route — a remediation job template step and a Mattermost notification step — by using the adjacent 80–95% route as a reference. The workflow is published before any alert is fired so the webhook trigger is active, and participants run all routes to confirm correct branching and Mattermost notifications.
 
 ### Audience and Time
 
 - **Target personas:** System Administrators, Automation Administrators, DevOps engineers
 - **Experience level:** Beginner
-- **Prerequisites for this module:** Completion of Module 3; the incident triage workflow must be saved and in a valid state; the webhook trigger URL from Module 3 must be available
-- **Estimated duration:** 20 minutes
+- **Prerequisites for this module:** Module 03 complete; Disk Utilization Remediation workflow present in the default project
+- **Estimated duration:** 15 minutes
 
 ### Learning Objectives
 
-- Trigger the incident triage workflow by sending a test event payload to the webhook trigger URL
-- Monitor real-time workflow execution progress in the AO monitoring view, identifying node-by-node status updates
-- Respond to the approval gate as a human approver within the running workflow execution
-- Inspect the final execution results, including the AI agent's triage output, the approval decision, and the AAP job template run outcome
+- Explain how a webhook trigger integrates with an external system (AAP) to start a workflow
+- Read an existing switch step configuration and understand how route conditions are evaluated
+- Add an AAP job template step to an incomplete route, referencing output from an upstream step
+- Add a Mattermost notification step to complete the remediation route
+- Publish a workflow before firing a webhook and explain why the order matters
+- Run a workflow through multiple switch routes and verify the correct path is taken for each utilization threshold
 
 ### Lab Structure
 
 | Section | Title | Duration |
 |---------|-------|----------|
-| 1 | Trigger the workflow | 4 min |
-| 2 | Monitor real-time execution | 6 min |
-| 3 | Handle the approval | 5 min |
-| 4 | Inspect final results | 5 min |
+| 1 | Publish the workflow | 2 min |
+| 2 | Fire a healthy alert and inspect output | 3 min |
+| 3 | Add the critical-route remediation step | 5 min |
+| 4 | Add the critical-route notification step | 3 min |
+| 5 | Run the workflow through all routes | 2 min |
 
 ### Detailed Steps
 
-**Section 1 — Trigger the workflow**
+**Section 1 — Publish the workflow**
 
-1. Retrieve the webhook trigger URL generated in Module 3 (visible in the workflow's trigger node configuration panel).
-2. Open a terminal or use the browser-based tool provided in the lab environment.
-3. Send a test incident event payload to the webhook URL using `curl` or the equivalent method specified in the lab instructions. The payload simulates an incoming alert (for example, a disk full or service down event on the RHEL managed node).
-4. Observe that the AO interface shows the workflow transitioning to a running state.
+1. Log in to AO, open Workflows, confirm Project selector reads default, and click Disk Utilization Remediation.
+2. Click Publish workflow. Confirm the Draft badge becomes Published.
 
-**Section 2 — Monitor real-time execution**
+**Section 2 — Fire a healthy alert and inspect output**
 
-5. Navigate to the **Monitoring** or **Activity** view in the AO interface and locate the in-progress execution of the incident triage workflow.
-6. Click the execution entry to open the detailed execution view.
-7. Observe the status of each node as execution progresses: the webhook trigger node should show as completed, and the AI triage agent node should show as running or completed.
-8. Wait for the AI triage agent node to complete and review the agent's output (triage assessment and recommended action) displayed in the node's result panel.
-9. Observe the execution reaching the approval node and pausing — the workflow should show a "waiting for approval" or equivalent status.
+3. Switch to the AAP tab. Open Automation Execution → Templates and find Disk Utilization Simulate Alert.
+4. Launch the template with the scenario variable set to simulate a healthy (<80%) disk reading. This fires a webhook to the AO workflow and runs the healthy route.
+5. Return to AO, open the workflow run, and inspect the disk check step's output. Note the utilization fields — these will be available to reference when configuring the critical route steps.
 
-**Section 3 — Handle the approval**
+**Section 3 — Add the critical-route remediation step**
 
-10. In the execution view, locate the approval node that is in a waiting state.
-11. Review the information presented at the approval step — this should include the AI agent's triage output and recommended remediation action.
-12. Click **Approve** to authorize the workflow to proceed with remediation.
-13. Observe the execution resuming past the approval node, the switch node routing to the approved branch, and the AAP job template node transitioning to a running state.
-14. Wait for the AAP job template node to complete and confirm it shows a success status.
+6. Return to the canvas. Locate the switch step and find the >95% (critical) route — the one with two steps missing.
+7. Examine the 80–95% route directly above it; note its two-step pattern: a remediation AAP job template step followed by a Mattermost notification step.
+8. On the critical route, click the + to add a step. Choose AAP Execution → Launch AAP job template.
+9. Configure the step following the same pattern as the 80–95% remediation step: set Integration to AAP, connect the AAP credential, choose the appropriate Linux job template for critical disk cleanup, and reference the upstream disk check output fields in Extra variables.
 
-**Section 4 — Inspect final results**
+**Section 4 — Add the critical-route notification step**
 
-15. Once the workflow execution reaches the resolve node and completes, observe the final execution status (for example, "Completed" or "Resolved").
-16. Click through each node in the completed execution view to inspect individual node outputs:
-    - Webhook trigger: the raw event payload received
-    - AI triage agent: the full agent reasoning and triage result
-    - Approval node: the timestamp and identity of the approver
-    - Switch node: the branch taken
-    - AAP job template node: the link to the job run in AAP and its result
-    - Resolve node: the final resolution status
-17. Navigate to the AAP job run (via the link in the AAP job template node result or directly in the AAP UI) and confirm the job completed successfully against the RHEL managed node.
-18. Return to the AO workflow list and observe that the workflow shows a completed execution count.
+10. Click the + after the remediation step on the critical route. Add a Mattermost notification step.
+11. Configure the notification following the pattern of the 80–95% notification step: set the Mattermost channel and compose a message referencing the disk check output and the remediation result.
+12. Click Save workflow.
+
+**Section 5 — Run the workflow through all routes**
+
+13. In AAP, run Disk Utilization Simulate Alert with a warning (80–95%) scenario and confirm the workflow takes the warning route and posts a notification to Mattermost.
+14. Run the template again with a critical (>95%) scenario. Confirm the workflow takes the critical route, executes the remediation, and posts a notification.
+15. In Mattermost, verify that notifications from both runs have arrived in the expected channel.
 
 ### Key Takeaways
 
-- A single webhook POST is all that is needed to initiate a fully automated end-to-end AO workflow — no manual steps are required to start the chain
-- The AO monitoring view provides node-level granularity into execution progress, making it straightforward to identify where a workflow is, where it paused, and what each node produced
-- The approval gate integrates seamlessly into the execution flow — approvers act directly in the AO interface without switching to a separate ticketing or notification system
-- The AAP job template node links AO orchestration back to existing Ansible automation assets, so teams can adopt AO incrementally without rewriting existing playbooks
-- Observing the full execution end to end — from event receipt through AI triage, human approval, automated remediation, and resolution — demonstrates the unified value AO delivers over running these steps separately
+- A webhook trigger only starts answering requests once the workflow is published; publishing before firing any alert is a required step
+- A switch step evaluates a value from an upstream step and directs execution down the first route whose condition matches; unmatched cases fall to the fallback route
+- Existing, running steps produce real output that becomes available to reference in new steps; firing a healthy alert first makes the disk check fields available when configuring the critical route
+- The remediate-then-notify pattern used in every route separates the operational action (fix the problem) from the communication action (tell someone it happened)
 
 ### Infrastructure Notes
 
-- The test event payload format (JSON structure and field names) is provided in the lab instructions; participants do not need to author the payload from scratch
-- The curl command or browser-based HTTP tool for sending the webhook is specified in the lab instructions; no additional tooling installation is required
-- The AAP job run triggered by the job template node targets the pre-registered RHEL managed node; participants can observe but do not need to access the RHEL node directly
-- Assessment is trust-based — successful observation of the completed execution and resolved incident status in the AO monitoring view is the completion criterion for this module and the lab overall
+- The Disk Utilization Remediation workflow is pre-deployed in the default project with three of four routes configured; participants only add steps to the critical route
+- Disk Utilization Simulate Alert is a pre-built AAP job template; participants launch it but do not modify it
+- Mattermost is pre-deployed and accessible from the Showroom tab; the channel and credentials are provided in the lab environment details
