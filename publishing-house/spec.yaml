@@ -40,11 +40,11 @@ spec:
   - id: module-03
     title: "Build the Workflow"
     duration_min: 40
-    status: not_started
+    status: complete
   - id: module-04
     title: "Run and Monitor"
     duration_min: 20
-    status: not_started
+    status: complete
   environment:
     platform: "ocp"            # ocp | rhel-vms — determines which sizing fields apply
     topology: "per-student"    # shared-cluster | per-student | cnv-pool
