@@ -68,6 +68,18 @@
   become: true
   changed_when: true
 
+# Keep automatic endpoint and CA discovery. Only switch the upload protocol;
+# legacy uploads can populate inventory/tags without making Advisor ready.
+- name: "{{ _node }} — Use the Insights platform upload protocol"
+  ansible.builtin.lineinfile:
+    path: /etc/insights-client/insights-client.conf
+    regexp: '^\s*legacy_upload\s*='
+    insertafter: '^\[insights-client\]'
+    line: legacy_upload=False
+    backup: true
+  delegate_to: "{{ _node }}"
+  become: true
+
 - name: "{{ _node }} — Connect to Red Hat account via RHC"
   ansible.builtin.command:
     argv:
@@ -80,16 +92,11 @@
   delegate_to: "{{ _node }}"
   become: true
   register: _rhc_result
-  # rhc connect registers RHSM plus Insights and exits non-zero on bad
-  # credentials, an ambiguous organization, or the account host limit.
-  # Swallowing that leaves the node with Satellite repos removed and no
-  # registration at all, so fail here with something actionable instead.
-  failed_when: _rhc_result.rc != 0
   no_log: true
 
 - name: "{{ _node }} — Display RHC connection result"
   ansible.builtin.debug:
-    msg: "rhc connect completed on {{ _node }} (rc={{ _rhc_result.rc }})."
+    msg: "RHC connection completed on {{ _node }}."
 
 - name: "{{ _node }} — Restore original rhsm.conf (keep satellite repo config)"
   ansible.builtin.copy:
@@ -110,12 +117,13 @@
   delegate_to: "{{ _node }}"
   become: true
 
-- name: "{{ _node }} — Verify Insights registration before upload"
+- name: "{{ _node }} — Upload and verify Insights registration"
   block:
     - name: "{{ _node }} — Reset inventory check result for this node"
       ansible.builtin.set_fact:
         _insights_inventory: {}
-        _insights_legacy_registration: {}
+        _insights_advisor: {}
+        _insights_upload: {}
 
     # Legacy --status can delete machine-id after a transient API 404. Once
     # absent, later --status calls return locally without querying inventory.
@@ -150,6 +158,17 @@
         that:
           - (_insights_machine_id.content | b64decode | trim) is match('^[0-9a-fA-F-]{36}$')
         quiet: true
+      no_log: true
+
+    # Tags are report metadata, not inventory workspace membership. Upload
+    # explicitly after tags.yaml is written; do not use the legacy --group API.
+    - name: "{{ _node }} — Upload the report and lab tags to Insights"
+      ansible.builtin.command:
+        cmd: timeout --kill-after=10s 180s insights-client
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _insights_upload
+      changed_when: true
       no_log: true
 
     - name: "{{ _node }} — Wait for Insights registration"
@@ -187,13 +206,18 @@
       delay: "{{ ocp4_workload_cnv_insights_host_registration_delay }}"
       no_log: true
 
-    # The subsequent legacy --group upload checks this endpoint as well.
-    # Query it directly so an early 404 cannot delete the local machine ID.
-    - name: "{{ _node }} — Wait for legacy registration visibility before upload"
+    - name: "{{ _node }} — Resolve the Insights inventory UUID"
+      ansible.builtin.set_fact:
+        _insights_inventory_id: >-
+          {{ (_insights_inventory.json.results
+          | selectattr('insights_id', 'equalto', _insights_machine_id.content | b64decode | trim)
+          | first).id }}
+
+    - name: "{{ _node }} — Wait for Advisor to process the report"
       ansible.builtin.uri:
         url: >-
-          https://cert-api.access.redhat.com/r/insights/v1/systems/{{
-          _insights_machine_id.content | b64decode | trim | urlencode }}
+          https://cert-api.access.redhat.com/r/insights/platform/insights/v1/system/{{
+          _insights_inventory_id }}/
         method: GET
         ca_path: /etc/insights-client/cert-api.access.redhat.com.pem
         client_cert: /etc/pki/consumer/cert.pem
@@ -204,117 +228,34 @@
         timeout: 30
       delegate_to: "{{ _node }}"
       become: true
-      register: _insights_legacy_registration
+      register: _insights_advisor
       changed_when: false
       until: >-
-        (_insights_legacy_registration.status | default(-1) | int) not in
+        (_insights_advisor.status | default(-1) | int) not in
         [-1, 200, 404, 408, 429, 500, 502, 503, 504] or
-        ((_insights_legacy_registration.status | default(-1) | int) == 200 and
-        (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is none)
+        ((_insights_advisor.status | default(-1) | int) == 200 and
+        (_insights_advisor.json | default({})).get('system_uuid', '') == _insights_inventory_id)
       failed_when: >-
-        (_insights_legacy_registration.status | default(-1) | int) != 200 or
-        (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is not none
+        (_insights_advisor.status | default(-1) | int) != 200 or
+        (_insights_advisor.json | default({})).get('system_uuid', '') != _insights_inventory_id
       retries: "{{ ocp4_workload_cnv_insights_host_registration_retries }}"
       delay: "{{ ocp4_workload_cnv_insights_host_registration_delay }}"
       no_log: true
-      # Fix 2: soft-fail — inventory API (above) is the authoritative check; legacy
-      # endpoint propagation can lag several minutes on the RH backend side.
-      ignore_errors: true
-
-    - name: "{{ _node }} — Warn if legacy endpoint not yet visible"
-      ansible.builtin.debug:
-        msg: >-
-          Legacy Insights endpoint returned HTTP
-          {{ _insights_legacy_registration.status | default('no response') }} for {{ _node }}.
-          Inventory API confirmed registration (HTTP 200). Proceeding with upload —
-          the group tag step below creates the legacy record if it is missing.
-      when: >-
-        (_insights_legacy_registration.status | default(-1) | int) != 200 or
-        (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is not none
 
   rescue:
-    # Rescue fires only when the authoritative inventory-API wait (above) fails.
-    # Legacy endpoint soft-failures are absorbed by ignore_errors and never reach here.
-    - name: "{{ _node }} — Report Insights inventory registration failure"
+    - name: "{{ _node }} — Report Insights upload or processing failure"
       ansible.builtin.fail:
         msg: >-
-          Insights inventory registration did not become ready on {{ _node }}.
+          Insights upload or report processing did not become ready on {{ _node }}.
           Failed task: {{ ansible_failed_task.name }}.
+          Upload return code: {{ _insights_upload.rc | default('not run') }}.
           Last inventory HTTP status: {{ _insights_inventory.status | default('unavailable') }}.
-          Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
-
-- name: "{{ _node }} — Apply group tag and upload to Insights"
-  # insights-client --group is a legacy-API call: it refuses to run unless
-  # https://cert-api.access.redhat.com/r/insights/v1/systems/<machine_id>
-  # says the host is registered, and it exits 1 with "This machine has not
-  # yet been registered" when that record is absent. rhc connect registers
-  # through the platform path, so the record can be missing even though the
-  # inventory API already lists the host. That is a tagging gap, not a lab
-  # failure: /etc/insights-client/tags.yaml is already written, and the
-  # workflows still run. So recover where we can and never abort here.
-  block:
-    - name: "{{ _node }} — Apply existing Insights group tag"
-      ansible.builtin.command:
-        cmd: "timeout --kill-after=10s 180s insights-client --group={{ guid }}"
-      delegate_to: "{{ _node }}"
-      become: true
-      register: _insights_group
-      failed_when: false
-      changed_when: _insights_group.rc == 0
-      no_log: true
-
-    # --register short-circuits when the host is already registered, and only
-    # creates the legacy system record when it is missing. Running it here
-    # covers exactly the "in inventory, absent from legacy" case.
-    - name: "{{ _node }} — Create legacy Insights record and apply group"
-      ansible.builtin.command:
-        cmd: "timeout --kill-after=10s 180s insights-client --register --group={{ guid }}"
-      delegate_to: "{{ _node }}"
-      become: true
-      when: (_insights_group.rc | default(1)) != 0
-      register: _insights_register_group
-      failed_when: false
-      changed_when: (_insights_register_group.rc | default(1)) == 0
-      no_log: true
-
-    - name: "{{ _node }} — Retry Insights group tag after legacy registration"
-      ansible.builtin.command:
-        cmd: "timeout --kill-after=10s 180s insights-client --group={{ guid }}"
-      delegate_to: "{{ _node }}"
-      become: true
-      when:
-        - (_insights_group.rc | default(1)) != 0
-        - (_insights_register_group.rc | default(1)) == 0
-      register: _insights_group_retry
-      failed_when: false
-      changed_when: _insights_group_retry.rc == 0
-      no_log: true
-
-    - name: "{{ _node }} — Warn when the group tag could not be applied"
-      ansible.builtin.debug:
-        msg:
-          - "Insights group tag {{ guid }} could not be applied on {{ _node }}."
-          - "insights-client --group rc={{ _insights_group.rc | default('skipped') }}"
-          - "insights-client --register --group rc={{ _insights_register_group.rc | default('skipped') }}"
-          - "group retry rc={{ _insights_group_retry.rc | default('skipped') }}"
-          - >-
-            The host stays registered and /etc/insights-client/tags.yaml is written,
-            so the lab runs; only the console.redhat.com group filter is unreliable.
-            Check /var/log/insights-client/insights-client.log on {{ _node }}.
-      when: (_insights_group.rc | default(1)) != 0 and (_insights_group_retry.rc | default(1)) != 0
-  rescue:
-    - name: "{{ _node }} — Report unexpected Insights group tag failure"
-      ansible.builtin.fail:
-        msg: >-
-          Unexpected failure while applying the Insights group tag on {{ _node }}.
-          Failed task: {{ ansible_failed_task.name }}.
+          Last Advisor HTTP status: {{ _insights_advisor.status | default('unavailable') }}.
           Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
 
 - name: "{{ _node }} — Display Insights registration result"
   ansible.builtin.debug:
     msg:
-      - "Group/Tag: {{ guid }}"
-      - >-
-        Group applied:
-        {{ (_insights_group.rc | default(1)) == 0 or (_insights_group_retry.rc | default(1)) == 0 }}
+      - "Platform report uploaded and Advisor processed host {{ _insights_inventory_id }}."
+      - "Lab tag in report: insights-client/group={{ guid }}"
       - "Account: {{ ocp4_workload_cnv_insights_host_rh_username }}"
