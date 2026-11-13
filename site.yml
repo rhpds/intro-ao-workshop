@@ -14,6 +14,11 @@ ui:
   bundle:
     url: https://github.com/rhpds/rhdp_showroom_theme/releases/download/v2.0.3/ui-bundle.zip
     snapshot: true
+  # rh1-2027/account.yaml sets the navbar logo to "rh1", but the theme ships
+  # no img/logo-rh1.svg, so the header would request a missing asset and show
+  # a broken image with the "Red Hat Demo Platform" alt text. Dropping a copy
+  # of the theme's own logo in here satisfies that request for this lab only.
+  supplemental_files: ./supplemental-ui
 
 antora:
   extensions:
