@@ -80,11 +80,16 @@
   delegate_to: "{{ _node }}"
   become: true
   register: _rhc_result
+  # rhc connect registers RHSM plus Insights and exits non-zero on bad
+  # credentials, an ambiguous organization, or the account host limit.
+  # Swallowing that leaves the node with Satellite repos removed and no
+  # registration at all, so fail here with something actionable instead.
+  failed_when: _rhc_result.rc != 0
   no_log: true
 
 - name: "{{ _node }} — Display RHC connection result"
   ansible.builtin.debug:
-    msg: "RHC connection completed on {{ _node }}."
+    msg: "rhc connect completed on {{ _node }} (rc={{ _rhc_result.rc }})."
 
 - name: "{{ _node }} — Restore original rhsm.conf (keep satellite repo config)"
   ansible.builtin.copy:
@@ -222,7 +227,7 @@
           Legacy Insights endpoint returned HTTP
           {{ _insights_legacy_registration.status | default('no response') }} for {{ _node }}.
           Inventory API confirmed registration (HTTP 200). Proceeding with upload —
-          insights-client --group will self-heal any remaining propagation lag.
+          the group tag step below creates the legacy record if it is missing.
       when: >-
         (_insights_legacy_registration.status | default(-1) | int) != 200 or
         (_insights_legacy_registration.json | default({})).get('unregistered_at', 'missing') is not none
@@ -239,15 +244,77 @@
           Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
 
 - name: "{{ _node }} — Apply group tag and upload to Insights"
-  ansible.builtin.command:
-    cmd: "insights-client --group={{ guid }}"
-  delegate_to: "{{ _node }}"
-  become: true
-  register: _insights_result
+  # insights-client --group is a legacy-API call: it refuses to run unless
+  # https://cert-api.access.redhat.com/r/insights/v1/systems/<machine_id>
+  # says the host is registered, and it exits 1 with "This machine has not
+  # yet been registered" when that record is absent. rhc connect registers
+  # through the platform path, so the record can be missing even though the
+  # inventory API already lists the host. That is a tagging gap, not a lab
+  # failure: /etc/insights-client/tags.yaml is already written, and the
+  # workflows still run. So recover where we can and never abort here.
+  block:
+    - name: "{{ _node }} — Apply existing Insights group tag"
+      ansible.builtin.command:
+        cmd: "timeout --kill-after=10s 180s insights-client --group={{ guid }}"
+      delegate_to: "{{ _node }}"
+      become: true
+      register: _insights_group
+      failed_when: false
+      changed_when: _insights_group.rc == 0
+      no_log: true
+
+    # --register short-circuits when the host is already registered, and only
+    # creates the legacy system record when it is missing. Running it here
+    # covers exactly the "in inventory, absent from legacy" case.
+    - name: "{{ _node }} — Create legacy Insights record and apply group"
+      ansible.builtin.command:
+        cmd: "timeout --kill-after=10s 180s insights-client --register --group={{ guid }}"
+      delegate_to: "{{ _node }}"
+      become: true
+      when: (_insights_group.rc | default(1)) != 0
+      register: _insights_register_group
+      failed_when: false
+      changed_when: (_insights_register_group.rc | default(1)) == 0
+      no_log: true
+
+    - name: "{{ _node }} — Retry Insights group tag after legacy registration"
+      ansible.builtin.command:
+        cmd: "timeout --kill-after=10s 180s insights-client --group={{ guid }}"
+      delegate_to: "{{ _node }}"
+      become: true
+      when:
+        - (_insights_group.rc | default(1)) != 0
+        - (_insights_register_group.rc | default(1)) == 0
+      register: _insights_group_retry
+      failed_when: false
+      changed_when: _insights_group_retry.rc == 0
+      no_log: true
+
+    - name: "{{ _node }} — Warn when the group tag could not be applied"
+      ansible.builtin.debug:
+        msg:
+          - "Insights group tag {{ guid }} could not be applied on {{ _node }}."
+          - "insights-client --group rc={{ _insights_group.rc | default('skipped') }}"
+          - "insights-client --register --group rc={{ _insights_register_group.rc | default('skipped') }}"
+          - "group retry rc={{ _insights_group_retry.rc | default('skipped') }}"
+          - >-
+            The host stays registered and /etc/insights-client/tags.yaml is written,
+            so the lab runs; only the console.redhat.com group filter is unreliable.
+            Check /var/log/insights-client/insights-client.log on {{ _node }}.
+      when: (_insights_group.rc | default(1)) != 0 and (_insights_group_retry.rc | default(1)) != 0
+  rescue:
+    - name: "{{ _node }} — Report unexpected Insights group tag failure"
+      ansible.builtin.fail:
+        msg: >-
+          Unexpected failure while applying the Insights group tag on {{ _node }}.
+          Failed task: {{ ansible_failed_task.name }}.
+          Check /var/log/insights-client/insights-client.log on {{ _node }} for details.
 
 - name: "{{ _node }} — Display Insights registration result"
   ansible.builtin.debug:
     msg:
-      - "{{ _insights_result.stdout_lines }}"
       - "Group/Tag: {{ guid }}"
+      - >-
+        Group applied:
+        {{ (_insights_group.rc | default(1)) == 0 or (_insights_group_retry.rc | default(1)) == 0 }}
       - "Account: {{ ocp4_workload_cnv_insights_host_rh_username }}"
